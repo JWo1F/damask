@@ -1,6 +1,32 @@
-[package]
-name = "rsc"
+[workspace]
+resolver = "3"
+members = [
+    "crates/rsc",
+    "crates/rsc-macros",
+    "crates/rsc-template",
+    "tools/rsc-lsp",
+    "examples/showcase",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/jwo1f/rsc"
+authors = ["RSC contributors"]
+rust-version = "1.85"
 
-[dependencies]
+[workspace.dependencies]
+rsc = { path = "crates/rsc", version = "0.1.0" }
+rsc-macros = { path = "crates/rsc-macros", version = "0.1.0" }
+rsc-template = { path = "crates/rsc-template", version = "0.1.0" }
+
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full", "extra-traits", "parsing"] }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

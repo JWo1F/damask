@@ -1,0 +1,24 @@
+[package]
+name = "rsc-lsp"
+description = "Language server for RSC (Rust Smart Components) templates."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "rsc-lsp"
+path = "src/main.rs"
+
+[dependencies]
+rsc-template.workspace = true
+syn.workspace = true
+proc-macro2.workspace = true
+tower-lsp = "0.20"
+tokio = { version = "1", features = ["rt-multi-thread", "io-std", "macros"] }
+serde_json = "1"
+
+[lints]
+workspace = true
