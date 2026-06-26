@@ -1,18 +1,23 @@
-use crate::input::ComponentInput;
 use crate::resolve::resolve;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use rsc_template::{Node, ParseOptions, TagKind, Template};
-use syn::LitStr;
+use std::path::PathBuf;
+use syn::{Attribute, DeriveInput, LitStr};
 
-/// Expand a parsed `component!` into the struct, its inherent impl, and its
-/// `Component` impl (whose `render_into` is generated from the template).
-pub fn expand(input: ComponentInput) -> TokenStream {
-    let name = input.name.clone();
+/// Expand `#[derive(Component)]` into an `impl rsc::Component` whose
+/// `render_into` is generated from the struct's paired template, plus a private
+/// `include_bytes!` binding so editing the template triggers a rebuild.
+pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
+    let name = input.ident.clone();
+
+    let explicit = match extract_template_path(&input.attrs) {
+        Ok(v) => v,
+        Err(e) => return e.to_compile_error(),
+    };
+
     let name_snake = to_snake_case(&name.to_string());
-    let explicit = input.template.as_ref().map(|l| l.value());
-
-    let resolved = match resolve(&name_snake, explicit.as_deref()) {
+    let resolved = match resolve(source_file.as_deref(), &name_snake, explicit.as_deref()) {
         Ok(r) => r,
         Err(msg) => return compile_error(name.span(), &msg),
     };
@@ -53,31 +58,12 @@ pub fn expand(input: ComponentInput) -> TokenStream {
         }
     };
 
-    let vis = &input.vis;
-    let fields = &input.fields;
-    let impl_body = &input.impl_body;
-
+    let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let renderer = syn::Ident::new(resolved.host.renderer_type(), Span::call_site());
     let path_lit = LitStr::new(&resolved.path.to_string_lossy(), Span::call_site());
 
-    let inherent_impl = if impl_body.is_empty() {
-        quote! {}
-    } else {
-        quote! {
-            impl #name {
-                #impl_body
-            }
-        }
-    };
-
     quote! {
-        #vis struct #name {
-            #(#fields),*
-        }
-
-        #inherent_impl
-
-        impl ::rsc::Component for #name {
+        impl #impl_generics ::rsc::Component for #name #ty_generics #where_clause {
             fn render_into(&self, __rsc: &mut dyn ::rsc::Renderer) #body
 
             fn default_renderer(&self) -> ::std::boxed::Box<dyn ::rsc::Renderer> {
@@ -91,12 +77,42 @@ pub fn expand(input: ComponentInput) -> TokenStream {
     }
 }
 
+/// Read a `#[template(path = "…")]` helper attribute, if present.
+fn extract_template_path(attrs: &[Attribute]) -> syn::Result<Option<String>> {
+    let mut found = None;
+    for attr in attrs {
+        if !attr.path().is_ident("template") {
+            continue;
+        }
+        let mut path: Option<String> = None;
+        attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("path") {
+                let value: LitStr = meta.value()?.parse()?;
+                path = Some(value.value());
+                Ok(())
+            } else {
+                Err(meta.error("unknown `template` option; expected `path = \"…\"`"))
+            }
+        })?;
+        match path {
+            Some(p) => found = Some(p),
+            None => {
+                return Err(syn::Error::new_spanned(
+                    attr,
+                    "`#[template]` requires `path = \"…\"`",
+                ));
+            }
+        }
+    }
+    Ok(found)
+}
+
 /// Assemble the body of `render_into` as a string of Rust source.
-///
-/// Text and expression tags become `__rsc` calls; statement tags are spliced
-/// verbatim; the whole thing is one balanced block parsed once by the caller.
 fn build_render_body(template: &Template) -> Result<String, String> {
-    let mut body = String::from("{\n");
+    // Bring `Component` into scope (unnamed) so `<%- child.render() %>` and
+    // other trait-method calls in a template resolve without the author having
+    // to import the trait themselves.
+    let mut body = String::from("{\n#[allow(unused_imports)] use ::rsc::Component as _;\n");
     for node in &template.nodes {
         match node {
             Node::Text { text, .. } => {

@@ -6,12 +6,12 @@
 //! is plain Rust with no runtime template parsing.
 //!
 //! ```ignore
-//! use rsc::component;
+//! use rsc::Component;
 //!
 //! // greeting.rs  — paired with greeting.html.rsc containing: Hello <%= self.name %>!
-//! component! {
-//!     Greeting
-//!     schema { pub name: String; }
+//! #[derive(Component)]
+//! pub struct Greeting {
+//!     pub name: String,
 //! }
 //!
 //! let out = Greeting { name: "Ada".into() }.render();
@@ -37,8 +37,10 @@ pub mod renderers;
 
 pub use renderers::{CssRenderer, HtmlRenderer, JsRenderer, PlainRenderer};
 
-/// Re-export of the `component!` macro that generates a [`Component`].
-pub use rsc_macros::component;
+/// Derive macro that generates a [`Component`] impl from a struct's paired
+/// `.rsc` template. Shares its name with the trait (like `serde::Serialize`), so
+/// `use rsc::Component;` brings both into scope.
+pub use rsc_macros::Component;
 
 /// A sink that accumulates rendered output and owns the escaping policy.
 ///
@@ -95,8 +97,9 @@ pub trait Component {
 }
 
 /// Common imports for authoring and using components.
+///
+/// `Component` here is both the trait and its derive macro.
 pub mod prelude {
-    pub use crate::component;
     pub use crate::renderers::{CssRenderer, HtmlRenderer, JsRenderer, PlainRenderer, StringRenderer};
     pub use crate::{Component, Renderer};
 }

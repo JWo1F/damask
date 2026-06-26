@@ -1,13 +1,12 @@
-use rsc::component;
+use rsc::Component;
 
-component! {
-    pub Greeting
-    schema {
-        pub name: String;
-    }
-    impl {
-        pub fn shout(&self) -> String {
-            format!("{}!!!", self.name)
-        }
+#[derive(Component)]
+pub struct Greeting {
+    pub name: String,
+}
+
+impl Greeting {
+    pub fn shout(&self) -> String {
+        format!("{}!!!", self.name)
     }
 }

@@ -1,0 +1,1 @@
+<section><%+ self.button %></section>

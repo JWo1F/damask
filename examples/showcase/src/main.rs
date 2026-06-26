@@ -1,32 +1,30 @@
-mod greeting;
-
-use greeting::Greeting;
 use rsc::Component;
+use rsc_showcase::button::Button;
+use rsc_showcase::card::Card;
+use rsc_showcase::greeting::Greeting;
+use rsc_showcase::list::List;
+use rsc_showcase::theme::Theme;
 
 fn main() {
-    let g = Greeting {
+    let greeting = Greeting {
         name: "Ada".into(),
     };
-    println!("{}", g.render());
-    println!("{}", g.shout());
-}
+    println!("{}", greeting.render());
 
-#[cfg(test)]
-mod tests {
-    use super::greeting::Greeting;
-    use rsc::Component;
+    let card = Card {
+        button: Button {
+            label: "Click <me>".into(),
+        },
+    };
+    println!("{}", card.render());
 
-    #[test]
-    fn renders_and_escapes() {
-        let g = Greeting {
-            name: "<Ada>".into(),
-        };
-        assert_eq!(g.render(), "Hello &lt;Ada&gt;!");
-    }
+    let list = List {
+        items: vec!["one".into(), "two".into(), "three".into()],
+    };
+    println!("{}", list.render());
 
-    #[test]
-    fn inherent_methods_are_kept() {
-        let g = Greeting { name: "Ada".into() };
-        assert_eq!(g.shout(), "Ada!!!");
-    }
+    let theme = Theme {
+        accent: "#ff0066".into(),
+    };
+    println!("{}", theme.render());
 }

@@ -1,35 +1,41 @@
 //! Procedural macros for **RSC** (Rust Smart Components).
 //!
-//! This crate provides the [`component!`] macro. It is a private implementation
-//! detail of the `rsc` crate, which re-exports the macro; depend on `rsc`, not
-//! on this crate directly.
+//! Provides the `Component` derive. It is a private implementation detail of the
+//! `rsc` crate, which re-exports the derive; depend on `rsc`, not on this crate.
 
 use proc_macro::TokenStream;
-use syn::parse_macro_input;
+use syn::{DeriveInput, parse_macro_input};
 
 mod codegen;
-mod input;
 mod resolve;
 
-/// Define a component: a struct paired with a `.rsc` template.
+/// Derive [`rsc::Component`] for a struct, generating its `render_into` from the
+/// paired `.rsc` template.
 ///
-/// ```text
-/// component! {
-///     [visibility] Name
-///     [ template = "path"; ]     // optional; else the crate is scanned for `name.<lang>.rsc`
-///     [ schema { [pub] field: Type; … } ]
-///     [ impl { <inherent items> } ]
+/// ```ignore
+/// use rsc::Component;
+///
+/// // greeting.rs — paired with greeting.html.rsc
+/// #[derive(Component)]
+/// pub struct Greeting {
+///     pub name: String,
 /// }
 /// ```
 ///
-/// Expands to the struct, an inherent `impl` with the given items, and an
-/// `impl rsc::Component` whose `render_into` is generated from the template.
+/// By default the template is the sibling file `<snake_name>.<lang>.rsc` in the
+/// same directory as the struct (`Greeting` → `greeting.html.rsc`). Override it
+/// with `#[template(path = "…")]`, resolved relative to the struct's source
+/// file.
 ///
-/// The template is located at compile time by reading `CARGO_MANIFEST_DIR` and
-/// scanning the crate for a file whose name (minus the language extension and
-/// `.rsc`) matches the snake-cased component name. No build script is required.
-#[proc_macro]
-pub fn component(input: TokenStream) -> TokenStream {
-    let parsed = parse_macro_input!(input as input::ComponentInput);
-    codegen::expand(parsed).into()
+/// The struct is left untouched; only an `impl Component` (and a private
+/// `include_bytes!` binding that ties the template into the rebuild graph) is
+/// added.
+#[proc_macro_derive(Component, attributes(template))]
+pub fn derive_component(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as DeriveInput);
+    // Ask the compiler where this struct lives so we can find its sibling
+    // template. Stable since the `proc_macro_span_file` APIs landed; falls back
+    // to a crate scan when the span has no local file.
+    let source_file = parsed.ident.span().unwrap().local_file();
+    codegen::expand(parsed, source_file).into()
 }

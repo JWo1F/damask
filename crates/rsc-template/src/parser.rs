@@ -74,12 +74,13 @@ pub fn parse(src: &str, opts: &ParseOptions) -> Result<Template, ParseError> {
 
             let tag = parse_tag(src, i, opts.trim)?;
 
-            if opts.trim && tag.left_trim == Trim::All {
-                if let Some(Node::Text { text, .. }) = nodes.last_mut() {
-                    trim_end_ws(text);
-                    if text.is_empty() {
-                        nodes.pop();
-                    }
+            if opts.trim
+                && tag.left_trim == Trim::All
+                && let Some(Node::Text { text, .. }) = nodes.last_mut()
+            {
+                trim_end_ws(text);
+                if text.is_empty() {
+                    nodes.pop();
                 }
             }
 

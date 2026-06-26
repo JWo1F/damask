@@ -12,70 +12,152 @@ pub struct Resolved {
 
 /// Resolve the template for a component.
 ///
-/// With `explicit`, the path is resolved against `CARGO_MANIFEST_DIR` (then its
-/// `src/` subdirectory as a fallback). Otherwise the crate is scanned for a file
-/// whose component-basename equals `name_snake` (see [`component_basename`]).
-pub fn resolve(name_snake: &str, explicit: Option<&str>) -> Result<Resolved, String> {
+/// `source_file` is the path of the `.rs` file the derive was written in (from
+/// `Span::local_file()`), relative to the crate root or absolute, or `None` when
+/// the compiler could not map the span to a file.
+///
+/// Resolution order:
+/// 1. `#[template(path)]` if given — relative to the source file's directory,
+///    then the crate root, then `src/`.
+/// 2. The sibling convention — `<name_snake>.*.rsc` in the source file's own
+///    directory.
+/// 3. Fallback — a crate-wide scan by basename (used when the source directory
+///    is unknown or empty of matches).
+pub fn resolve(
+    source_file: Option<&Path>,
+    name_snake: &str,
+    explicit: Option<&str>,
+) -> Result<Resolved, String> {
     let manifest = manifest_dir()?;
+    let source_dir = source_dir(&manifest, source_file);
 
     if let Some(rel) = explicit {
-        let direct = manifest.join(rel);
-        let path = if direct.is_file() {
-            direct
-        } else {
-            manifest.join("src").join(rel)
-        };
-        if !path.is_file() {
-            return Err(format!(
-                "template `{rel}` not found (looked in `{}` and its `src/` subdirectory)",
-                manifest.display()
-            ));
+        let mut tried = Vec::new();
+        if let Some(dir) = &source_dir {
+            tried.push(dir.join(rel));
         }
-        return read_resolved(path);
+        tried.push(manifest.join(rel));
+        tried.push(manifest.join("src").join(rel));
+        for candidate in &tried {
+            if candidate.is_file() {
+                return read_resolved(candidate.clone());
+            }
+        }
+        return Err(format!(
+            "template `{rel}` not found; looked in {}",
+            tried
+                .iter()
+                .map(|p| format!("`{}`", p.display()))
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
     }
 
+    // Sibling convention: look next to the source file first.
+    if let Some(dir) = &source_dir {
+        let matches = dir_matches(dir, name_snake);
+        match matches.len() {
+            1 => return read_resolved(matches.into_iter().next().unwrap()),
+            0 => {} // fall through to the crate-wide scan
+            _ => {
+                return Err(ambiguous_message(name_snake, &matches));
+            }
+        }
+    }
+
+    // Fallback: scan the whole crate by basename.
     let candidates = scan(&manifest);
-    let matches: Vec<&PathBuf> = candidates
-        .iter()
-        .filter(|p| {
-            p.file_name()
-                .and_then(|n| n.to_str())
-                .and_then(component_basename)
-                .map(|base| base == name_snake)
-                .unwrap_or(false)
-        })
+    let matches: Vec<PathBuf> = candidates
+        .into_iter()
+        .filter(|p| basename_matches(p, name_snake))
         .collect();
 
-    match matches.as_slice() {
-        [] => Err(format!(
+    match matches.len() {
+        1 => read_resolved(matches.into_iter().next().unwrap()),
+        0 => Err(format!(
             "no template found for component `{name_snake}`: expected a file named \
-             `{name_snake}.<lang>.rsc` (e.g. `{name_snake}.html.rsc`) somewhere under `{}`. \
-             Create one, or set `template = \"…\"` in the component.",
-            manifest.display()
+             `{name_snake}.<lang>.rsc` (e.g. `{name_snake}.html.rsc`) next to the struct{}. \
+             Create one, or set `#[template(path = \"…\")]`.",
+            source_dir
+                .as_ref()
+                .map(|d| format!(" (in `{}`)", d.display()))
+                .unwrap_or_default()
         )),
-        [one] => read_resolved((*one).clone()),
-        many => {
-            let list = many
-                .iter()
-                .map(|p| p.display().to_string())
-                .collect::<Vec<_>>()
-                .join(", ");
-            Err(format!(
-                "multiple templates match component `{name_snake}`: {list}. \
-                 Disambiguate with `template = \"…\"`."
-            ))
-        }
+        _ => Err(ambiguous_message(name_snake, &matches)),
     }
+}
+
+fn ambiguous_message(name_snake: &str, matches: &[PathBuf]) -> String {
+    let list = matches
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "multiple templates match component `{name_snake}`: {list}. \
+         Disambiguate with `#[template(path = \"…\")]`."
+    )
 }
 
 fn manifest_dir() -> Result<PathBuf, String> {
     std::env::var_os("CARGO_MANIFEST_DIR")
         .map(PathBuf::from)
         .ok_or_else(|| {
-            "CARGO_MANIFEST_DIR is not set, so RSC cannot locate templates by convention. \
-             Build with Cargo, or set `template = \"…\"` with a path relative to the crate root."
+            "CARGO_MANIFEST_DIR is not set, so RSC cannot locate templates. \
+             Build with Cargo, or set `#[template(path = \"…\")]`."
                 .to_string()
         })
+}
+
+/// The absolute directory containing the source `.rs` file, if known.
+///
+/// `Span::local_file()` yields a path relative to rustc's working directory —
+/// the workspace root for a Cargo build, which is not necessarily the crate's
+/// `CARGO_MANIFEST_DIR`. Try the working directory first, then the manifest
+/// dir, and only accept a base that actually locates the file, so a wrong guess
+/// degrades to the crate-wide scan instead of a bogus directory.
+fn source_dir(manifest: &Path, source_file: Option<&Path>) -> Option<PathBuf> {
+    let file = source_file?;
+
+    if file.is_absolute() {
+        return file.is_file().then(|| file.parent().map(Path::to_path_buf))?;
+    }
+
+    let mut bases = Vec::new();
+    if let Ok(cwd) = std::env::current_dir() {
+        bases.push(cwd);
+    }
+    bases.push(manifest.to_path_buf());
+
+    for base in bases {
+        let abs = base.join(file);
+        if abs.is_file() {
+            return abs.parent().map(Path::to_path_buf);
+        }
+    }
+    None
+}
+
+/// `.rsc` files directly in `dir` whose component-basename equals `name_snake`.
+fn dir_matches(dir: &Path, name_snake: &str) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<PathBuf> = entries
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && basename_matches(p, name_snake))
+        .collect();
+    out.sort();
+    out
+}
+
+fn basename_matches(path: &Path, name_snake: &str) -> bool {
+    path.file_name()
+        .and_then(|n| n.to_str())
+        .and_then(component_basename)
+        .map(|base| base == name_snake)
+        .unwrap_or(false)
 }
 
 fn read_resolved(path: PathBuf) -> Result<Resolved, String> {
@@ -102,9 +184,6 @@ pub fn component_basename(file: &str) -> Option<String> {
 }
 
 /// Recursively list every `.rsc` file under `root`, memoized per crate compile.
-///
-/// The proc-macro server process is reused across invocations within a single
-/// crate's compilation, so this walks the tree at most once per crate.
 fn scan(root: &Path) -> Vec<PathBuf> {
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, Vec<PathBuf>>>> = OnceLock::new();
     let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
@@ -132,7 +211,6 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         let path = entry.path();
         let name = entry.file_name();
         let name = name.to_string_lossy();
-        // Skip build output and hidden directories (e.g. target/, .git/).
         if path.is_dir() {
             if name == "target" || name.starts_with('.') {
                 continue;
