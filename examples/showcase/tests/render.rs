@@ -1,11 +1,12 @@
 //! End-to-end behavior of the example components: escaping, composition,
 //! control flow, and the custom-renderer seam.
 
-use rsc::{Component, Renderer};
+use rsc::{Component, Render, Renderer, fragment};
 use rsc_showcase::button::Button;
 use rsc_showcase::card::Card;
 use rsc_showcase::custom_renderer::UpcaseRenderer;
 use rsc_showcase::greeting::Greeting;
+use rsc_showcase::layout::Layout;
 use rsc_showcase::list::List;
 use rsc_showcase::panel::Panel;
 use rsc_showcase::theme::Theme;
@@ -74,6 +75,27 @@ fn css_renderer_does_not_html_escape() {
         accent: "hsl(0 100% > 50%)".into(),
     };
     assert_eq!(theme.render(), ".btn { color: hsl(0 100% > 50%); }");
+}
+
+#[test]
+fn children_as_a_fragment_closure() {
+    let page = Layout {
+        children: fragment(|r| {
+            r.write_raw("<p>hi</p>");
+        }),
+    };
+    assert_eq!(page.render(), "<main><p>hi</p></main>");
+}
+
+#[test]
+fn children_as_a_component() {
+    // A child component slotted into a generic children host.
+    let page = Layout {
+        children: Button {
+            label: "click".into(),
+        },
+    };
+    assert_eq!(page.render(), "<main><button>click</button></main>");
 }
 
 #[test]

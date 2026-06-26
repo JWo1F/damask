@@ -63,9 +63,11 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
     let path_lit = LitStr::new(&resolved.path.to_string_lossy(), Span::call_site());
 
     quote! {
-        impl #impl_generics ::rsc::Component for #name #ty_generics #where_clause {
+        impl #impl_generics ::rsc::Render for #name #ty_generics #where_clause {
             fn render_into(&self, __rsc: &mut dyn ::rsc::Renderer) #body
+        }
 
+        impl #impl_generics ::rsc::Component for #name #ty_generics #where_clause {
             fn default_renderer(&self) -> ::std::boxed::Box<dyn ::rsc::Renderer> {
                 ::std::boxed::Box::new(::rsc::renderers::#renderer::new())
             }
@@ -109,10 +111,12 @@ fn extract_template_path(attrs: &[Attribute]) -> syn::Result<Option<String>> {
 
 /// Assemble the body of `render_into` as a string of Rust source.
 fn build_render_body(template: &Template) -> Result<String, String> {
-    // Bring `Component` into scope (unnamed) so `<%- child.render() %>` and
-    // other trait-method calls in a template resolve without the author having
-    // to import the trait themselves.
-    let mut body = String::from("{\n#[allow(unused_imports)] use ::rsc::Component as _;\n");
+    // Bring `Component`/`Render` into scope (unnamed) so `<%- child.render() %>`
+    // and other trait-method calls in a template resolve without the author
+    // having to import the traits themselves.
+    let mut body = String::from(
+        "{\n#[allow(unused_imports)] use ::rsc::{Component as _, Render as _};\n",
+    );
     for node in &template.nodes {
         match node {
             Node::Text { text, .. } => {
@@ -132,7 +136,7 @@ fn build_render_body(template: &Template) -> Result<String, String> {
                 TagKind::Render => {
                     require_expr(code, "<%+ … %>")?;
                     body.push_str(&format!(
-                        "::rsc::Component::render_into(&({code}), &mut *__rsc);\n"
+                        "::rsc::Render::render_into(&({code}), &mut *__rsc);\n"
                     ));
                 }
                 TagKind::Statement => {
