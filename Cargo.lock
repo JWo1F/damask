@@ -445,6 +445,7 @@ name = "rsc-lsp"
 version = "0.1.0"
 dependencies = [
  "proc-macro2",
+ "quote",
  "rsc-template",
  "serde_json",
  "syn 2.0.119",

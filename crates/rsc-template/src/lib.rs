@@ -118,3 +118,45 @@ impl Template {
         self.nodes.iter().filter(|n| matches!(n, Node::Tag { .. }))
     }
 }
+
+/// Convert a `PascalCase` component name to the `snake_case` used for its
+/// template's file-name convention (`HTMLPage` → `html_page`).
+///
+/// Shared by the `component` derive (name → template file) and the language
+/// server (template file → struct name), so the two agree on pairing.
+pub fn to_snake_case(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len() + 4);
+    for (i, &c) in chars.iter().enumerate() {
+        if c.is_uppercase() {
+            if i > 0 {
+                let prev = chars[i - 1];
+                let next_is_lower = chars.get(i + 1).is_some_and(|n| n.is_lowercase());
+                if prev.is_lowercase()
+                    || prev.is_ascii_digit()
+                    || (prev.is_uppercase() && next_is_lower)
+                {
+                    out.push('_');
+                }
+            }
+            out.extend(c.to_lowercase());
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod snake_tests {
+    use super::to_snake_case;
+
+    #[test]
+    fn common_shapes() {
+        assert_eq!(to_snake_case("Greeting"), "greeting");
+        assert_eq!(to_snake_case("MyButton"), "my_button");
+        assert_eq!(to_snake_case("HTMLPage"), "html_page");
+        assert_eq!(to_snake_case("Card2Col"), "card2_col");
+        assert_eq!(to_snake_case("already_snake"), "already_snake");
+    }
+}

@@ -43,6 +43,31 @@ impl LineIndex {
             .sum();
         (line as u32, col)
     }
+
+    /// Convert a zero-based `(line, utf16_column)` back into a byte offset.
+    ///
+    /// The inverse of [`line_col`](Self::line_col); used to turn an LSP position
+    /// into an index into the source. Positions past a line's end clamp to the
+    /// line end; lines past the end clamp to the end of the text.
+    pub fn offset(&self, src: &str, line: u32, col_utf16: u32) -> usize {
+        let line = line as usize;
+        if line >= self.line_starts.len() {
+            return self.len;
+        }
+        let start = self.line_starts[line];
+        let line_end = self.line_starts.get(line + 1).copied().unwrap_or(self.len);
+
+        let mut col = 0u32;
+        let mut off = start;
+        for ch in src[start..line_end].chars() {
+            if col >= col_utf16 {
+                break;
+            }
+            col += ch.len_utf16() as u32;
+            off += ch.len_utf8();
+        }
+        off
+    }
 }
 
 #[cfg(test)]
