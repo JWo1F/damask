@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
 /// A located template: its absolute path, contents, and host language.
+#[derive(Debug)]
 pub struct Resolved {
     pub path: PathBuf,
     pub source: String,
@@ -224,7 +225,9 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
 
 #[cfg(test)]
 mod tests {
-    use super::component_basename;
+    use super::{component_basename, resolve};
+    use std::path::PathBuf;
+    use std::sync::atomic::{AtomicU32, Ordering};
 
     #[test]
     fn basename_strips_language_and_rsc() {
@@ -232,5 +235,55 @@ mod tests {
         assert_eq!(component_basename("app.js.rsc").as_deref(), Some("app"));
         assert_eq!(component_basename("notes.rsc").as_deref(), Some("notes"));
         assert_eq!(component_basename("not-a-template.txt"), None);
+    }
+
+    static COUNTER: AtomicU32 = AtomicU32::new(0);
+
+    /// A fresh empty temp directory (no external crates; unique via pid+counter).
+    fn unique_dir() -> PathBuf {
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("rsc_resolve_{}_{n}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn resolves_sibling_template_by_name() {
+        let dir = unique_dir();
+        let rs = dir.join("widget.rs");
+        std::fs::write(&rs, "// component").unwrap();
+        std::fs::write(dir.join("widget.html.rsc"), "hi <%= self.x %>").unwrap();
+
+        let resolved = resolve(Some(&rs), "widget", None).expect("should resolve");
+        assert_eq!(resolved.source, "hi <%= self.x %>");
+        assert_eq!(resolved.host.renderer_type(), "HtmlRenderer");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn explicit_template_path_wins() {
+        let dir = unique_dir();
+        let rs = dir.join("widget.rs");
+        std::fs::write(&rs, "// component").unwrap();
+        std::fs::write(dir.join("custom.css.rsc"), ".x {}").unwrap();
+
+        let resolved = resolve(Some(&rs), "widget", Some("custom.css.rsc")).expect("resolves");
+        assert_eq!(resolved.source, ".x {}");
+        assert_eq!(resolved.host.renderer_type(), "CssRenderer");
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn missing_template_is_an_error() {
+        let dir = unique_dir();
+        let rs = dir.join("nope.rs");
+        std::fs::write(&rs, "// component").unwrap();
+
+        let err = resolve(Some(&rs), "nope", None).unwrap_err();
+        assert!(err.contains("no template found"), "unexpected: {err}");
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

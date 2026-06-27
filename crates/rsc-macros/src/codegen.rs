@@ -189,7 +189,8 @@ fn to_snake_case(s: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::to_snake_case;
+    use super::{build_render_body, to_snake_case};
+    use rsc_template::{Span, Template};
 
     #[test]
     fn snake_case_handles_common_shapes() {
@@ -198,5 +199,38 @@ mod tests {
         assert_eq!(to_snake_case("HTMLPage"), "html_page");
         assert_eq!(to_snake_case("Card2Col"), "card2_col");
         assert_eq!(to_snake_case("already_snake"), "already_snake");
+    }
+
+    #[test]
+    fn body_renders_text_and_expressions() {
+        let template = rsc_template::parse("Hi <%= self.name %>!", &Default::default()).unwrap();
+        let body = build_render_body(&template).unwrap();
+        assert!(body.contains("__rsc.write_raw(\"Hi \")"));
+        assert!(body.contains("__rsc.write_escaped(&(self.name))"));
+        assert!(body.contains("__rsc.write_raw(\"!\")"));
+    }
+
+    #[test]
+    fn empty_expression_tag_is_an_error() {
+        use rsc_template::{Node, TagKind};
+        let template = Template {
+            nodes: vec![Node::Tag {
+                span: Span::new(0, 6),
+                kind: TagKind::Escaped,
+                code: "   ".to_string(),
+                code_span: Span::new(3, 3),
+            }],
+        };
+        let err = build_render_body(&template).unwrap_err();
+        assert!(err.contains("empty expression"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn comment_tag_emits_nothing() {
+        let template = rsc_template::parse("a<%# note %>b", &Default::default()).unwrap();
+        let body = build_render_body(&template).unwrap();
+        assert!(body.contains("write_raw(\"a\")"));
+        assert!(body.contains("write_raw(\"b\")"));
+        assert!(!body.contains("note"));
     }
 }
