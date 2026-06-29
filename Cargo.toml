@@ -7,6 +7,8 @@ members = [
     "tools/rsc-lsp",
     "examples/showcase",
 ]
+# The Zed extension is a separate wasm crate with its own toolchain target.
+exclude = ["editors/zed"]
 
 [workspace.package]
 version = "0.1.0"

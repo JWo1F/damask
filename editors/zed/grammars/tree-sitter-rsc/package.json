@@ -1,0 +1,17 @@
+{
+  "name": "tree-sitter-rsc",
+  "version": "0.1.0",
+  "description": "Tree-sitter grammar for RSC (Rust Smart Components) templates",
+  "license": "MIT OR Apache-2.0",
+  "main": "bindings/node",
+  "devDependencies": {
+    "tree-sitter-cli": "^0.26.0"
+  },
+  "tree-sitter": [
+    {
+      "scope": "source.rsc",
+      "file-types": ["rsc"],
+      "injection-regex": "rsc"
+    }
+  ]
+}

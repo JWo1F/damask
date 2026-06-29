@@ -1,0 +1,13 @@
+[package]
+name = "zed-rsc"
+version = "0.1.0"
+edition = "2021"
+publish = false
+license = "MIT OR Apache-2.0"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+# Match this to the API version of your installed Zed (see README).
+zed_extension_api = "0.1.0"

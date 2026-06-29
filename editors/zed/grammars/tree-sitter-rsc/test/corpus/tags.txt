@@ -1,0 +1,58 @@
+==================
+plain text
+==================
+
+Hello, world!
+
+---
+
+(document
+  (content))
+
+==================
+escaped output tag
+==================
+
+Hello <%= self.name %>!
+
+---
+
+(document
+  (content)
+  (output_tag
+    (tag_delimiter)
+    (code)
+    (tag_delimiter))
+  (content))
+
+==================
+all tag kinds
+==================
+
+<%= a %><%- b %><%+ c %><% d %><%# e %>
+
+---
+
+(document
+  (content)
+  (output_tag (tag_delimiter) (code) (tag_delimiter))
+  (raw_tag (tag_delimiter) (code) (tag_delimiter))
+  (render_tag (tag_delimiter) (code) (tag_delimiter))
+  (code_tag (tag_delimiter) (code) (tag_delimiter))
+  (comment_tag (tag_delimiter) (comment_text) (tag_delimiter))
+  (content))
+
+==================
+control flow across tags
+==================
+
+<% for x in xs { %><%= x %><% } %>
+
+---
+
+(document
+  (content)
+  (code_tag (tag_delimiter) (code) (tag_delimiter))
+  (output_tag (tag_delimiter) (code) (tag_delimiter))
+  (code_tag (tag_delimiter) (code) (tag_delimiter))
+  (content))

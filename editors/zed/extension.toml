@@ -1,0 +1,18 @@
+id = "rsc"
+name = "RSC (Rust Smart Components)"
+description = "Syntax highlighting and language server for RSC templates (.rsc)"
+version = "0.1.0"
+schema_version = 1
+authors = ["RSC contributors"]
+repository = "https://github.com/jwo1f/rsc"
+
+# The grammar source lives in `grammars/tree-sitter-rsc/`. Zed fetches grammars
+# from git, so publish that directory as its own repository and point `rev` at a
+# commit. See README.md for the local-development alternative.
+[grammars.rsc]
+repository = "https://github.com/jwo1f/tree-sitter-rsc"
+rev = "0000000000000000000000000000000000000000"
+
+[language_servers.rsc-lsp]
+name = "RSC Language Server"
+languages = ["RSC"]

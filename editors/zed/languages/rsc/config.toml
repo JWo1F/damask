@@ -1,0 +1,9 @@
+name = "RSC"
+grammar = "rsc"
+path_suffixes = ["rsc"]
+# Templates have no host-agnostic line comment; use the `<%# … %>` tag.
+autoclose_before = ">%"
+brackets = [
+    { start = "<%", end = " %>", close = true, newline = false },
+    { start = "<%=", end = " %>", close = true, newline = false },
+]

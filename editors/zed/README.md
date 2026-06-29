@@ -1,0 +1,70 @@
+# RSC — Zed extension
+
+Syntax highlighting and language-server support for [RSC](../../README.md)
+`.rsc` templates in the [Zed](https://zed.dev) editor.
+
+## What you get
+
+- **Highlighting** — tag delimiters (`<%=`, `<%-`, `<%+`, `<%`, `<%#`, `%>`) are
+  highlighted, the Rust inside tags is highlighted by Zed's Rust grammar
+  (injected), and the surrounding markup by the host-language grammar.
+- **Language server** — parse diagnostics, and completion of the paired
+  component's fields and methods inside a tag, via `rsc-lsp`.
+
+## Layout
+
+```
+editors/zed/
+├── extension.toml            # extension manifest + grammar + LSP registration
+├── Cargo.toml, src/lib.rs    # the extension (wasm) that launches rsc-lsp
+├── languages/rsc/
+│   ├── config.toml           # file association (*.rsc), brackets
+│   ├── highlights.scm        # delimiter / comment highlighting
+│   └── injections.scm        # Rust into tags, host language into text
+└── grammars/tree-sitter-rsc/ # the Tree-sitter grammar (source of truth)
+```
+
+## Install the language server
+
+The extension runs `rsc-lsp`, which must be on your `PATH`:
+
+```sh
+cargo install --path tools/rsc-lsp    # from this repo
+# or, once published:  cargo install rsc-lsp
+```
+
+## Installing the extension (dev)
+
+1. In Zed: `zed: install dev extension` and select this `editors/zed/`
+   directory.
+2. Open any `.rsc` file.
+
+### Grammar reference
+
+Zed fetches Tree-sitter grammars from git. `extension.toml` therefore points
+`[grammars.rsc]` at a repository + commit. Two options:
+
+- **Publish the grammar.** Push `grammars/tree-sitter-rsc/` to its own repo and
+  set `repository` / `rev` in `extension.toml` to it.
+- **Local development.** Build the grammar locally with the Tree-sitter CLI
+  (`tree-sitter generate` inside `grammars/tree-sitter-rsc/`) and point Zed at a
+  `file://` path per the current Zed docs.
+
+## `zed_extension_api` version
+
+`Cargo.toml` pins `zed_extension_api`; set it to the version matching your
+installed Zed (the `language_server_command` shape used here is stable across
+recent versions).
+
+## Host-language injection
+
+v1 injects **HTML** into the text between tags — the common case. A `.rsc` file's
+true host language is its middle extension (`app.js.rsc`, `theme.css.rsc`);
+per-suffix injection (distinct `js.rsc` / `css.rsc` languages sharing this
+grammar) is a planned enhancement.
+
+## Grammar tests
+
+```sh
+cd grammars/tree-sitter-rsc && tree-sitter test
+```
