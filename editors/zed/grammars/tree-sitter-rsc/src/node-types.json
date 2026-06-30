@@ -1,0 +1,151 @@
+[
+  {
+    "type": "code",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "code_tag",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "code",
+          "named": true
+        },
+        {
+          "type": "tag_delimiter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "comment_tag",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "comment_text",
+          "named": true
+        },
+        {
+          "type": "tag_delimiter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "comment_text",
+    "named": true,
+    "fields": {}
+  },
+  {
+    "type": "document",
+    "named": true,
+    "root": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": false,
+      "types": [
+        {
+          "type": "code_tag",
+          "named": true
+        },
+        {
+          "type": "comment_tag",
+          "named": true
+        },
+        {
+          "type": "content",
+          "named": true
+        },
+        {
+          "type": "output_tag",
+          "named": true
+        },
+        {
+          "type": "raw_tag",
+          "named": true
+        },
+        {
+          "type": "render_tag",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "output_tag",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "code",
+          "named": true
+        },
+        {
+          "type": "tag_delimiter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "raw_tag",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "code",
+          "named": true
+        },
+        {
+          "type": "tag_delimiter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "render_tag",
+    "named": true,
+    "fields": {},
+    "children": {
+      "multiple": true,
+      "required": true,
+      "types": [
+        {
+          "type": "code",
+          "named": true
+        },
+        {
+          "type": "tag_delimiter",
+          "named": true
+        }
+      ]
+    }
+  },
+  {
+    "type": "content",
+    "named": true
+  },
+  {
+    "type": "tag_delimiter",
+    "named": true
+  }
+]

@@ -1,0 +1,249 @@
+{
+  "$schema": "https://tree-sitter.github.io/tree-sitter/assets/schemas/grammar.schema.json",
+  "name": "rsc",
+  "rules": {
+    "document": {
+      "type": "REPEAT",
+      "content": {
+        "type": "SYMBOL",
+        "name": "_node"
+      }
+    },
+    "_node": {
+      "type": "CHOICE",
+      "members": [
+        {
+          "type": "SYMBOL",
+          "name": "comment_tag"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "output_tag"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "raw_tag"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "render_tag"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "code_tag"
+        },
+        {
+          "type": "SYMBOL",
+          "name": "content"
+        }
+      ]
+    },
+    "output_tag": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "STRING",
+            "value": "<%="
+          },
+          "named": true,
+          "value": "tag_delimiter"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "code"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "STRING",
+            "value": "%>"
+          },
+          "named": true,
+          "value": "tag_delimiter"
+        }
+      ]
+    },
+    "raw_tag": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "STRING",
+            "value": "<%-"
+          },
+          "named": true,
+          "value": "tag_delimiter"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "code"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "STRING",
+            "value": "%>"
+          },
+          "named": true,
+          "value": "tag_delimiter"
+        }
+      ]
+    },
+    "render_tag": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "STRING",
+            "value": "<%+"
+          },
+          "named": true,
+          "value": "tag_delimiter"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "code"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "STRING",
+            "value": "%>"
+          },
+          "named": true,
+          "value": "tag_delimiter"
+        }
+      ]
+    },
+    "code_tag": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "STRING",
+            "value": "<%"
+          },
+          "named": true,
+          "value": "tag_delimiter"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "code"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "STRING",
+            "value": "%>"
+          },
+          "named": true,
+          "value": "tag_delimiter"
+        }
+      ]
+    },
+    "comment_tag": {
+      "type": "SEQ",
+      "members": [
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "STRING",
+            "value": "<%#"
+          },
+          "named": true,
+          "value": "tag_delimiter"
+        },
+        {
+          "type": "CHOICE",
+          "members": [
+            {
+              "type": "SYMBOL",
+              "name": "comment_text"
+            },
+            {
+              "type": "BLANK"
+            }
+          ]
+        },
+        {
+          "type": "ALIAS",
+          "content": {
+            "type": "STRING",
+            "value": "%>"
+          },
+          "named": true,
+          "value": "tag_delimiter"
+        }
+      ]
+    },
+    "code": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PATTERN",
+        "value": "([^%]|%[^>])+"
+      }
+    },
+    "comment_text": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PATTERN",
+        "value": "([^%]|%[^>])+"
+      }
+    },
+    "content": {
+      "type": "TOKEN",
+      "content": {
+        "type": "PREC",
+        "value": -1,
+        "content": {
+          "type": "PATTERN",
+          "value": "([^<]|<[^%])+"
+        }
+      }
+    }
+  },
+  "extras": [],
+  "conflicts": [],
+  "precedences": [],
+  "externals": [],
+  "inline": [],
+  "supertypes": [],
+  "reserved": {}
+}

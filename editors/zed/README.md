@@ -35,20 +35,29 @@ cargo install --path tools/rsc-lsp    # from this repo
 
 ## Installing the extension (dev)
 
-1. In Zed: `zed: install dev extension` and select this `editors/zed/`
-   directory.
+Zed loads a Tree-sitter grammar by **cloning a git repository** at a pinned
+revision — and the grammar must be at that repo's root. Our grammar lives in a
+subdirectory of this monorepo, so it can't be the clone target directly. Run the
+setup script once (and again whenever you change `grammar.js`):
+
+```sh
+bash editors/zed/dev-setup.sh
+```
+
+It regenerates the parser, copies the grammar into a standalone git repo under
+`~/.cache/zed-rsc/tree-sitter-rsc`, and rewrites `[grammars.rsc]` in
+`extension.toml` to point at it via a `file://` URL. Then:
+
+1. In Zed: `zed: install dev extension` → select this `editors/zed/` directory.
 2. Open any `.rsc` file.
 
-### Grammar reference
+> The script's edit to `extension.toml` is machine-specific — **don't commit
+> it.** The committed `extension.toml` keeps a GitHub placeholder for publishing.
 
-Zed fetches Tree-sitter grammars from git. `extension.toml` therefore points
-`[grammars.rsc]` at a repository + commit. Two options:
+### Publishing
 
-- **Publish the grammar.** Push `grammars/tree-sitter-rsc/` to its own repo and
-  set `repository` / `rev` in `extension.toml` to it.
-- **Local development.** Build the grammar locally with the Tree-sitter CLI
-  (`tree-sitter generate` inside `grammars/tree-sitter-rsc/`) and point Zed at a
-  `file://` path per the current Zed docs.
+Push `grammars/tree-sitter-rsc/` (parser `src/` committed) to its own public
+repository and set `repository` / `rev` in `extension.toml` to it.
 
 ## `zed_extension_api` version
 
