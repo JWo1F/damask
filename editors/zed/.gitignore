@@ -1,0 +1,6 @@
+# Build artifacts from `zed: install dev extension`
+/target/
+/Cargo.lock
+*.wasm
+# Zed's local clone of the grammar during dev
+/grammars/rsc/

@@ -101,9 +101,7 @@ fn children_as_a_component() {
 #[test]
 fn custom_renderer_drives_a_stock_component() {
     // Greeting was compiled with no knowledge of UpcaseRenderer.
-    let g = Greeting {
-        name: "ada".into(),
-    };
+    let g = Greeting { name: "ada".into() };
     let mut r: Box<dyn Renderer> = Box::new(UpcaseRenderer::new());
     g.render_into(r.as_mut());
     assert_eq!(r.finish(), "HELLO ADA!");

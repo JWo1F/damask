@@ -121,7 +121,9 @@ fn source_dir(manifest: &Path, source_file: Option<&Path>) -> Option<PathBuf> {
     let file = source_file?;
 
     if file.is_absolute() {
-        return file.is_file().then(|| file.parent().map(Path::to_path_buf))?;
+        return file
+            .is_file()
+            .then(|| file.parent().map(Path::to_path_buf))?;
     }
 
     let mut bases = Vec::new();
@@ -231,7 +233,10 @@ mod tests {
 
     #[test]
     fn basename_strips_language_and_rsc() {
-        assert_eq!(component_basename("greeting.html.rsc").as_deref(), Some("greeting"));
+        assert_eq!(
+            component_basename("greeting.html.rsc").as_deref(),
+            Some("greeting")
+        );
         assert_eq!(component_basename("app.js.rsc").as_deref(), Some("app"));
         assert_eq!(component_basename("notes.rsc").as_deref(), Some("notes"));
         assert_eq!(component_basename("not-a-template.txt"), None);

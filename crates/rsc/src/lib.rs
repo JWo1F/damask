@@ -147,7 +147,9 @@ pub trait Component: Render {
 ///
 /// `Component` here is both the trait and its derive macro.
 pub mod prelude {
-    pub use crate::renderers::{CssRenderer, HtmlRenderer, JsRenderer, PlainRenderer, StringRenderer};
+    pub use crate::renderers::{
+        CssRenderer, HtmlRenderer, JsRenderer, PlainRenderer, StringRenderer,
+    };
     pub use crate::{Component, Render, Renderer, fragment};
 }
 

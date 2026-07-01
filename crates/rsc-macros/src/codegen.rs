@@ -114,9 +114,8 @@ fn build_render_body(template: &Template) -> Result<String, String> {
     // Bring `Component`/`Render` into scope (unnamed) so `<%- child.render() %>`
     // and other trait-method calls in a template resolve without the author
     // having to import the traits themselves.
-    let mut body = String::from(
-        "{\n#[allow(unused_imports)] use ::rsc::{Component as _, Render as _};\n",
-    );
+    let mut body =
+        String::from("{\n#[allow(unused_imports)] use ::rsc::{Component as _, Render as _};\n");
     for node in &template.nodes {
         match node {
             Node::Text { text, .. } => {

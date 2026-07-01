@@ -6,9 +6,7 @@ use rsc_showcase::list::List;
 use rsc_showcase::theme::Theme;
 
 fn main() {
-    let greeting = Greeting {
-        name: "Ada".into(),
-    };
+    let greeting = Greeting { name: "Ada".into() };
     println!("{}", greeting.render());
 
     let card = Card {

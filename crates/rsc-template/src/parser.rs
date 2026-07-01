@@ -289,7 +289,10 @@ mod tests {
 
     #[test]
     fn plain_text_is_one_node() {
-        assert_eq!(parse_default("Hello, world!"), vec![text((0, 13), "Hello, world!")]);
+        assert_eq!(
+            parse_default("Hello, world!"),
+            vec![text((0, 13), "Hello, world!")]
+        );
     }
 
     #[test]
@@ -359,7 +362,9 @@ mod tests {
         let src = "<%=   self.name   %>";
         let nodes = parse_default(src);
         match &nodes[0] {
-            Node::Tag { code, code_span, .. } => {
+            Node::Tag {
+                code, code_span, ..
+            } => {
                 assert_eq!(code, "self.name");
                 assert_eq!(code_span.slice(src), "self.name");
             }
@@ -400,10 +405,13 @@ mod tests {
             Node::Tag { code, .. } => assert_eq!(code, "x"),
             other => panic!("expected tag, got {other:?}"),
         }
-        assert_eq!(nodes[1], Node::Text {
-            span: nodes[1].span_for_test(),
-            text: "tail".to_string(),
-        });
+        assert_eq!(
+            nodes[1],
+            Node::Text {
+                span: nodes[1].span_for_test(),
+                text: "tail".to_string(),
+            }
+        );
     }
 
     #[test]
