@@ -1,1 +1,0 @@
-<main><%+ self.children %></main>

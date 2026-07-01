@@ -1,15 +1,6 @@
 use crate::{Node, Span, TagKind, Template};
 use std::fmt;
 
-/// Options controlling how a template is parsed.
-#[derive(Debug, Clone, Copy, Default)]
-pub struct ParseOptions {
-    /// Enable whitespace-control markers: `<%_`, `-%>`, `_%>`.
-    ///
-    /// Off by default, so templates render exactly as written.
-    pub trim: bool,
-}
-
 /// A template parse failure, with the source span it occurred at.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParseError {
@@ -29,398 +20,413 @@ impl fmt::Display for ParseError {
 
 impl std::error::Error for ParseError {}
 
-/// Whitespace-trimming behavior applied next to a tag.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Trim {
-    None,
-    /// Strip a single following newline (`-%>`).
-    Line,
-    /// Strip all adjacent whitespace (`<%_`, `_%>`).
-    All,
-}
-
 /// Parse a `.rsc` template into a [`Template`].
 ///
-/// Returns the first [`ParseError`] encountered (unclosed tag). Everything else
-/// — the Rust inside a tag, the host language outside one — is left untouched
-/// for later stages to interpret.
-pub fn parse(src: &str, opts: &ParseOptions) -> Result<Template, ParseError> {
+/// Text is HTML; `{ … }` introduces a tag (see [`TagKind`]). Braces inside a tag
+/// are balanced and string/char literals are respected, so struct literals and
+/// closures work inside `{@render …}` and friends. `<!-- … -->` comments pass
+/// through as literal text.
+pub fn parse(src: &str) -> Result<Template, ParseError> {
     let bytes = src.as_bytes();
     let n = bytes.len();
 
     let mut nodes: Vec<Node> = Vec::new();
-    let mut text_buf = String::new();
+    let mut text = String::new();
     let mut text_start = 0usize;
-    let mut pending_right = Trim::None;
     let mut i = 0usize;
 
     while i < n {
-        // Tag opener `<%` — unless it is the `<%%` literal escape.
-        if bytes[i] == b'<' && i + 1 < n && bytes[i + 1] == b'%' {
-            if i + 2 < n && bytes[i + 2] == b'%' {
-                text_buf.push_str("<%");
-                i += 3;
-                continue;
+        // HTML comments pass through verbatim — don't parse `{ }` inside them.
+        if bytes[i] == b'<' && src[i..].starts_with("<!--") {
+            if text.is_empty() {
+                text_start = i;
             }
+            let end = match src[i + 4..].find("-->") {
+                Some(rel) => i + 4 + rel + 3,
+                None => n,
+            };
+            text.push_str(&src[i..end]);
+            i = end;
+            continue;
+        }
 
-            flush_text(
-                &mut nodes,
-                &mut text_buf,
-                text_start,
-                i,
-                &mut pending_right,
-                opts.trim,
-            );
-
-            let tag = parse_tag(src, i, opts.trim)?;
-
-            if opts.trim
-                && tag.left_trim == Trim::All
-                && let Some(Node::Text { text, .. }) = nodes.last_mut()
-            {
-                trim_end_ws(text);
-                if text.is_empty() {
-                    nodes.pop();
-                }
+        if bytes[i] == b'{' {
+            if !text.is_empty() {
+                nodes.push(Node::Text {
+                    span: Span::new(text_start, i),
+                    text: std::mem::take(&mut text),
+                });
             }
-
-            pending_right = tag.right_trim;
+            let tag = scan_tag(src, i)?;
             nodes.push(Node::Tag {
-                span: tag.span,
+                span: Span::new(i, tag.end),
                 kind: tag.kind,
                 code: tag.code,
                 code_span: tag.code_span,
             });
-
             i = tag.end;
             text_start = i;
             continue;
         }
 
-        // Literal `%%>` escape in text -> `%>`.
-        if bytes[i] == b'%' && i + 2 < n && bytes[i + 1] == b'%' && bytes[i + 2] == b'>' {
-            text_buf.push_str("%>");
-            i += 3;
-            continue;
+        if text.is_empty() {
+            text_start = i;
         }
-
-        // Ordinary character (advance by its full UTF-8 width).
-        let ch = src[i..].chars().next().expect("valid char boundary");
-        text_buf.push(ch);
+        let ch = src[i..].chars().next().expect("char boundary");
+        text.push(ch);
         i += ch.len_utf8();
     }
 
-    flush_text(
-        &mut nodes,
-        &mut text_buf,
-        text_start,
-        n,
-        &mut pending_right,
-        opts.trim,
-    );
+    if !text.is_empty() {
+        nodes.push(Node::Text {
+            span: Span::new(text_start, n),
+            text,
+        });
+    }
 
     Ok(Template { nodes })
 }
 
-/// The result of parsing a single tag.
-struct TagParse {
+/// Whether `offset` lies inside an open `{ … }` tag (brace depth > 0), tolerant
+/// of half-typed tags. Used by the language server for completion context.
+///
+/// Braces inside strings/char literals (within a tag) don't count, and a cursor
+/// inside an HTML comment is not in a tag.
+pub fn in_tag(src: &str, offset: usize) -> bool {
+    let offset = offset.min(src.len());
+    let bytes = src.as_bytes();
+    let mut i = 0usize;
+    let mut depth: i32 = 0;
+
+    while i < offset {
+        if bytes[i] == b'<' && src[i..].starts_with("<!--") {
+            let end = match src[i + 4..].find("-->") {
+                Some(rel) => i + 4 + rel + 3,
+                None => src.len(),
+            };
+            if end > offset {
+                return false; // cursor is inside a comment
+            }
+            i = end;
+            continue;
+        }
+        match bytes[i] {
+            b'"' if depth > 0 => i = scan_string(src, i),
+            b'\'' if depth > 0 => i = scan_char(src, i),
+            b'{' => {
+                depth += 1;
+                i += 1;
+            }
+            b'}' => {
+                depth = (depth - 1).max(0);
+                i += 1;
+            }
+            _ => {
+                let ch = src[i..].chars().next().expect("char boundary");
+                i += ch.len_utf8();
+            }
+        }
+    }
+
+    depth > 0
+}
+
+struct ScannedTag {
     kind: TagKind,
     code: String,
     code_span: Span,
-    span: Span,
-    left_trim: Trim,
-    right_trim: Trim,
-    /// Byte offset just past the closing `%>`.
     end: usize,
 }
 
-/// Parse one tag beginning at `start` (which must point at the `<` of `<%`).
-fn parse_tag(src: &str, start: usize, trim_enabled: bool) -> Result<TagParse, ParseError> {
+/// Scan one `{ … }` tag beginning at `open` (the `{`), balancing nested braces
+/// and skipping string/char literals.
+fn scan_tag(src: &str, open: usize) -> Result<ScannedTag, ParseError> {
     let bytes = src.as_bytes();
     let n = bytes.len();
 
-    // Skip `<%`, then read the kind sigil.
-    let mut p = start + 2;
-    let mut left_trim = Trim::None;
-    let kind = match bytes.get(p) {
-        Some(b'=') => {
-            p += 1;
-            TagKind::Escaped
-        }
-        Some(b'-') => {
-            p += 1;
-            TagKind::Raw
-        }
-        Some(b'+') => {
-            p += 1;
-            TagKind::Render
-        }
-        Some(b'#') => {
-            p += 1;
-            TagKind::Comment
-        }
-        Some(b'_') if trim_enabled => {
-            p += 1;
-            left_trim = Trim::All;
-            TagKind::Statement
-        }
-        _ => TagKind::Statement,
-    };
+    let inner_start = open + 1;
+    let mut i = inner_start;
+    let mut depth = 1usize;
 
-    let code_start = p;
-
-    // Scan to the closing `%>`.
-    let mut j = code_start;
-    loop {
-        if j + 1 < n && bytes[j] == b'%' && bytes[j + 1] == b'>' {
-            break;
-        }
-        if j >= n {
-            return Err(ParseError {
-                message: "unclosed tag: expected `%>`".to_string(),
-                span: Span::new(start, n),
-            });
-        }
-        j += 1;
-    }
-
-    // `j` is at the `%` of the closing `%>`. Look for a right-trim marker.
-    let mut code_end = j;
-    let mut right_trim = Trim::None;
-    if trim_enabled && code_end > code_start {
-        match bytes[code_end - 1] {
-            b'-' => {
-                right_trim = Trim::Line;
-                code_end -= 1;
+    while i < n {
+        match bytes[i] {
+            b'"' => i = scan_string(src, i),
+            b'\'' => i = scan_char(src, i),
+            b'{' => {
+                depth += 1;
+                i += 1;
             }
-            b'_' => {
-                right_trim = Trim::All;
-                code_end -= 1;
+            b'}' => {
+                depth -= 1;
+                if depth == 0 {
+                    let inner = &src[inner_start..i];
+                    let lead = inner.len() - inner.trim_start().len();
+                    let trimmed = inner.trim();
+                    let code_start = inner_start + lead;
+                    let code_span = Span::new(code_start, code_start + trimmed.len());
+                    let (kind, code) = classify(trimmed).map_err(|message| ParseError {
+                        message,
+                        span: Span::new(open, i + 1),
+                    })?;
+                    return Ok(ScannedTag {
+                        kind,
+                        code,
+                        code_span,
+                        end: i + 1,
+                    });
+                }
+                i += 1;
             }
-            _ => {}
+            _ => {
+                let ch = src[i..].chars().next().expect("char boundary");
+                i += ch.len_utf8();
+            }
         }
     }
 
-    let code_raw = &src[code_start..code_end];
-    let leading_ws = code_raw.len() - code_raw.trim_start().len();
-    let code_trimmed = code_raw.trim();
-    let cs_start = code_start + leading_ws;
-    let code_span = Span::new(cs_start, cs_start + code_trimmed.len());
-
-    Ok(TagParse {
-        kind,
-        code: code_trimmed.to_string(),
-        code_span,
-        span: Span::new(start, j + 2),
-        left_trim,
-        right_trim,
-        end: j + 2,
+    Err(ParseError {
+        message: "unclosed tag: missing `}`".to_string(),
+        span: Span::new(open, n),
     })
 }
 
-/// Flush the accumulated text buffer as a [`Node::Text`], applying any pending
-/// right-trim to its front. Empty text (including text that trims to nothing) is
-/// dropped rather than emitted.
-fn flush_text(
-    nodes: &mut Vec<Node>,
-    text_buf: &mut String,
-    start: usize,
-    end: usize,
-    pending_right: &mut Trim,
-    trim_enabled: bool,
-) {
-    if trim_enabled {
-        match *pending_right {
-            Trim::None => {}
-            Trim::Line => {
-                if let Some(rest) = text_buf.strip_prefix("\r\n") {
-                    *text_buf = rest.to_string();
-                } else if let Some(rest) = text_buf.strip_prefix('\n') {
-                    *text_buf = rest.to_string();
-                }
+/// Classify the trimmed inner content of a tag into a [`TagKind`] and the
+/// meaningful code (sigil and block keyword stripped).
+fn classify(t: &str) -> Result<(TagKind, String), String> {
+    if let Some(body) = t.strip_prefix('@') {
+        let body = body.trim_start();
+        if let Some(rest) = keyword(body, "html") {
+            return Ok((TagKind::Html, rest));
+        }
+        if let Some(rest) = keyword(body, "const") {
+            return Ok((TagKind::Const, rest));
+        }
+        if let Some(rest) = keyword(body, "render") {
+            return Ok((TagKind::Render, rest));
+        }
+        return Err(format!("unknown directive `{{@{body}}}`; expected @html, @const, or @render"));
+    }
+
+    if let Some(body) = t.strip_prefix('#') {
+        let body = body.trim_start();
+        if let Some(rest) = keyword(body, "if") {
+            return Ok((TagKind::If, rest));
+        }
+        if let Some(rest) = keyword(body, "each") {
+            return Ok((TagKind::Each, rest));
+        }
+        if let Some(rest) = keyword(body, "snippet") {
+            return Ok((TagKind::Snippet, rest));
+        }
+        return Err(format!("unknown block `{{#{body}}}`; expected #if, #each, or #snippet"));
+    }
+
+    if let Some(body) = t.strip_prefix(':') {
+        let body = body.trim_start();
+        if let Some(rest) = keyword(body, "else") {
+            let rest = rest.trim_start();
+            if let Some(cond) = keyword(rest, "if") {
+                return Ok((TagKind::ElseIf, cond));
             }
-            Trim::All => {
-                let start_len = text_buf.trim_start().len();
-                let cut = text_buf.len() - start_len;
-                text_buf.drain(..cut);
+            if rest.is_empty() {
+                return Ok((TagKind::Else, String::new()));
+            }
+            return Err(format!("unexpected `{rest}` after `:else`"));
+        }
+        return Err(format!("unknown clause `{{:{body}}}`; expected :else or :else if"));
+    }
+
+    if let Some(body) = t.strip_prefix('/') {
+        let body = body.trim();
+        if matches!(body, "if" | "each" | "snippet") {
+            return Ok((TagKind::Close, body.to_string()));
+        }
+        return Err(format!("unknown closing tag `{{/{body}}}`"));
+    }
+
+    Ok((TagKind::Expr, t.to_string()))
+}
+
+/// If `s` begins with keyword `k` at a word boundary, return the trimmed
+/// remainder.
+fn keyword(s: &str, k: &str) -> Option<String> {
+    let rest = s.strip_prefix(k)?;
+    match rest.chars().next() {
+        None => Some(String::new()),
+        Some(c) if c.is_alphanumeric() || c == '_' => None,
+        Some(_) => Some(rest.trim().to_string()),
+    }
+}
+
+/// `i` points at an opening `"`. Return the index just past the closing quote
+/// (or end of input for an unterminated string).
+fn scan_string(src: &str, i: usize) -> usize {
+    let bytes = src.as_bytes();
+    let n = bytes.len();
+    let mut j = i + 1;
+    while j < n {
+        match bytes[j] {
+            b'\\' => j += 2,
+            b'"' => return j + 1,
+            _ => {
+                let ch = src[j..].chars().next().expect("char boundary");
+                j += ch.len_utf8();
             }
         }
     }
-    *pending_right = Trim::None;
-
-    if text_buf.is_empty() {
-        return;
-    }
-    nodes.push(Node::Text {
-        span: Span::new(start, end),
-        text: std::mem::take(text_buf),
-    });
+    n
 }
 
-fn trim_end_ws(text: &mut String) {
-    let len = text.trim_end().len();
-    text.truncate(len);
-}
+/// `i` points at a `'`. If it opens a char literal (`'x'`, `'\n'`, `'}'`), skip
+/// past it; otherwise it is a lifetime, so skip only the quote.
+fn scan_char(src: &str, i: usize) -> usize {
+    let bytes = src.as_bytes();
+    let n = bytes.len();
+    let mut j = i + 1;
 
-#[cfg(test)]
-impl Node {
-    fn span_for_test(&self) -> Span {
-        match self {
-            Node::Text { span, .. } => *span,
-            Node::Tag { span, .. } => *span,
+    if j < n && bytes[j] == b'\\' {
+        j += 2; // escape sequence
+        if j < n && bytes[j] == b'\'' {
+            return j + 1;
+        }
+    } else if j < n {
+        let ch = src[j..].chars().next().expect("char boundary");
+        let after = j + ch.len_utf8();
+        if after < n && bytes[after] == b'\'' {
+            return after + 1;
         }
     }
+
+    i + 1 // a lifetime, not a char literal
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn parse_default(src: &str) -> Vec<Node> {
-        parse(src, &ParseOptions::default()).unwrap().nodes
+    fn tags(src: &str) -> Vec<(TagKind, String)> {
+        parse(src)
+            .unwrap()
+            .nodes
+            .into_iter()
+            .filter_map(|n| match n {
+                Node::Tag { kind, code, .. } => Some((kind, code)),
+                _ => None,
+            })
+            .collect()
     }
 
-    fn text(span: (usize, usize), s: &str) -> Node {
-        Node::Text {
-            span: Span::new(span.0, span.1),
-            text: s.to_string(),
-        }
+    fn texts(src: &str) -> Vec<String> {
+        parse(src)
+            .unwrap()
+            .nodes
+            .into_iter()
+            .filter_map(|n| match n {
+                Node::Text { text, .. } => Some(text),
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
-    fn plain_text_is_one_node() {
+    fn plain_text() {
+        assert_eq!(texts("Hello, world!"), vec!["Hello, world!"]);
+        assert_eq!(tags("Hello, world!"), vec![]);
+    }
+
+    #[test]
+    fn expression_tag() {
         assert_eq!(
-            parse_default("Hello, world!"),
-            vec![text((0, 13), "Hello, world!")]
+            tags("Hello {self.name}!"),
+            vec![(TagKind::Expr, "self.name".to_string())]
         );
     }
 
     #[test]
-    fn empty_input_is_no_nodes() {
-        assert_eq!(parse_default(""), Vec::<Node>::new());
+    fn directives() {
+        assert_eq!(tags("{@html self.body}"), vec![(TagKind::Html, "self.body".into())]);
+        assert_eq!(tags("{@const x = 1}"), vec![(TagKind::Const, "x = 1".into())]);
+        assert_eq!(tags("{@render self.footer}"), vec![(TagKind::Render, "self.footer".into())]);
     }
 
     #[test]
-    fn escaped_expression_tag() {
-        let nodes = parse_default("Hello <%= self.name %>!");
-        assert_eq!(nodes.len(), 3);
-        assert_eq!(nodes[0], text((0, 6), "Hello "));
-        match &nodes[1] {
-            Node::Tag { kind, code, .. } => {
-                assert_eq!(*kind, TagKind::Escaped);
-                assert_eq!(code, "self.name");
-            }
-            other => panic!("expected tag, got {other:?}"),
-        }
-        assert_eq!(nodes[2], text((22, 23), "!"));
-    }
-
-    #[test]
-    fn all_tag_kinds() {
-        let nodes = parse_default("<%= a %><%- b %><%+ c %><% d %><%# e %>");
-        let kinds: Vec<TagKind> = nodes
-            .iter()
-            .filter_map(|n| match n {
-                Node::Tag { kind, .. } => Some(*kind),
-                _ => None,
-            })
-            .collect();
+    fn if_block() {
         assert_eq!(
-            kinds,
+            tags("{#if self.admin}A{:else if self.guest}G{:else}U{/if}"),
             vec![
-                TagKind::Escaped,
-                TagKind::Raw,
-                TagKind::Render,
-                TagKind::Statement,
-                TagKind::Comment,
+                (TagKind::If, "self.admin".into()),
+                (TagKind::ElseIf, "self.guest".into()),
+                (TagKind::Else, String::new()),
+                (TagKind::Close, "if".into()),
             ]
         );
     }
 
     #[test]
-    fn statement_spanning_multiple_tags() {
-        let src = "<% for x in xs { %><%= x %><% } %>";
-        let nodes = parse_default(src);
-        let codes: Vec<&str> = nodes
-            .iter()
-            .filter_map(|n| match n {
-                Node::Tag { code, .. } => Some(code.as_str()),
-                _ => None,
-            })
-            .collect();
-        assert_eq!(codes, vec!["for x in xs {", "x", "}"]);
+    fn each_block_with_and_without_index() {
+        assert_eq!(
+            tags("{#each &self.items as item}x{/each}"),
+            vec![
+                (TagKind::Each, "&self.items as item".into()),
+                (TagKind::Close, "each".into())
+            ]
+        );
+        assert_eq!(
+            tags("{#each &self.items as item, i}x{/each}")[0],
+            (TagKind::Each, "&self.items as item, i".into())
+        );
     }
 
     #[test]
-    fn literal_delimiter_escapes() {
-        let nodes = parse_default("a <%% b %%> c");
-        assert_eq!(nodes, vec![text((0, 13), "a <% b %> c")]);
+    fn snippet_block() {
+        assert_eq!(
+            tags("{#snippet row(item)}x{/snippet}"),
+            vec![
+                (TagKind::Snippet, "row(item)".into()),
+                (TagKind::Close, "snippet".into())
+            ]
+        );
     }
 
     #[test]
-    fn code_span_points_at_trimmed_code() {
-        let src = "<%=   self.name   %>";
-        let nodes = parse_default(src);
-        match &nodes[0] {
-            Node::Tag {
-                code, code_span, ..
-            } => {
-                assert_eq!(code, "self.name");
-                assert_eq!(code_span.slice(src), "self.name");
-            }
-            other => panic!("expected tag, got {other:?}"),
-        }
+    fn render_with_nested_braces() {
+        // The struct literal's braces must not close the tag early.
+        assert_eq!(
+            tags(r#"{@render Card { title: "hi".into() }}"#),
+            vec![(TagKind::Render, r#"Card { title: "hi".into() }"#.into())]
+        );
     }
 
     #[test]
-    fn multibyte_text_is_preserved() {
-        let nodes = parse_default("héllo <%= x %> 😀");
-        assert_eq!(nodes.len(), 3);
-        assert_eq!(nodes[2], text((15, 20), " 😀"));
+    fn string_with_brace_does_not_close_tag() {
+        assert_eq!(tags(r#"{ "}" }"#), vec![(TagKind::Expr, r#""}""#.into())]);
     }
 
     #[test]
-    fn unclosed_tag_is_an_error() {
-        let err = parse("Hello <%= self.name ", &ParseOptions::default()).unwrap_err();
+    fn char_literal_brace() {
+        assert_eq!(tags("{ f('}') }"), vec![(TagKind::Expr, "f('}')".into())]);
+    }
+
+    #[test]
+    fn html_comment_passes_through() {
+        assert_eq!(texts("a<!-- {not a tag} -->b"), vec!["a<!-- {not a tag} -->b"]);
+        assert_eq!(tags("a<!-- {not a tag} -->b"), vec![]);
+    }
+
+    #[test]
+    fn unclosed_tag_errors() {
+        let err = parse("Hello {self.name").unwrap_err();
         assert!(err.message.contains("unclosed"));
         assert_eq!(err.span.start, 6);
     }
 
     #[test]
-    fn whitespace_control_disabled_by_default() {
-        // With trim off, `-%>` is not special; the `-` stays in the code.
-        let nodes = parse_default("<% x -%>\ntail");
-        match &nodes[0] {
-            Node::Tag { code, .. } => assert_eq!(code, "x -"),
-            other => panic!("expected tag, got {other:?}"),
-        }
+    fn unknown_block_errors() {
+        assert!(parse("{#wat}x{/wat}").unwrap_err().message.contains("unknown block"));
     }
 
     #[test]
-    fn whitespace_control_trims_when_enabled() {
-        let opts = ParseOptions { trim: true };
-        let nodes = parse("<% x -%>\ntail", &opts).unwrap().nodes;
-        // Newline after `-%>` is slurped; `x` is the code.
-        match &nodes[0] {
-            Node::Tag { code, .. } => assert_eq!(code, "x"),
-            other => panic!("expected tag, got {other:?}"),
-        }
-        assert_eq!(
-            nodes[1],
-            Node::Text {
-                span: nodes[1].span_for_test(),
-                text: "tail".to_string(),
-            }
-        );
-    }
-
-    #[test]
-    fn left_trim_slurps_preceding_whitespace() {
-        let opts = ParseOptions { trim: true };
-        let nodes = parse("line\n   <%_ x %>", &opts).unwrap().nodes;
-        match &nodes[0] {
-            Node::Text { text, .. } => assert_eq!(text, "line"),
-            other => panic!("expected text, got {other:?}"),
-        }
+    fn multibyte_text() {
+        assert_eq!(texts("héllo {x} 😀"), vec!["héllo ", " 😀"]);
     }
 }

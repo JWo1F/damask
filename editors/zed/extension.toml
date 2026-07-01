@@ -10,8 +10,8 @@ repository = "https://github.com/jwo1f/rsc"
 # from git, so publish that directory as its own repository and point `rev` at a
 # commit. See README.md for the local-development alternative.
 [grammars.rsc]
-repository = "https://github.com/jwo1f/tree-sitter-rsc"
-rev = "0000000000000000000000000000000000000000"
+repository = "file:///Users/jwo1f/.cache/zed-rsc/tree-sitter-rsc"
+rev = "ccc9cbab9eb898519f511ffbf0101934afa67115"
 
 [language_servers.rsc-lsp]
 name = "RSC Language Server"

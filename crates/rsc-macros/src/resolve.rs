@@ -1,14 +1,12 @@
-use rsc_template::HostLang;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
-/// A located template: its absolute path, contents, and host language.
+/// A located template: its absolute path and contents.
 #[derive(Debug)]
 pub struct Resolved {
     pub path: PathBuf,
     pub source: String,
-    pub host: HostLang,
 }
 
 /// Resolve the template for a component.
@@ -77,7 +75,7 @@ pub fn resolve(
         1 => read_resolved(matches.into_iter().next().unwrap()),
         0 => Err(format!(
             "no template found for component `{name_snake}`: expected a file named \
-             `{name_snake}.<lang>.rsc` (e.g. `{name_snake}.html.rsc`) next to the struct{}. \
+             `{name_snake}.rsc` next to the struct{}. \
              Create one, or set `#[template(path = \"…\")]`.",
             source_dir
                 .as_ref()
@@ -166,24 +164,13 @@ fn basename_matches(path: &Path, name_snake: &str) -> bool {
 fn read_resolved(path: PathBuf) -> Result<Resolved, String> {
     let source = std::fs::read_to_string(&path)
         .map_err(|e| format!("failed to read template `{}`: {e}", path.display()))?;
-    let host = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .map(HostLang::from_filename)
-        .unwrap_or(HostLang::Plain);
-    Ok(Resolved { path, source, host })
+    Ok(Resolved { path, source })
 }
 
-/// The component-basename of a template file: its name with `.rsc` and the
-/// middle language extension removed. `greeting.html.rsc` → `greeting`,
-/// `notes.rsc` → `notes`. Returns `None` if the name is not a `.rsc` file.
+/// The component-basename of a template file: its name without the `.rsc`
+/// extension (`greeting.rsc` → `greeting`). Returns `None` for non-`.rsc` files.
 pub fn component_basename(file: &str) -> Option<String> {
-    let stem = file.strip_suffix(".rsc")?;
-    let base = match stem.rsplit_once('.') {
-        Some((base, _lang)) => base,
-        None => stem,
-    };
-    Some(base.to_string())
+    file.strip_suffix(".rsc").map(str::to_string)
 }
 
 /// Recursively list every `.rsc` file under `root`, memoized per crate compile.
@@ -232,13 +219,9 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
 
     #[test]
-    fn basename_strips_language_and_rsc() {
-        assert_eq!(
-            component_basename("greeting.html.rsc").as_deref(),
-            Some("greeting")
-        );
-        assert_eq!(component_basename("app.js.rsc").as_deref(), Some("app"));
-        assert_eq!(component_basename("notes.rsc").as_deref(), Some("notes"));
+    fn basename_strips_rsc() {
+        assert_eq!(component_basename("greeting.rsc").as_deref(), Some("greeting"));
+        assert_eq!(component_basename("my_button.rsc").as_deref(), Some("my_button"));
         assert_eq!(component_basename("not-a-template.txt"), None);
     }
 
@@ -257,11 +240,10 @@ mod tests {
         let dir = unique_dir();
         let rs = dir.join("widget.rs");
         std::fs::write(&rs, "// component").unwrap();
-        std::fs::write(dir.join("widget.html.rsc"), "hi <%= self.x %>").unwrap();
+        std::fs::write(dir.join("widget.rsc"), "hi {self.x}").unwrap();
 
         let resolved = resolve(Some(&rs), "widget", None).expect("should resolve");
-        assert_eq!(resolved.source, "hi <%= self.x %>");
-        assert_eq!(resolved.host.renderer_type(), "HtmlRenderer");
+        assert_eq!(resolved.source, "hi {self.x}");
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -271,11 +253,10 @@ mod tests {
         let dir = unique_dir();
         let rs = dir.join("widget.rs");
         std::fs::write(&rs, "// component").unwrap();
-        std::fs::write(dir.join("custom.css.rsc"), ".x {}").unwrap();
+        std::fs::write(dir.join("custom.rsc"), "<b>{self.x}</b>").unwrap();
 
-        let resolved = resolve(Some(&rs), "widget", Some("custom.css.rsc")).expect("resolves");
-        assert_eq!(resolved.source, ".x {}");
-        assert_eq!(resolved.host.renderer_type(), "CssRenderer");
+        let resolved = resolve(Some(&rs), "widget", Some("custom.rsc")).expect("resolves");
+        assert_eq!(resolved.source, "<b>{self.x}</b>");
 
         std::fs::remove_dir_all(&dir).ok();
     }

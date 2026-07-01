@@ -7,5 +7,5 @@ pub mod custom_renderer;
 pub mod greeting;
 pub mod layout;
 pub mod list;
+pub mod menu;
 pub mod panel;
-pub mod theme;

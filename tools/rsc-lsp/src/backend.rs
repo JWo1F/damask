@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
-use rsc_template::{LineIndex, ParseOptions, parse};
+use rsc_template::{LineIndex, parse};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, jsonrpc::Result};
 
@@ -28,7 +28,7 @@ impl Backend {
 
     /// Parse the document and publish parse diagnostics (or clear them).
     async fn publish_diagnostics(&self, uri: Url, text: &str) {
-        let diagnostics = match parse(text, &ParseOptions::default()) {
+        let diagnostics = match parse(text) {
             Ok(_) => Vec::new(),
             Err(err) => {
                 let index = LineIndex::new(text);

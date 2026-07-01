@@ -8,8 +8,8 @@ use rsc_showcase::custom_renderer::UpcaseRenderer;
 use rsc_showcase::greeting::Greeting;
 use rsc_showcase::layout::Layout;
 use rsc_showcase::list::List;
+use rsc_showcase::menu::Menu;
 use rsc_showcase::panel::Panel;
-use rsc_showcase::theme::Theme;
 
 #[test]
 fn escaped_interpolation() {
@@ -21,7 +21,7 @@ fn escaped_interpolation() {
 
 #[test]
 fn composition_same_buffer_and_string_path_agree() {
-    // `Card` uses `<%+ self.button %>`; `Panel` uses `<%- self.button.render() %>`.
+    // `Card` uses `{@render self.button}`; `Panel` uses `{@html self.button.render()}`.
     // They wrap the button identically, so their output must match.
     let card = Card {
         button: Button { label: "OK".into() },
@@ -69,12 +69,16 @@ fn empty_loop_renders_wrapper_only() {
 }
 
 #[test]
-fn css_renderer_does_not_html_escape() {
-    // In a `.css.rsc`, `<%= … %>` must not turn `>` into `&gt;`.
-    let theme = Theme {
-        accent: "hsl(0 100% > 50%)".into(),
+fn snippet_render_prop() {
+    // {#snippet item(label)} defines a parameterized fragment; {@render item(label)}
+    // invokes it per element.
+    let menu = Menu {
+        labels: vec!["Home".into(), "A<B".into()],
     };
-    assert_eq!(theme.render(), ".btn { color: hsl(0 100% > 50%); }");
+    assert_eq!(
+        menu.render(),
+        r#"<ul><li class="item">Home</li><li class="item">A&lt;B</li></ul>"#
+    );
 }
 
 #[test]

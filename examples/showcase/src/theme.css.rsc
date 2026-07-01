@@ -1,1 +1,0 @@
-.btn { color: <%= self.accent %>; }

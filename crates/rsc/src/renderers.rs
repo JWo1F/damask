@@ -146,29 +146,11 @@ macro_rules! builtin_renderer {
 }
 
 builtin_renderer! {
-    /// Renderer for `*.html.rsc` templates. `<%= … %>` HTML-escapes.
-    HtmlRenderer, escape_html
-}
-
-builtin_renderer! {
-    /// Renderer for `*.js.rsc` templates.
+    /// The default renderer: `{ … }` HTML-escapes, `{@html … }` does not.
     ///
-    /// Pass-through by default: correct JavaScript escaping depends on the
-    /// surrounding context (string literal, template literal, identifier), so
-    /// RSC does not guess. Implement a custom [`Renderer`] for context-aware
-    /// escaping.
-    JsRenderer, escape_none
-}
-
-builtin_renderer! {
-    /// Renderer for `*.css.rsc` templates. Pass-through by default.
-    CssRenderer, escape_none
-}
-
-builtin_renderer! {
-    /// Renderer for `*.rsc` templates with no recognized host language.
-    /// Pass-through: `<%= … %>` and `<%- … %>` behave identically.
-    PlainRenderer, escape_none
+    /// RSC templates are HTML, so this is the renderer every component uses
+    /// unless driven by a custom one.
+    HtmlRenderer, escape_html
 }
 
 #[cfg(test)]
@@ -202,8 +184,8 @@ mod tests {
     }
 
     #[test]
-    fn plain_renderer_never_escapes() {
-        let mut r = PlainRenderer::new();
+    fn no_escape_policy_passes_through() {
+        let mut r = StringRenderer::with_escape(escape_none);
         r.write_escaped(&"<x>");
         assert_eq!(Box::new(r).finish(), "<x>");
     }

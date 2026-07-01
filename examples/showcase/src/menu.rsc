@@ -1,0 +1,1 @@
+{#snippet item(label)}<li class="item">{label}</li>{/snippet}<ul>{#each &self.labels as label}{@render item(label)}{/each}</ul>

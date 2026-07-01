@@ -55,11 +55,7 @@ fn sibling_rs_files(dir: &Path, basename: &str) -> Vec<PathBuf> {
 }
 
 fn component_basename(file: &str) -> Option<String> {
-    let stem = file.strip_suffix(".rsc")?;
-    Some(match stem.rsplit_once('.') {
-        Some((base, _lang)) => base.to_string(),
-        None => stem.to_string(),
-    })
+    file.strip_suffix(".rsc").map(str::to_string)
 }
 
 /// Parse `rs` and, if it defines a struct whose snake-cased name is `basename`,

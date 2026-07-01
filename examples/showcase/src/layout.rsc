@@ -1,0 +1,1 @@
+<main>{@render self.children}</main>

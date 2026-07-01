@@ -1,7 +1,7 @@
 use crate::resolve::resolve;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use rsc_template::{Node, ParseOptions, TagKind, Template, to_snake_case};
+use rsc_template::{Node, TagKind, Template, to_snake_case};
 use std::path::PathBuf;
 use syn::{Attribute, DeriveInput, LitStr};
 
@@ -22,7 +22,7 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
         Err(msg) => return compile_error(name.span(), &msg),
     };
 
-    let template = match rsc_template::parse(&resolved.source, &ParseOptions::default()) {
+    let template = match rsc_template::parse(&resolved.source) {
         Ok(t) => t,
         Err(e) => {
             return compile_error(
@@ -59,7 +59,6 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
     };
 
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
-    let renderer = syn::Ident::new(resolved.host.renderer_type(), Span::call_site());
     let path_lit = LitStr::new(&resolved.path.to_string_lossy(), Span::call_site());
 
     quote! {
@@ -69,7 +68,7 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
 
         impl #impl_generics ::rsc::Component for #name #ty_generics #where_clause {
             fn default_renderer(&self) -> ::std::boxed::Box<dyn ::rsc::Renderer> {
-                ::std::boxed::Box::new(::rsc::renderers::#renderer::new())
+                ::std::boxed::Box::new(::rsc::renderers::HtmlRenderer::new())
             }
         }
 
@@ -110,10 +109,14 @@ fn extract_template_path(attrs: &[Attribute]) -> syn::Result<Option<String>> {
 }
 
 /// Assemble the body of `render_into` as a string of Rust source.
+///
+/// Every tag becomes Rust that writes into `__rsc`; blocks (`{#if}`, `{#each}`,
+/// `{#snippet}`) open/close ordinary Rust braces, so the whole thing parses as
+/// one balanced block.
 fn build_render_body(template: &Template) -> Result<String, String> {
-    // Bring `Component`/`Render` into scope (unnamed) so `<%- child.render() %>`
-    // and other trait-method calls in a template resolve without the author
-    // having to import the traits themselves.
+    // Bring `Component`/`Render` into scope (unnamed) so `child.render()` and
+    // other trait-method calls in a template resolve without the author having
+    // to import the traits themselves.
     let mut body =
         String::from("{\n#[allow(unused_imports)] use ::rsc::{Component as _, Render as _};\n");
     for node in &template.nodes {
@@ -123,24 +126,43 @@ fn build_render_body(template: &Template) -> Result<String, String> {
                 body.push_str(&format!("__rsc.write_raw({text:?});\n"));
             }
             Node::Tag { kind, code, .. } => match kind {
-                TagKind::Comment => {}
-                TagKind::Escaped => {
-                    require_expr(code, "<%= … %>")?;
+                TagKind::Expr => {
+                    require_expr(code, "{ … }")?;
                     body.push_str(&format!("__rsc.write_escaped(&({code}));\n"));
                 }
-                TagKind::Raw => {
-                    require_expr(code, "<%- … %>")?;
+                TagKind::Html => {
+                    require_expr(code, "{@html … }")?;
                     body.push_str(&format!("__rsc.write_display_raw(&({code}));\n"));
                 }
+                TagKind::Const => {
+                    require_expr(code, "{@const … }")?;
+                    body.push_str(&format!("let {code};\n"));
+                }
                 TagKind::Render => {
-                    require_expr(code, "<%+ … %>")?;
+                    require_expr(code, "{@render … }")?;
                     body.push_str(&format!(
                         "::rsc::Render::render_into(&({code}), &mut *__rsc);\n"
                     ));
                 }
-                TagKind::Statement => {
-                    body.push_str(code);
-                    body.push('\n');
+                TagKind::If => {
+                    require_expr(code, "{#if … }")?;
+                    body.push_str(&format!("if {code} {{\n"));
+                }
+                TagKind::ElseIf => {
+                    require_expr(code, "{:else if … }")?;
+                    body.push_str(&format!("}} else if {code} {{\n"));
+                }
+                TagKind::Else => body.push_str("} else {\n"),
+                TagKind::Each => body.push_str(&translate_each(code)?),
+                TagKind::Snippet => body.push_str(&translate_snippet(code)?),
+                TagKind::Close => {
+                    // A snippet is a closure passed to `fragment(…)`, so its
+                    // close must also end the call and the `let`.
+                    if code == "snippet" {
+                        body.push_str("});\n");
+                    } else {
+                        body.push_str("}\n");
+                    }
                 }
             },
         }
@@ -149,9 +171,63 @@ fn build_render_body(template: &Template) -> Result<String, String> {
     Ok(body)
 }
 
+/// `{#each EXPR as PAT}` → `for PAT in EXPR {`, and
+/// `{#each EXPR as PAT, IDX}` → `for (IDX, PAT) in (EXPR).into_iter().enumerate() {`.
+fn translate_each(code: &str) -> Result<String, String> {
+    let (expr, binding) = code.split_once(" as ").ok_or_else(|| {
+        format!("`{{#each {code}}}` needs `as`: `{{#each EXPR as pattern}}`")
+    })?;
+    let expr = expr.trim();
+    let binding = binding.trim();
+    if expr.is_empty() || binding.is_empty() {
+        return Err(format!("malformed `{{#each {code}}}`"));
+    }
+
+    // A trailing `, ident` is the index form; anything else (e.g. a tuple
+    // pattern `(a, b)`) is treated as the whole pattern.
+    if let Some((pat, idx)) = binding.rsplit_once(',') {
+        let (pat, idx) = (pat.trim(), idx.trim());
+        let is_ident = !idx.is_empty()
+            && idx.chars().all(|c| c.is_alphanumeric() || c == '_')
+            && idx.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_');
+        if is_ident && !pat.is_empty() {
+            return Ok(format!(
+                "for ({idx}, {pat}) in ({expr}).into_iter().enumerate() {{\n"
+            ));
+        }
+    }
+    Ok(format!("for {binding} in {expr} {{\n"))
+}
+
+/// `{#snippet name(params)}` → a `let` binding of a fragment closure. With
+/// params it becomes a function returning a fragment (invoked as `name(args)`).
+fn translate_snippet(code: &str) -> Result<String, String> {
+    let open = code
+        .find('(')
+        .ok_or_else(|| format!("`{{#snippet {code}}}` needs `name(params)`"))?;
+    let close = code
+        .rfind(')')
+        .ok_or_else(|| format!("`{{#snippet {code}}}` needs `name(params)`"))?;
+    let name = code[..open].trim();
+    let params = code[open + 1..close].trim();
+    if name.is_empty() {
+        return Err(format!("`{{#snippet {code}}}` needs a name"));
+    }
+
+    if params.is_empty() {
+        Ok(format!(
+            "let {name} = ::rsc::fragment(|__rsc: &mut dyn ::rsc::Renderer| {{\n"
+        ))
+    } else {
+        Ok(format!(
+            "let {name} = |{params}| ::rsc::fragment(move |__rsc: &mut dyn ::rsc::Renderer| {{\n"
+        ))
+    }
+}
+
 fn require_expr(code: &str, tag: &str) -> Result<(), String> {
     if code.trim().is_empty() {
-        Err(format!("empty expression in `{tag}` tag"))
+        Err(format!("empty expression in `{tag}`"))
     } else {
         Ok(())
     }
@@ -163,39 +239,63 @@ fn compile_error(span: Span, msg: &str) -> TokenStream {
 
 #[cfg(test)]
 mod tests {
-    use super::build_render_body;
-    use rsc_template::{Span, Template};
+    use super::{build_render_body, translate_each, translate_snippet};
 
-    #[test]
-    fn body_renders_text_and_expressions() {
-        let template = rsc_template::parse("Hi <%= self.name %>!", &Default::default()).unwrap();
-        let body = build_render_body(&template).unwrap();
-        assert!(body.contains("__rsc.write_raw(\"Hi \")"));
-        assert!(body.contains("__rsc.write_escaped(&(self.name))"));
-        assert!(body.contains("__rsc.write_raw(\"!\")"));
+    fn body(src: &str) -> String {
+        build_render_body(&rsc_template::parse(src).unwrap()).unwrap()
     }
 
     #[test]
-    fn empty_expression_tag_is_an_error() {
-        use rsc_template::{Node, TagKind};
-        let template = Template {
-            nodes: vec![Node::Tag {
-                span: Span::new(0, 6),
-                kind: TagKind::Escaped,
-                code: "   ".to_string(),
-                code_span: Span::new(3, 3),
-            }],
-        };
-        let err = build_render_body(&template).unwrap_err();
+    fn text_and_expression() {
+        let b = body("Hi {self.name}!");
+        assert!(b.contains(r#"__rsc.write_raw("Hi ")"#));
+        assert!(b.contains("__rsc.write_escaped(&(self.name))"));
+        assert!(b.contains(r#"__rsc.write_raw("!")"#));
+    }
+
+    #[test]
+    fn directives_and_if() {
+        assert!(body("{@html self.body}").contains("write_display_raw(&(self.body))"));
+        assert!(body("{@const x = 1}").contains("let x = 1;"));
+        assert!(body("{@render self.footer}").contains("::rsc::Render::render_into(&(self.footer)"));
+        let b = body("{#if self.a}x{:else}y{/if}");
+        assert!(b.contains("if self.a {"));
+        assert!(b.contains("} else {"));
+    }
+
+    #[test]
+    fn each_translation() {
+        assert_eq!(
+            translate_each("&self.items as item").unwrap(),
+            "for item in &self.items {\n"
+        );
+        assert_eq!(
+            translate_each("&self.items as item, i").unwrap(),
+            "for (i, item) in (&self.items).into_iter().enumerate() {\n"
+        );
+        // A tuple pattern is not mistaken for the index form.
+        assert_eq!(
+            translate_each("self.pairs.iter() as (a, b)").unwrap(),
+            "for (a, b) in self.pairs.iter() {\n"
+        );
+    }
+
+    #[test]
+    fn snippet_translation() {
+        assert_eq!(
+            translate_snippet("hero()").unwrap(),
+            "let hero = ::rsc::fragment(|__rsc: &mut dyn ::rsc::Renderer| {\n"
+        );
+        assert!(
+            translate_snippet("row(item: &Product)")
+                .unwrap()
+                .starts_with("let row = |item: &Product| ::rsc::fragment(move")
+        );
+    }
+
+    #[test]
+    fn empty_expression_is_an_error() {
+        let err = build_render_body(&rsc_template::parse("{ }").unwrap()).unwrap_err();
         assert!(err.contains("empty expression"), "unexpected: {err}");
-    }
-
-    #[test]
-    fn comment_tag_emits_nothing() {
-        let template = rsc_template::parse("a<%# note %>b", &Default::default()).unwrap();
-        let body = build_render_body(&template).unwrap();
-        assert!(body.contains("write_raw(\"a\")"));
-        assert!(body.contains("write_raw(\"b\")"));
-        assert!(!body.contains("note"));
     }
 }

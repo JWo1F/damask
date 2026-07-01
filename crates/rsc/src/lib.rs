@@ -35,7 +35,7 @@ use std::fmt::Display;
 
 pub mod renderers;
 
-pub use renderers::{CssRenderer, HtmlRenderer, JsRenderer, PlainRenderer};
+pub use renderers::HtmlRenderer;
 
 /// Derive macro that generates a [`Component`] impl from a struct's paired
 /// `.rsc` template. Shares its name with the trait (like `serde::Serialize`), so
@@ -147,9 +147,7 @@ pub trait Component: Render {
 ///
 /// `Component` here is both the trait and its derive macro.
 pub mod prelude {
-    pub use crate::renderers::{
-        CssRenderer, HtmlRenderer, JsRenderer, PlainRenderer, StringRenderer,
-    };
+    pub use crate::renderers::{HtmlRenderer, StringRenderer};
     pub use crate::{Component, Render, Renderer, fragment};
 }
 

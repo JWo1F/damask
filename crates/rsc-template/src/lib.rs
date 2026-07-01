@@ -1,35 +1,36 @@
 //! Template parser for **RSC** (Rust Smart Components).
 //!
-//! This crate turns a `.rsc` template into a flat list of [`Node`]s. It is the
-//! single source of truth for template syntax: both the `component!` macro
-//! (code generation) and the language server (highlighting / diagnostics /
-//! completion) depend on it, so the two can never disagree about what a
-//! template means.
+//! RSC templates are HTML with a `{ … }` tag syntax. This crate turns a
+//! `.rsc` template into a flat list of [`Node`]s — literal text and classified
+//! tags — recording byte spans so callers can map results back to source. It is
+//! the single source of truth for template syntax, shared by the `Component`
+//! derive (code generation) and the language server.
 //!
-//! The parser is intentionally small and dependency-free. It does **not** parse
-//! the Rust inside a tag or the host language outside one — it only splits a
-//! template into literal text and tags, recording byte spans so callers can map
-//! results back to source positions.
+//! It does **not** parse the Rust inside a tag; it only splits the template into
+//! text and tags and classifies each tag.
 //!
 //! # Tags
 //!
-//! | Syntax        | [`TagKind`]        | Meaning                                        |
-//! |---------------|--------------------|------------------------------------------------|
-//! | `<%= expr %>` | [`TagKind::Escaped`]   | write `expr` (escaped per the renderer)    |
-//! | `<%- expr %>` | [`TagKind::Raw`]       | write `expr` (unescaped `Display`)         |
-//! | `<%+ expr %>` | [`TagKind::Render`]    | render a child component into the output   |
-//! | `<% stmt %>`  | [`TagKind::Statement`] | splice Rust statement(s)                   |
-//! | `<%# text %>` | [`TagKind::Comment`]   | dropped entirely                           |
+//! | Syntax                     | [`TagKind`]           | Meaning                        |
+//! |----------------------------|-----------------------|--------------------------------|
+//! | `{ expr }`                 | [`TagKind::Expr`]     | write `expr`, HTML-escaped     |
+//! | `{@html expr}`             | [`TagKind::Html`]     | write `expr` raw               |
+//! | `{@const x = e}`           | [`TagKind::Const`]    | a local `let` binding          |
+//! | `{@render expr}`           | [`TagKind::Render`]   | render a child / snippet       |
+//! | `{#if c}`                  | [`TagKind::If`]       | conditional open               |
+//! | `{:else if c}` / `{:else}` | [`TagKind::ElseIf`] / [`TagKind::Else`] | conditional clause |
+//! | `{#each E as p[, i]}`       | [`TagKind::Each`]     | loop open                      |
+//! | `{#snippet name(params)}`  | [`TagKind::Snippet`]  | define a reusable fragment     |
+//! | `{/if}` `{/each}` `{/snippet}` | [`TagKind::Close`] | block close                    |
 //!
-//! `<%%` and `%%>` are literal escapes for `<%` and `%>` in text.
+//! Literal braces are written as expressions (`{"{"}`); `<!-- … -->` comments
+//! pass through as text.
 
-mod host;
 mod line_index;
 mod parser;
 
-pub use host::HostLang;
 pub use line_index::LineIndex;
-pub use parser::{ParseError, ParseOptions, parse};
+pub use parser::{ParseError, in_tag, parse};
 
 /// A half-open byte range `[start, end)` into the template source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -44,9 +45,6 @@ impl Span {
     }
 
     /// The slice of `src` this span refers to.
-    ///
-    /// Spans are always produced from the `src` that was parsed, so this cannot
-    /// panic for a span obtained from [`parse`] over the same string.
     pub fn slice<'a>(&self, src: &'a str) -> &'a str {
         &src[self.start..self.end]
     }
@@ -60,48 +58,52 @@ impl Span {
     }
 }
 
-/// The kind of a `<% … %>` tag.
+/// The kind of a `{ … }` tag.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TagKind {
-    /// `<%= expr %>` — write `expr` applying the renderer's escaping policy.
-    Escaped,
-    /// `<%- expr %>` — write `expr` verbatim (raw `Display`).
-    Raw,
-    /// `<%+ expr %>` — render a child [`Component`] into the current output.
-    ///
-    /// [`Component`]: https://docs.rs/rsc
+    /// `{ expr }` — write `expr`, HTML-escaped.
+    Expr,
+    /// `{@html expr}` — write `expr` verbatim.
+    Html,
+    /// `{@const name = expr}` — a local `let` binding for the enclosing block.
+    Const,
+    /// `{@render expr}` — render a child component or snippet into the output.
     Render,
-    /// `<% stmt %>` — splice Rust statement(s) into the generated body.
-    Statement,
-    /// `<%# text %>` — a comment; emits nothing.
-    Comment,
+    /// `{#if cond}` — open a conditional.
+    If,
+    /// `{:else if cond}` — conditional continuation.
+    ElseIf,
+    /// `{:else}` — conditional fallthrough.
+    Else,
+    /// `{#each expr as pat[, index]}` — open a loop.
+    Each,
+    /// `{#snippet name(params)}` — define a reusable fragment.
+    Snippet,
+    /// `{/if}`, `{/each}`, `{/snippet}` — close a block. `code` holds the keyword.
+    Close,
 }
 
 impl TagKind {
-    /// `true` for tags whose body is a Rust *expression* (`<%=`, `<%-`, `<%+`).
-    pub fn is_expression(self) -> bool {
-        matches!(self, TagKind::Escaped | TagKind::Raw | TagKind::Render)
+    /// Whether this tag opens a block that must be closed (`{#…}`).
+    pub fn opens_block(self) -> bool {
+        matches!(self, TagKind::If | TagKind::Each | TagKind::Snippet)
     }
 }
 
 /// A single piece of a parsed template.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
-    /// Literal host-language text (with `<%%`/`%%>` escapes already resolved).
-    Text {
-        /// Span of the original source (before escape resolution).
-        span: Span,
-        /// The literal text to emit.
-        text: String,
-    },
-    /// A `<% … %>` tag.
+    /// Literal HTML text.
+    Text { span: Span, text: String },
+    /// A `{ … }` tag.
     Tag {
-        /// Span of the whole tag, delimiters included.
+        /// Span of the whole tag, braces included.
         span: Span,
         kind: TagKind,
-        /// The (whitespace-trimmed) Rust/comment source between the delimiters.
+        /// The meaningful inner content — sigil and block keyword stripped.
+        /// For [`TagKind::Close`] it is the keyword (`if` / `each` / `snippet`).
         code: String,
-        /// Span of `code` within the source (delimiters excluded).
+        /// Span of `code` within the source.
         code_span: Span,
     },
 }
@@ -120,9 +122,9 @@ impl Template {
 }
 
 /// Convert a `PascalCase` component name to the `snake_case` used for its
-/// template's file-name convention (`HTMLPage` → `html_page`).
+/// template's file name (`HTMLPage` → `html_page`).
 ///
-/// Shared by the `component` derive (name → template file) and the language
+/// Shared by the `Component` derive (name → template file) and the language
 /// server (template file → struct name), so the two agree on pairing.
 pub fn to_snake_case(s: &str) -> String {
     let chars: Vec<char> = s.chars().collect();
