@@ -1,42 +1,51 @@
 /**
  * Tree-sitter grammar for RSC (Rust Smart Components) templates.
  *
- * It recognizes the tag structure only — it does not parse the Rust inside a
- * tag or the host language outside one. Those are handled by injection queries
- * (`injections.scm`), which is why `code` / `comment_text` / `content` are
- * exposed as dedicated nodes.
+ * RSC templates are HTML with brace `{ … }` tags. This grammar recognizes
+ * the tag structure — balancing nested braces and respecting string/char
+ * literals so struct literals inside `{@render Card { … }}` don't close the tag
+ * early — and exposes the tag `code` for Rust injection (see injections.scm). It
+ * does not parse the Rust itself or the surrounding HTML.
+ *
+ * Text between tags is one contiguous run (so injected HTML sees whole tags),
+ * including `<!-- … -->` comments, which the injected HTML grammar highlights.
+ * The one edge this doesn't handle: a `{` inside an HTML comment is still read
+ * as a tag.
  */
 module.exports = grammar({
   name: 'rsc',
 
-  // Template whitespace is significant (it becomes output), so nothing is
-  // skipped between tokens.
   extras: () => [],
 
   rules: {
     document: $ => repeat($._node),
 
-    _node: $ => choice(
-      $.comment_tag,   // <%# … %>  (longest opener first so it wins the lexer)
-      $.output_tag,    // <%= … %>
-      $.raw_tag,       // <%- … %>
-      $.render_tag,    // <%+ … %>
-      $.code_tag,      // <%  … %>
-      $.content,       // literal host-language text
+    _node: $ => choice($.tag, $.text),
+
+    tag: $ => seq(
+      field('open', $.tag_open),
+      optional($.code),
+      field('close', alias('}', $.tag_delimiter)),
     ),
 
-    output_tag: $ => seq(alias('<%=', $.tag_delimiter), optional($.code), alias('%>', $.tag_delimiter)),
-    raw_tag:    $ => seq(alias('<%-', $.tag_delimiter), optional($.code), alias('%>', $.tag_delimiter)),
-    render_tag: $ => seq(alias('<%+', $.tag_delimiter), optional($.code), alias('%>', $.tag_delimiter)),
-    code_tag:   $ => seq(alias('<%',  $.tag_delimiter), optional($.code), alias('%>', $.tag_delimiter)),
-    comment_tag: $ => seq(alias('<%#', $.tag_delimiter), optional($.comment_text), alias('%>', $.tag_delimiter)),
+    // Longest-match ordering so `{#`, `{@`, `{:`, `{/` win over a bare `{`.
+    tag_open: () => alias(token(choice('{#', '{@', '{:', '{/', '{')), 'tag_delimiter'),
 
-    // Everything up to the next `%>` (matches the parser's "first %> closes").
-    code: () => token(/([^%]|%[^>])+/),
-    comment_text: () => token(/([^%]|%[^>])+/),
+    // Balanced tag content: text, nested brace groups, and literals.
+    code: $ => repeat1(choice(
+      $._code_text,
+      $._braces,
+      $.string,
+      $.char,
+      $.lifetime,
+    )),
+    _braces: $ => seq('{', optional($.code), '}'),
+    _code_text: () => token(prec(-1, /[^{}"']+/)),
+    string: () => token(/"([^"\\]|\\.)*"/),
+    char: () => token(/'([^'\\]|\\.)'/),
+    lifetime: () => token(/'[a-zA-Z_][a-zA-Z0-9_]*/),
 
-    // A run of text that is not the start of a tag: any non-`<`, or a `<` not
-    // followed by `%`.
-    content: () => token(prec(-1, /([^<]|<[^%])+/)),
+    // HTML text: everything up to the next tag.
+    text: () => token(prec(-2, /[^{]+/)),
   },
 });

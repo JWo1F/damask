@@ -7,52 +7,75 @@ Hello, world!
 ---
 
 (document
-  (content))
+  (text))
 
 ==================
-escaped output tag
+expression tag
 ==================
 
-Hello <%= self.name %>!
+Hello {self.name}!
 
 ---
 
 (document
-  (content)
-  (output_tag
-    (tag_delimiter)
-    (code)
+  (text)
+  (tag (tag_open) (code) (tag_delimiter))
+  (text))
+
+==================
+directives
+==================
+
+{@html self.body}{@render self.footer}
+
+---
+
+(document
+  (text)
+  (tag (tag_open) (code) (tag_delimiter))
+  (tag (tag_open) (code) (tag_delimiter))
+  (text))
+
+==================
+each block
+==================
+
+{#each &self.items as item}<li>{item}</li>{/each}
+
+---
+
+(document
+  (text)
+  (tag (tag_open) (code) (tag_delimiter))
+  (text)
+  (tag (tag_open) (code) (tag_delimiter))
+  (text)
+  (tag (tag_open) (code) (tag_delimiter))
+  (text))
+
+==================
+render with nested braces and a brace in a string
+==================
+
+{@render Card { title: "x }".into() }}
+
+---
+
+(document
+  (text)
+  (tag
+    (tag_open)
+    (code (code (string)))
     (tag_delimiter))
-  (content))
+  (text))
 
 ==================
-all tag kinds
+html comment is plain text
 ==================
 
-<%= a %><%- b %><%+ c %><% d %><%# e %>
+a<!-- a comment -->b
 
 ---
 
 (document
-  (content)
-  (output_tag (tag_delimiter) (code) (tag_delimiter))
-  (raw_tag (tag_delimiter) (code) (tag_delimiter))
-  (render_tag (tag_delimiter) (code) (tag_delimiter))
-  (code_tag (tag_delimiter) (code) (tag_delimiter))
-  (comment_tag (tag_delimiter) (comment_text) (tag_delimiter))
-  (content))
-
-==================
-control flow across tags
-==================
-
-<% for x in xs { %><%= x %><% } %>
-
----
-
-(document
-  (content)
-  (code_tag (tag_delimiter) (code) (tag_delimiter))
-  (output_tag (tag_delimiter) (code) (tag_delimiter))
-  (code_tag (tag_delimiter) (code) (tag_delimiter))
-  (content))
+  (text))

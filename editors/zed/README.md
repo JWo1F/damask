@@ -5,9 +5,9 @@ Syntax highlighting and language-server support for [RSC](../../README.md)
 
 ## What you get
 
-- **Highlighting** — tag delimiters (`<%=`, `<%-`, `<%+`, `<%`, `<%#`, `%>`) are
-  highlighted, the Rust inside tags is highlighted by Zed's Rust grammar
-  (injected), and the surrounding markup by the host-language grammar.
+- **Highlighting** — tag delimiters (`{`, `{#`, `{@`, `{:`, `{/`, `}`) are
+  highlighted, the Rust inside `{ … }` tags is highlighted by Zed's Rust grammar
+  (injected), and the surrounding markup by the HTML grammar.
 - **Language server** — parse diagnostics, and completion of the paired
   component's fields and methods inside a tag, via `rsc-lsp`.
 
@@ -65,12 +65,11 @@ repository and set `repository` / `rev` in `extension.toml` to it.
 installed Zed (the `language_server_command` shape used here is stable across
 recent versions).
 
-## Host-language injection
+## Injection
 
-v1 injects **HTML** into the text between tags — the common case. A `.rsc` file's
-true host language is its middle extension (`app.js.rsc`, `theme.css.rsc`);
-per-suffix injection (distinct `js.rsc` / `css.rsc` languages sharing this
-grammar) is a planned enhancement.
+Rust is injected into `{ … }` tags; HTML into the text around them. `<!-- … -->`
+comments are highlighted by the injected HTML grammar. (One edge: a `{` inside an
+HTML comment is still treated as a tag.)
 
 ## Grammar tests
 

@@ -2,50 +2,29 @@
   {
     "type": "code",
     "named": true,
-    "fields": {}
-  },
-  {
-    "type": "code_tag",
-    "named": true,
     "fields": {},
     "children": {
       "multiple": true,
-      "required": true,
+      "required": false,
       "types": [
+        {
+          "type": "char",
+          "named": true
+        },
         {
           "type": "code",
           "named": true
         },
         {
-          "type": "tag_delimiter",
-          "named": true
-        }
-      ]
-    }
-  },
-  {
-    "type": "comment_tag",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "comment_text",
+          "type": "lifetime",
           "named": true
         },
         {
-          "type": "tag_delimiter",
+          "type": "string",
           "named": true
         }
       ]
     }
-  },
-  {
-    "type": "comment_text",
-    "named": true,
-    "fields": {}
   },
   {
     "type": "document",
@@ -57,95 +36,87 @@
       "required": false,
       "types": [
         {
-          "type": "code_tag",
+          "type": "tag",
           "named": true
         },
         {
-          "type": "comment_tag",
-          "named": true
-        },
-        {
-          "type": "content",
-          "named": true
-        },
-        {
-          "type": "output_tag",
-          "named": true
-        },
-        {
-          "type": "raw_tag",
-          "named": true
-        },
-        {
-          "type": "render_tag",
+          "type": "text",
           "named": true
         }
       ]
     }
   },
   {
-    "type": "output_tag",
+    "type": "tag",
     "named": true,
-    "fields": {},
+    "fields": {
+      "close": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "tag_delimiter",
+            "named": true
+          }
+        ]
+      },
+      "open": {
+        "multiple": false,
+        "required": true,
+        "types": [
+          {
+            "type": "tag_open",
+            "named": true
+          }
+        ]
+      }
+    },
     "children": {
-      "multiple": true,
-      "required": true,
+      "multiple": false,
+      "required": false,
       "types": [
         {
           "type": "code",
           "named": true
-        },
-        {
-          "type": "tag_delimiter",
-          "named": true
         }
       ]
     }
   },
   {
-    "type": "raw_tag",
+    "type": "tag_open",
     "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "code",
-          "named": true
-        },
-        {
-          "type": "tag_delimiter",
-          "named": true
-        }
-      ]
-    }
+    "fields": {}
   },
   {
-    "type": "render_tag",
-    "named": true,
-    "fields": {},
-    "children": {
-      "multiple": true,
-      "required": true,
-      "types": [
-        {
-          "type": "code",
-          "named": true
-        },
-        {
-          "type": "tag_delimiter",
-          "named": true
-        }
-      ]
-    }
+    "type": "char",
+    "named": true
   },
   {
-    "type": "content",
+    "type": "lifetime",
+    "named": true
+  },
+  {
+    "type": "string",
     "named": true
   },
   {
     "type": "tag_delimiter",
+    "named": false
+  },
+  {
+    "type": "tag_delimiter",
     "named": true
+  },
+  {
+    "type": "text",
+    "named": true
+  },
+  {
+    "type": "{",
+    "named": false
+  },
+  {
+    "type": "}",
+    "named": false
   }
 ]

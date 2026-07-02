@@ -1,8 +1,9 @@
-; Tag delimiters (<%=, <%-, <%+, <%, <%#, %>)
+; Tag delimiters: {, {#, {@, {:, {/, and }
+(tag_open) @punctuation.special
 (tag_delimiter) @punctuation.special
 
-; The body of a <%# … %> comment tag
-(comment_text) @comment
+; HTML comments
+(comment) @comment
 
-; The Rust inside code tags and the host language inside text are highlighted
-; by injected grammars — see injections.scm.
+; The Rust inside a tag and the HTML around it are highlighted by injected
+; grammars — see injections.scm.
