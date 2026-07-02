@@ -12,9 +12,8 @@
 //!
 //! | Syntax | Meaning |
 //! |--------|---------|
-//! | `{ expr }` | write `expr`, HTML-escaped |
+//! | `{ expr }` | Rust block — prints its value (escaped), or nothing if it's a statement |
 //! | `{@html expr}` | write `expr` raw |
-//! | `{@const x = e}` | a local binding |
 //! | `{@render expr}` | render a snippet / fragment |
 //! | `{#use path}` | a Rust `use`, scoped to the enclosing element |
 //! | `{#if c}…{:else if c}…{:else}…{/if}` | conditional |
@@ -65,12 +64,12 @@ impl Span {
 pub enum Node {
     /// Literal HTML text.
     Text(String),
-    /// `{ expr }` — escaped output.
-    Interp(String),
+    /// A `{ … }` tag holding a Rust block body. Codegen prints its value if it
+    /// is an expression, or splices it (no output) if it is a statement /
+    /// binding — `{ self.name }`, `{ 2 + 3; 10 }`, `{ let x = e }`.
+    Expr(String),
     /// `{@html expr}` — raw output.
     Html(String),
-    /// `{@const name = expr}` — a local binding.
-    Const(String),
     /// `{@render expr}` — render a snippet / fragment.
     Render(String),
     /// `{#use path}` — a Rust `use`, scoped to the enclosing element.

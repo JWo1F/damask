@@ -306,9 +306,6 @@ impl<'a> Parser<'a> {
             if let Some(rest) = keyword(body, "html") {
                 return Ok(TagResult::Node(Node::Html(rest)));
             }
-            if let Some(rest) = keyword(body, "const") {
-                return Ok(TagResult::Node(Node::Const(rest)));
-            }
             if let Some(rest) = keyword(body, "render") {
                 return Ok(TagResult::Node(Node::Render(rest)));
             }
@@ -353,7 +350,8 @@ impl<'a> Parser<'a> {
         if t.is_empty() {
             return Err(self.err_at(open, "empty tag `{}`".into()));
         }
-        Ok(TagResult::Node(Node::Interp(t.to_string())))
+        // A `{ … }` block — codegen decides value-vs-statement.
+        Ok(TagResult::Node(Node::Expr(t.to_string())))
     }
 
     fn parse_if(&mut self, open: usize, first_cond: String) -> Result<IfNode, ParseError> {
@@ -527,17 +525,18 @@ mod tests {
     }
 
     #[test]
-    fn text_and_interp() {
+    fn text_and_expr() {
         assert_eq!(
             nodes("Hi {self.name}!"),
-            vec![Node::Text("Hi ".into()), Node::Interp("self.name".into()), Node::Text("!".into())]
+            vec![Node::Text("Hi ".into()), Node::Expr("self.name".into()), Node::Text("!".into())]
         );
+        assert_eq!(nodes("{2 + 3; 10}"), vec![Node::Expr("2 + 3; 10".into())]);
+        assert_eq!(nodes("{let a = 1}"), vec![Node::Expr("let a = 1".into())]);
     }
 
     #[test]
     fn directives_and_use() {
         assert_eq!(nodes("{@html x}"), vec![Node::Html("x".into())]);
-        assert_eq!(nodes("{@const a = 1}"), vec![Node::Const("a = 1".into())]);
         assert_eq!(nodes("{@render foo}"), vec![Node::Render("foo".into())]);
         assert_eq!(nodes("{#use crate::Card}"), vec![Node::Use("crate::Card".into())]);
     }
