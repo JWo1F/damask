@@ -15,17 +15,16 @@ mod resolve;
 /// ```ignore
 /// use rsc::Component;
 ///
-/// // greeting.rs — paired with greeting.html.rsc
+/// // greeting.rs — paired with greeting.rsc
 /// #[derive(Component)]
 /// pub struct Greeting {
 ///     pub name: String,
 /// }
 /// ```
 ///
-/// By default the template is the sibling file `<snake_name>.<lang>.rsc` in the
-/// same directory as the struct (`Greeting` → `greeting.html.rsc`). Override it
-/// with `#[template(path = "…")]`, resolved relative to the struct's source
-/// file.
+/// By default the template is the sibling file `<snake_name>.rsc` in the same
+/// directory as the struct (`Greeting` → `greeting.rsc`). Override it with
+/// `#[template(path = "…")]`, resolved relative to the struct's source file.
 ///
 /// The struct is left untouched; only an `impl Component` (and a private
 /// `include_bytes!` binding that ties the template into the rebuild graph) is

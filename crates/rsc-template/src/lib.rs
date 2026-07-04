@@ -32,7 +32,7 @@ mod line_index;
 mod parser;
 
 pub use line_index::LineIndex;
-pub use parser::{ParseError, in_tag, parse};
+pub use parser::{ParseError, in_tag, is_void_element, parse};
 
 /// A half-open byte range `[start, end)` into the template source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

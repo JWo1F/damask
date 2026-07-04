@@ -82,6 +82,20 @@ fn snippet_render_prop() {
 }
 
 #[test]
+fn component_element_with_scoped_use_and_slots() {
+    use rsc_showcase::page::Page;
+    let page = Page {
+        heading: "Hi".into(),
+        body: "World".into(),
+        year: 2026,
+    };
+    assert_eq!(
+        page.render(),
+        r#"<div><section class="frame"><h2>Hi</h2><p>World</p><footer>© 2026</footer></section></div>"#
+    );
+}
+
+#[test]
 fn children_as_a_fragment_closure() {
     let page = Layout {
         children: fragment(|r| {

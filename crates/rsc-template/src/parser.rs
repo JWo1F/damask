@@ -22,6 +22,11 @@ const VOID_ELEMENTS: &[&str] = &[
     "param", "source", "track", "wbr",
 ];
 
+/// Whether `tag` is an HTML void element (rendered without a closing tag).
+pub fn is_void_element(tag: &str) -> bool {
+    VOID_ELEMENTS.contains(&tag)
+}
+
 /// Parse a `.rsc` template into a [`Template`].
 pub fn parse(src: &str) -> Result<Template, ParseError> {
     let mut p = Parser::new(src);
@@ -356,7 +361,6 @@ impl<'a> Parser<'a> {
 
     fn parse_if(&mut self, open: usize, first_cond: String) -> Result<IfNode, ParseError> {
         let mut branches = Vec::new();
-        let mut otherwise = None;
         let mut cond = first_cond;
         loop {
             let (body, term) = self.parse_nodes()?;
@@ -375,13 +379,11 @@ impl<'a> Parser<'a> {
                 }
                 Term::TagClose(k) if k == "if" => {
                     branches.push((cond, body));
-                    otherwise = None;
-                    break;
+                    return Ok(IfNode { branches, otherwise: None });
                 }
                 other => return Err(self.err_at(open, format!("`{{#if}}` not closed (found {})", other.describe()))),
             }
         }
-        Ok(IfNode { branches, otherwise })
     }
 
     fn parse_each(&mut self, open: usize, code: &str) -> Result<EachNode, ParseError> {

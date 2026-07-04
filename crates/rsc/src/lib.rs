@@ -8,7 +8,7 @@
 //! ```ignore
 //! use rsc::Component;
 //!
-//! // greeting.rs  — paired with greeting.html.rsc containing: Hello <%= self.name %>!
+//! // greeting.rs  — paired with greeting.rsc containing: Hello {self.name}!
 //! #[derive(Component)]
 //! pub struct Greeting {
 //!     pub name: String,
@@ -59,12 +59,12 @@ pub trait Renderer {
 
     /// Append a value, applying this renderer's escaping policy.
     ///
-    /// Backs the `<%= … %>` tag.
+    /// Backs the `{ … }` tag.
     fn write_escaped(&mut self, value: &dyn Display);
 
     /// Append a value with no escaping.
     ///
-    /// Backs the `<%- … %>` tag. The default formats through
+    /// Backs the `{@html … }` tag. The default formats through
     /// [`write_raw`](Renderer::write_raw); renderers backed by a buffer should
     /// override it to write in place.
     fn write_display_raw(&mut self, value: &dyn Display) {
@@ -79,7 +79,7 @@ pub trait Renderer {
 ///
 /// This is the shared abstraction behind composition and children/slots. Every
 /// [`Component`] is `Render`; so is a [`Fragment`] built from a closure. The
-/// `<%+ … %>` tag renders anything `Render`, so a component embeds a child
+/// `{@render … }` tag renders anything `Render`, so a component embeds a child
 /// component, a fragment, or a `children` field uniformly — and the child writes
 /// through the *parent's* renderer, so escaping stays correct.
 ///
