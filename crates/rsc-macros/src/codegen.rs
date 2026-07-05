@@ -483,6 +483,22 @@ mod tests {
     }
 
     #[test]
+    fn let_and_use_are_element_scoped() {
+        // Both a `{let}` and a `{#use}` inside <div> land inside the element's
+        // scope block (between the `<div>` write and the `</div>` write), so
+        // they are not visible after `</div>`.
+        let b = body(r#"<div>{let x = 5}{#use crate::X}{x}</div>"#);
+        let open = b.find(r#"write_raw("<div>")"#).unwrap();
+        let block_open = b[open..].find('{').unwrap() + open;
+        let close = b.find(r#"write_raw("</div>")"#).unwrap();
+        let let_pos = b.find("let x = 5;").unwrap();
+        let use_pos = b.find("use crate::X;").unwrap();
+        // both statements sit strictly between the block open and the close tag
+        assert!(block_open < let_pos && let_pos < close);
+        assert!(block_open < use_pos && use_pos < close);
+    }
+
+    #[test]
     fn void_and_self_closing_elements() {
         assert!(body("<br>").contains(r#"write_raw("<br>")"#));
         assert!(body("<hr class=\"x\">").contains(r#"write_raw("<hr class=\"x\">")"#));
