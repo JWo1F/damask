@@ -233,14 +233,14 @@ mod tests {
 
     #[test]
     fn word_at_finds_identifier() {
-        let t = "<%= self.name %>";
+        let t = "{ self.name }";
         let idx = t.find("name").unwrap() + 2; // inside "name"
         assert_eq!(word_at(t, idx), "name");
     }
 
     #[test]
     fn word_at_empty_between_symbols() {
-        let t = "<%=  %>";
-        assert_eq!(word_at(t, 4), "");
+        let t = "{  }";
+        assert_eq!(word_at(t, 2), "");
     }
 }

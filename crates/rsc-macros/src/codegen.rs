@@ -2,8 +2,8 @@ use crate::resolve::resolve;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use rsc_template::{
-    AttrValue, EachNode, Element, ElementKind, IfNode, Node, SnippetNode, Template, is_void_element,
-    to_snake_case,
+    AttrValue, EachNode, Element, ElementKind, IfNode, Node, SnippetNode, Template,
+    is_void_element, to_snake_case,
 };
 use std::path::PathBuf;
 use syn::{Attribute, DeriveInput, LitStr};
@@ -142,7 +142,9 @@ fn emit_node(node: &Node, out: &mut String) -> Result<(), String> {
         }
         Node::Render(code) => {
             require_expr(code, "{@render … }")?;
-            out.push_str(&format!("::rsc::Render::render_into(&({code}), &mut *__rsc);\n"));
+            out.push_str(&format!(
+                "::rsc::Render::render_into(&({code}), &mut *__rsc);\n"
+            ));
         }
         Node::Use(path) => {
             require_expr(path, "{#use … }")?;
@@ -220,9 +222,14 @@ fn emit_each(each: &EachNode, out: &mut String) -> Result<(), String> {
         let (pat, idx) = (pat.trim(), idx.trim());
         let is_ident = !idx.is_empty()
             && idx.chars().all(|c| c.is_alphanumeric() || c == '_')
-            && idx.chars().next().is_some_and(|c| c.is_alphabetic() || c == '_');
+            && idx
+                .chars()
+                .next()
+                .is_some_and(|c| c.is_alphabetic() || c == '_');
         if is_ident && !pat.is_empty() {
-            out.push_str(&format!("for ({idx}, {pat}) in ({expr}).into_iter().enumerate() {{\n"));
+            out.push_str(&format!(
+                "for ({idx}, {pat}) in ({expr}).into_iter().enumerate() {{\n"
+            ));
             emit_nodes(&each.body, out)?;
             out.push_str("}\n");
             return Ok(());
@@ -318,14 +325,19 @@ fn emit_html_element(el: &Element, out: &mut String) -> Result<(), String> {
     emit_nodes(&el.children, out)?;
     out.push_str("}\n");
 
-    out.push_str(&format!("__rsc.write_raw({:?});\n", format!("</{}>", el.tag)));
+    out.push_str(&format!(
+        "__rsc.write_raw({:?});\n",
+        format!("</{}>", el.tag)
+    ));
     Ok(())
 }
 
 /// `<slot/>` / `<slot name="x"/>` in a component template — render the passed slot.
 fn emit_slot_placeholder(el: &Element, out: &mut String) -> Result<(), String> {
     let field = slot_field(el)?;
-    out.push_str(&format!("::rsc::Render::render_into(&(self.{field}), &mut *__rsc);\n"));
+    out.push_str(&format!(
+        "::rsc::Render::render_into(&(self.{field}), &mut *__rsc);\n"
+    ));
     Ok(())
 }
 
@@ -441,7 +453,9 @@ mod tests {
     #[test]
     fn directives_and_use() {
         assert!(body("{@html self.body}").contains("write_display_raw(&(self.body))"));
-        assert!(body("{@render self.footer}").contains("::rsc::Render::render_into(&(self.footer)"));
+        assert!(
+            body("{@render self.footer}").contains("::rsc::Render::render_into(&(self.footer)")
+        );
         assert!(body("{#use crate::Card}").contains("use crate::Card;"));
     }
 
@@ -450,7 +464,9 @@ mod tests {
         let b = body("{#if self.a}x{:else}y{/if}");
         assert!(b.contains("if self.a {"));
         assert!(b.contains("} else {"));
-        assert!(body("{#each &self.items as item}{item}{/each}").contains("for item in &self.items {"));
+        assert!(
+            body("{#each &self.items as item}{item}{/each}").contains("for item in &self.items {")
+        );
         assert!(
             body("{#each &self.items as item, i}{i}{/each}")
                 .contains("for (i, item) in (&self.items).into_iter().enumerate() {")

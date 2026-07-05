@@ -2,16 +2,18 @@
 name: rsc-components
 description: >-
   Author and modify RSC (Rust Smart Components): the paired `.rs` + `.rsc`
-  component files, the `#[derive(Component)]` struct, template tags (`<%= <%-
-  <%+ <% <%#`), composition and children/slots, and custom renderers. Use
-  whenever creating or editing a `.rsc` template or a `#[derive(Component)]`
-  struct, or wiring RSC into a Rust project.
+  component files, the `#[derive(Component)]` struct, the brace template
+  tags (`{ }`, `{@html}`, `{@render}`, `{#if}`, `{#each}`, `{#snippet}`,
+  `{#use}`), HTML/component elements (`<Foo attr={e}/>`), `<slot>`s, snippets,
+  and custom renderers. Use whenever creating or editing a `.rsc` template or a
+  `#[derive(Component)]` struct, or wiring RSC into a Rust project.
 ---
 
 # Authoring RSC components
 
-RSC compiles a template into a `render` method at build time. A component is a
-**Rust struct paired with a template file**. Requires Rust ≥ 1.88.
+RSC compiles an HTML template into a `render` method at build time. A component
+is a **Rust struct paired with a template file**. Templates use a
+`{ … }` syntax and are always HTML. Requires Rust ≥ 1.88.
 
 ## The two-file rule (most important)
 
@@ -19,17 +21,15 @@ Every component is two files that share a basename and live in the same
 directory:
 
 ```
-button.rs          # the struct (+ methods)
-button.html.rsc    # the template
+button.rs      # the struct (+ methods)
+button.rsc     # the template (HTML)
 ```
 
 - **Always create/edit them as a pair.** Never add a `#[derive(Component)]`
   struct without its `.rsc`, or vice versa.
-- **Keep basenames in sync with the struct name:** `struct Button` ↔
-  `button.*.rsc` (snake_case). Renaming one means renaming the other.
-- **The middle extension is the host language** and picks escaping:
-  `.html.rsc` → HTML-escaped, `.js.rsc` / `.css.rsc` → pass-through, `.rsc` →
-  plain.
+- **Keep the basename in sync with the struct name:** `struct Button` ↔
+  `button.rsc` (snake_case). Renaming one means renaming the other.
+- Template files are just `<name>.rsc` — no `.html` (or other) middle extension.
 
 ## Defining a component
 
@@ -48,82 +48,106 @@ impl Button {              // methods are a normal impl, callable as `self.foo()
 ```
 
 ```html
-<!-- button.html.rsc -->
-<button><%= self.label %></button>
+<!-- button.rsc -->
+<button>{self.label}</button>
 ```
 
 Render it: `Button { label: "OK".into() }.render()` → `<button>OK</button>`.
 
 - The struct is untouched by the derive — generics, other derives, doc comments
   all work.
-- Override the template file with `#[template(path = "custom.html.rsc")]`
-  (resolved next to the struct).
+- Override the template file with `#[template(path = "custom.rsc")]` (resolved
+  next to the struct).
 
-## Template tags
+## Template syntax
 
-| Tag           | Meaning                                                        |
-|---------------|---------------------------------------------------------------|
-| `<%= expr %>` | write `expr`, **escaped** per the host language               |
-| `<%- expr %>` | write `expr` **raw** (no escaping)                             |
-| `<%+ expr %>` | render a child component / fragment into the output           |
-| `<% stmt %>`  | run Rust statement(s) — control flow, `let`, calls            |
-| `<%# text %>` | comment (emits nothing)                                        |
-| `<%%` / `%%>` | literal `<%` / `%>`                                            |
+A `{ … }` tag is a **Rust block**: an expression prints its value (escaped); a
+statement/binding runs and prints nothing.
 
-Control flow spans tags with ordinary Rust braces:
+| Tag | Meaning |
+|-----|---------|
+| `{ expr }` | print the value, **HTML-escaped** (`{2+3; 10}` prints `10`) |
+| `{ let x = e }` / `{ x; }` | binding / statement — runs, no output |
+| `{@html expr}` | print `expr` **raw** (no escaping) |
+| `{@render expr}` | render a **snippet / fragment** |
+| `{#use path}` | a Rust `use`, scoped to the enclosing element |
+| `{#if c}…{:else if c2}…{:else}…{/if}` | conditional |
+| `{#each E as p}` / `{#each E as p, i}` `…{/each}` | loop |
+| `{#snippet name(params)}…{/snippet}` | define a reusable fragment |
+
+`E` is a Rust expression yielding an iterable — usually `&self.items`. Literal
+braces are written as an expression: `{"{"}`.
 
 ```html
 <ul>
-<% for item in &self.items { %>
-  <li><%= item %></li>
-<% } %>
+{#each &self.items as item}
+  <li>{item}</li>
+{/each}
 </ul>
+
+{#if self.admin}<span class="badge">admin</span>{/if}
 ```
 
-## Composition and children
+## Elements, components, and slots
 
-Child components and ad-hoc fragments both implement `Render`; `<%+ … %>`
-renders any of them into the current buffer (escaping follows the parent).
+Lowercase tags are HTML; **capitalized tags are components**, built from their
+attributes and rendered. Attributes carry Rust: `attr={expr}`, `attr="literal"`,
+or bare `attr` (boolean). A missing required field is a **compile error**.
+`{#use}` imports (anything — components, functions), scoped to the enclosing
+element.
 
-```rust
-#[derive(Component)]
-pub struct Card {
-    pub button: Button,    // a child component as a field
-}
-```
 ```html
-<section><%+ self.button %></section>
+<div>
+  {#use crate::widgets::Frame}
+  <Frame title={self.heading.clone()}>
+    <p>{self.body}</p>                 <!-- default slot -->
+    <slot name="footer">© {self.year}</slot>
+  </Frame>
+</div>
 ```
 
-For **children/slots**, take a generic `Render` field and drop it at the slot:
+A component declares slots as `Render` fields and places them with `<slot>`:
 
 ```rust
 use rsc::{Component, Render};
 
 #[derive(Component)]
-pub struct Layout<C: Render> {
-    pub children: C,
+pub struct Frame<Body: Render, Footer: Render> {
+    pub title: String,
+    pub children: Body,   // <slot/>
+    pub footer: Footer,   // <slot name="footer"/>
 }
 ```
 ```html
-<main><%+ self.children %></main>
+<!-- frame.rsc -->
+<section><h2>{self.title}</h2><slot/><footer><slot name="footer"/></footer></section>
 ```
 
-Pass children as another component, or as a fragment closure via `rsc::fragment`:
+Because attribute values move into the component's fields, borrow with `.clone()`
+(e.g. `title={self.heading.clone()}`) when passing a `&self` field.
+
+## Snippets
+
+**Snippets** are reusable fragments — define with `{#snippet}`, render with
+`{@render}` (`{@render}` is for snippets/fragments, not components). Parameters
+make a snippet a render-prop:
+
+```html
+{#snippet item(label)}<li>{label}</li>{/snippet}
+<ul>{#each &self.labels as label}{@render item(label)}{/each}</ul>
+```
+
+Children can also come from Rust with `rsc::fragment`:
 
 ```rust
+use rsc::fragment;
 Layout { children: fragment(|r| r.write_raw("<p>hi</p>")) }.render();
-// -> <main><p>hi</p></main>
 ```
-
-Alternatively, the string path: `<%- self.child.render() %>` writes the child's
-finished HTML raw (one extra allocation vs `<%+ %>`).
 
 ## Custom renderers
 
 The `Renderer` trait owns the output buffer and escaping. Implement it to change
-escaping or target a different sink, then drive any component with it —
-components are compiled against `&mut dyn Renderer`, not a concrete renderer:
+escaping or target a different sink, then drive any component with it:
 
 ```rust
 let mut r: Box<dyn rsc::Renderer> = Box::new(MyRenderer::new());
@@ -133,20 +157,23 @@ let out = r.finish();
 
 ## Pitfalls
 
-- **Escaping is host-language-aware.** In `.html.rsc`, `<%= %>` escapes; in
-  `.css.rsc` / `.js.rsc` it does not (those renderers pass through — implement a
-  custom `Renderer` if you need context-aware escaping there).
+- **`{ … }` HTML-escapes; `{@html … }` does not.** Only use `{@html}` for content
+  you trust or that is already escaped (e.g. a child's `.render()`).
+- **Component attributes move into fields** — pass `attr={self.x.clone()}` for a
+  `&self` field, or use `Copy` types. Every non-slot field must be supplied
+  (omitting one is a compile error).
+- **`<slot>` fields are `Render` generics.** A component with a default slot
+  needs a `children` field; `name="x"` needs an `x` field.
+- **`{#use}` is scoped** to its enclosing element — an import inside `<div>…</div>`
+  is not visible after `</div>`.
+- **Snippets must be defined before they are used** (they are `let` bindings).
 - **Duplicate basenames** in the *same* directory are an error; different
-  directories are fine (resolution is per-directory). Use `#[template(path)]` to
-  disambiguate.
-- **Editing a `.rsc` triggers a rebuild** automatically (no build script) — but
-  a template edit with no `.rs` change still recompiles the owning crate.
+  directories are fine. Use `#[template(path)]` to disambiguate.
+- **Editing a `.rsc` triggers a rebuild** automatically — no build script.
 - Struct fields must be visible where you construct the component (use `pub`
   for cross-module use).
 
 ## Project setup
-
-Add one dependency; no build script:
 
 ```toml
 [dependencies]

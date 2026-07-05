@@ -1,4 +1,6 @@
-use crate::{Attr, AttrValue, EachNode, Element, ElementKind, IfNode, Node, SnippetNode, Span, Template};
+use crate::{
+    Attr, AttrValue, EachNode, Element, ElementKind, IfNode, Node, SnippetNode, Span, Template,
+};
 use std::fmt;
 
 /// A template parse failure, with the source span it occurred at.
@@ -10,7 +12,11 @@ pub struct ParseError {
 
 impl fmt::Display for ParseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} (bytes {}..{})", self.message, self.span.start, self.span.end)
+        write!(
+            f,
+            "{} (bytes {}..{})",
+            self.message, self.span.start, self.span.end
+        )
     }
 }
 
@@ -18,8 +24,8 @@ impl std::error::Error for ParseError {}
 
 /// HTML void elements — self-closing, no end tag.
 const VOID_ELEMENTS: &[&str] = &[
-    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta",
-    "param", "source", "track", "wbr",
+    "area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+    "track", "wbr",
 ];
 
 /// Whether `tag` is an HTML void element (rendered without a closing tag).
@@ -67,11 +73,19 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn new(src: &'a str) -> Self {
-        Parser { src, bytes: src.as_bytes(), n: src.len(), pos: 0 }
+        Parser {
+            src,
+            bytes: src.as_bytes(),
+            n: src.len(),
+            pos: 0,
+        }
     }
 
     fn err_at(&self, at: usize, message: String) -> ParseError {
-        ParseError { message, span: Span::new(at.min(self.n), self.n) }
+        ParseError {
+            message,
+            span: Span::new(at.min(self.n), self.n),
+        }
     }
 
     fn starts_with(&self, s: &str) -> bool {
@@ -175,18 +189,31 @@ impl<'a> Parser<'a> {
         let is_void = matches!(kind, ElementKind::Html) && VOID_ELEMENTS.contains(&tag.as_str());
 
         if self_close_syntax || is_void {
-            return Ok(Element { tag, kind, attrs, children: Vec::new(), self_closing: true });
+            return Ok(Element {
+                tag,
+                kind,
+                attrs,
+                children: Vec::new(),
+                self_closing: true,
+            });
         }
 
         let (children, term) = self.parse_nodes()?;
         match term {
-            Term::ElementClose(close) if close == tag => {
-                Ok(Element { tag, kind, attrs, children, self_closing: false })
-            }
+            Term::ElementClose(close) if close == tag => Ok(Element {
+                tag,
+                kind,
+                attrs,
+                children,
+                self_closing: false,
+            }),
             Term::ElementClose(other) => {
                 Err(self.err_at(start, format!("`<{tag}>` closed by `</{other}>`")))
             }
-            other => Err(self.err_at(start, format!("`<{tag}>` not closed (found {})", other.describe()))),
+            other => Err(self.err_at(
+                start,
+                format!("`<{tag}>` not closed (found {})", other.describe()),
+            )),
         }
     }
 
@@ -222,11 +249,17 @@ impl<'a> Parser<'a> {
                     Some(b'"') => AttrValue::Literal(self.parse_quoted(b'"')?),
                     Some(b'\'') => AttrValue::Literal(self.parse_quoted(b'\'')?),
                     Some(b'{') => AttrValue::Expr(self.parse_brace_inner()?),
-                    _ => return Err(self.err_at(self.pos, format!("expected a value for attribute `{name}`"))),
+                    _ => {
+                        return Err(self
+                            .err_at(self.pos, format!("expected a value for attribute `{name}`")));
+                    }
                 };
                 attrs.push(Attr { name, value });
             } else {
-                attrs.push(Attr { name, value: AttrValue::Boolean });
+                attrs.push(Attr {
+                    name,
+                    value: AttrValue::Boolean,
+                });
             }
         }
         Ok(attrs)
@@ -297,7 +330,10 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        Err(ParseError { message: "unclosed tag: missing `}`".into(), span: Span::new(open, self.n) })
+        Err(ParseError {
+            message: "unclosed tag: missing `}`".into(),
+            span: Span::new(open, self.n),
+        })
     }
 
     fn parse_tag(&mut self) -> Result<TagResult, ParseError> {
@@ -329,7 +365,9 @@ impl<'a> Parser<'a> {
                 return Ok(TagResult::Node(Node::Each(self.parse_each(open, &rest)?)));
             }
             if let Some(rest) = keyword(body, "snippet") {
-                return Ok(TagResult::Node(Node::Snippet(self.parse_snippet(open, &rest)?)));
+                return Ok(TagResult::Node(Node::Snippet(
+                    self.parse_snippet(open, &rest)?,
+                )));
             }
             return Err(self.err_at(open, format!("unknown block `{{#{body}}}`")));
         }
@@ -373,15 +411,29 @@ impl<'a> Parser<'a> {
                     branches.push((cond, body));
                     let (else_body, t2) = self.parse_nodes()?;
                     return match t2 {
-                        Term::TagClose(k) if k == "if" => Ok(IfNode { branches, otherwise: Some(else_body) }),
-                        other => Err(self.err_at(open, format!("`{{#if}}` not closed (found {})", other.describe()))),
+                        Term::TagClose(k) if k == "if" => Ok(IfNode {
+                            branches,
+                            otherwise: Some(else_body),
+                        }),
+                        other => Err(self.err_at(
+                            open,
+                            format!("`{{#if}}` not closed (found {})", other.describe()),
+                        )),
                     };
                 }
                 Term::TagClose(k) if k == "if" => {
                     branches.push((cond, body));
-                    return Ok(IfNode { branches, otherwise: None });
+                    return Ok(IfNode {
+                        branches,
+                        otherwise: None,
+                    });
                 }
-                other => return Err(self.err_at(open, format!("`{{#if}}` not closed (found {})", other.describe()))),
+                other => {
+                    return Err(self.err_at(
+                        open,
+                        format!("`{{#if}}` not closed (found {})", other.describe()),
+                    ));
+                }
             }
         }
     }
@@ -397,8 +449,15 @@ impl<'a> Parser<'a> {
         }
         let (body, term) = self.parse_nodes()?;
         match term {
-            Term::TagClose(k) if k == "each" => Ok(EachNode { expr, binding, body }),
-            other => Err(self.err_at(open, format!("`{{#each}}` not closed (found {})", other.describe()))),
+            Term::TagClose(k) if k == "each" => Ok(EachNode {
+                expr,
+                binding,
+                body,
+            }),
+            other => Err(self.err_at(
+                open,
+                format!("`{{#each}}` not closed (found {})", other.describe()),
+            )),
         }
     }
 
@@ -417,7 +476,10 @@ impl<'a> Parser<'a> {
         let (body, term) = self.parse_nodes()?;
         match term {
             Term::TagClose(k) if k == "snippet" => Ok(SnippetNode { name, params, body }),
-            other => Err(self.err_at(open, format!("`{{#snippet}}` not closed (found {})", other.describe()))),
+            other => Err(self.err_at(
+                open,
+                format!("`{{#snippet}}` not closed (found {})", other.describe()),
+            )),
         }
     }
 }
@@ -491,7 +553,10 @@ pub fn in_tag(src: &str, offset: usize) -> bool {
     let mut depth: i32 = 0;
     while i < offset {
         if bytes[i] == b'<' && src[i..].starts_with("<!--") {
-            let end = src[i + 4..].find("-->").map(|r| i + 4 + r + 3).unwrap_or(src.len());
+            let end = src[i + 4..]
+                .find("-->")
+                .map(|r| i + 4 + r + 3)
+                .unwrap_or(src.len());
             if end > offset {
                 return false;
             }
@@ -530,7 +595,11 @@ mod tests {
     fn text_and_expr() {
         assert_eq!(
             nodes("Hi {self.name}!"),
-            vec![Node::Text("Hi ".into()), Node::Expr("self.name".into()), Node::Text("!".into())]
+            vec![
+                Node::Text("Hi ".into()),
+                Node::Expr("self.name".into()),
+                Node::Text("!".into())
+            ]
         );
         assert_eq!(nodes("{2 + 3; 10}"), vec![Node::Expr("2 + 3; 10".into())]);
         assert_eq!(nodes("{let a = 1}"), vec![Node::Expr("let a = 1".into())]);
@@ -540,7 +609,10 @@ mod tests {
     fn directives_and_use() {
         assert_eq!(nodes("{@html x}"), vec![Node::Html("x".into())]);
         assert_eq!(nodes("{@render foo}"), vec![Node::Render("foo".into())]);
-        assert_eq!(nodes("{#use crate::Card}"), vec![Node::Use("crate::Card".into())]);
+        assert_eq!(
+            nodes("{#use crate::Card}"),
+            vec![Node::Use("crate::Card".into())]
+        );
     }
 
     #[test]
@@ -578,9 +650,27 @@ mod tests {
                 assert_eq!(el.tag, "a");
                 assert_eq!(el.kind, ElementKind::Html);
                 assert_eq!(el.attrs.len(), 3);
-                assert_eq!(el.attrs[0], Attr { name: "href".into(), value: AttrValue::Expr("self.url".into()) });
-                assert_eq!(el.attrs[1], Attr { name: "class".into(), value: AttrValue::Literal("link".into()) });
-                assert_eq!(el.attrs[2], Attr { name: "download".into(), value: AttrValue::Boolean });
+                assert_eq!(
+                    el.attrs[0],
+                    Attr {
+                        name: "href".into(),
+                        value: AttrValue::Expr("self.url".into())
+                    }
+                );
+                assert_eq!(
+                    el.attrs[1],
+                    Attr {
+                        name: "class".into(),
+                        value: AttrValue::Literal("link".into())
+                    }
+                );
+                assert_eq!(
+                    el.attrs[2],
+                    Attr {
+                        name: "download".into(),
+                        value: AttrValue::Boolean
+                    }
+                );
                 assert_eq!(el.children, vec![Node::Text("go".into())]);
             }
             other => panic!("{other:?}"),
@@ -608,13 +698,25 @@ mod tests {
         match &n[0] {
             Node::Element(el) => {
                 assert_eq!(el.kind, ElementKind::Component);
-                assert_eq!(el.attrs[0], Attr { name: "title".into(), value: AttrValue::Expr("2 + 8".into()) });
+                assert_eq!(
+                    el.attrs[0],
+                    Attr {
+                        name: "title".into(),
+                        value: AttrValue::Expr("2 + 8".into())
+                    }
+                );
                 // children: text "default", then a <slot name="foot"> element
                 assert_eq!(el.children.len(), 2);
                 match &el.children[1] {
                     Node::Element(slot) => {
                         assert_eq!(slot.kind, ElementKind::Slot);
-                        assert_eq!(slot.attrs[0], Attr { name: "name".into(), value: AttrValue::Literal("foot".into()) });
+                        assert_eq!(
+                            slot.attrs[0],
+                            Attr {
+                                name: "name".into(),
+                                value: AttrValue::Literal("foot".into())
+                            }
+                        );
                     }
                     other => panic!("{other:?}"),
                 }
@@ -628,7 +730,10 @@ mod tests {
         let n = nodes(r#"<Foo data={Bar { x: "}".into() }}/>"#);
         match &n[0] {
             Node::Element(el) => {
-                assert_eq!(el.attrs[0].value, AttrValue::Expr(r#"Bar { x: "}".into() }"#.into()));
+                assert_eq!(
+                    el.attrs[0].value,
+                    AttrValue::Expr(r#"Bar { x: "}".into() }"#.into())
+                );
             }
             other => panic!("{other:?}"),
         }
@@ -637,12 +742,20 @@ mod tests {
     #[test]
     fn mismatched_close_errors() {
         assert!(parse("<div>{#if x}</div>{/if}").is_err());
-        assert!(parse("<div>hi</span>").unwrap_err().message.contains("closed by"));
+        assert!(
+            parse("<div>hi</span>")
+                .unwrap_err()
+                .message
+                .contains("closed by")
+        );
     }
 
     #[test]
     fn html_comment_is_text() {
-        assert_eq!(nodes("a<!-- {x} -->b"), vec![Node::Text("a<!-- {x} -->b".into())]);
+        assert_eq!(
+            nodes("a<!-- {x} -->b"),
+            vec![Node::Text("a<!-- {x} -->b".into())]
+        );
     }
 
     #[test]

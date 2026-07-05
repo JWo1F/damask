@@ -220,8 +220,14 @@ mod tests {
 
     #[test]
     fn basename_strips_rsc() {
-        assert_eq!(component_basename("greeting.rsc").as_deref(), Some("greeting"));
-        assert_eq!(component_basename("my_button.rsc").as_deref(), Some("my_button"));
+        assert_eq!(
+            component_basename("greeting.rsc").as_deref(),
+            Some("greeting")
+        );
+        assert_eq!(
+            component_basename("my_button.rsc").as_deref(),
+            Some("my_button")
+        );
         assert_eq!(component_basename("not-a-template.txt"), None);
     }
 
