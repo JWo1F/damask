@@ -1,11 +1,12 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Mutex;
 
 use rsc_template::{LineIndex, parse};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, jsonrpc::Result};
 
-use crate::analysis::{in_code_tag, is_self_access};
+use crate::analysis::{Context, cursor_context, in_code_tag, is_self_access};
 use crate::introspect;
 
 pub struct Backend {
@@ -65,7 +66,11 @@ impl LanguageServer for Backend {
                     TextDocumentSyncKind::FULL,
                 )),
                 completion_provider: Some(CompletionOptions {
-                    trigger_characters: Some(vec![".".to_string()]),
+                    trigger_characters: Some(vec![
+                        ".".to_string(),
+                        "<".to_string(),
+                        " ".to_string(),
+                    ]),
                     ..Default::default()
                 }),
                 hover_provider: Some(HoverProviderCapability::Simple(true)),
@@ -115,53 +120,20 @@ impl LanguageServer for Backend {
         let Some(text) = self.text_of(&uri) else {
             return Ok(None);
         };
+        let Some(path) = uri.to_file_path().ok() else {
+            return Ok(None);
+        };
 
         let index = LineIndex::new(&text);
         let offset = index.offset(&text, pos.position.line, pos.position.character);
 
-        if !in_code_tag(&text, offset) {
-            return Ok(None);
-        }
-
-        let Some(info) = uri
-            .to_file_path()
-            .ok()
-            .and_then(|p| introspect::for_template(&p))
-        else {
-            return Ok(None);
+        let items = match cursor_context(&text, offset) {
+            Context::SelfMember => self_member_items(&path, &text[..offset]),
+            Context::ElementName => component_name_items(&path),
+            Context::Attribute(name) => attribute_items(&path, &name),
+            Context::UsePath => use_path_items(&path),
+            Context::None => return Ok(None),
         };
-
-        let self_access = is_self_access(&text[..offset]);
-
-        let mut items: Vec<CompletionItem> = info
-            .members
-            .iter()
-            .map(|m| CompletionItem {
-                label: m.name.clone(),
-                kind: Some(if m.is_method {
-                    CompletionItemKind::METHOD
-                } else {
-                    CompletionItemKind::FIELD
-                }),
-                detail: Some(m.detail.clone()),
-                ..Default::default()
-            })
-            .collect();
-
-        // Outside a `self.` access, the members aren't directly usable; offer
-        // `self` as the entry point instead.
-        if !self_access {
-            items.insert(
-                0,
-                CompletionItem {
-                    label: "self".to_string(),
-                    kind: Some(CompletionItemKind::KEYWORD),
-                    insert_text: Some("self.".to_string()),
-                    detail: Some(format!("the {} component", info.struct_name)),
-                    ..Default::default()
-                },
-            );
-        }
 
         Ok(Some(CompletionResponse::Array(items)))
     }
@@ -204,6 +176,86 @@ impl LanguageServer for Backend {
             range: None,
         }))
     }
+}
+
+/// `{ self.… }` — the paired component's fields and methods (plus a `self`
+/// entry point outside a `self.` access).
+fn self_member_items(path: &Path, before: &str) -> Vec<CompletionItem> {
+    let Some(info) = introspect::for_template(path) else {
+        return Vec::new();
+    };
+    let mut items: Vec<CompletionItem> = info
+        .members
+        .iter()
+        .map(|m| CompletionItem {
+            label: m.name.clone(),
+            kind: Some(if m.is_method {
+                CompletionItemKind::METHOD
+            } else {
+                CompletionItemKind::FIELD
+            }),
+            detail: Some(m.detail.clone()),
+            ..Default::default()
+        })
+        .collect();
+    if !is_self_access(before) {
+        items.insert(
+            0,
+            CompletionItem {
+                label: "self".to_string(),
+                kind: Some(CompletionItemKind::KEYWORD),
+                insert_text: Some("self.".to_string()),
+                detail: Some(format!("the {} component", info.struct_name)),
+                ..Default::default()
+            },
+        );
+    }
+    items
+}
+
+/// `<F…` — component names defined in the crate.
+fn component_name_items(path: &Path) -> Vec<CompletionItem> {
+    introspect::crate_components(path)
+        .into_iter()
+        .map(|c| CompletionItem {
+            label: c.name,
+            kind: Some(CompletionItemKind::CLASS),
+            detail: Some(c.module_path),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// `<Frame …` — the component's fields (slot `children` excluded).
+fn attribute_items(path: &Path, component: &str) -> Vec<CompletionItem> {
+    let components = introspect::crate_components(path);
+    let Some(def) = components.iter().find(|c| c.name == component) else {
+        return Vec::new();
+    };
+    def.fields
+        .iter()
+        .filter(|f| f.name != "children")
+        .map(|f| CompletionItem {
+            label: f.name.clone(),
+            kind: Some(CompletionItemKind::FIELD),
+            detail: Some(f.detail.clone()),
+            insert_text: Some(format!("{}=", f.name)),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// `{#use …}` — component paths in the crate.
+fn use_path_items(path: &Path) -> Vec<CompletionItem> {
+    introspect::crate_components(path)
+        .into_iter()
+        .map(|c| CompletionItem {
+            label: c.module_path,
+            kind: Some(CompletionItemKind::MODULE),
+            detail: Some(c.name),
+            ..Default::default()
+        })
+        .collect()
 }
 
 /// The identifier under (or just before) the cursor.

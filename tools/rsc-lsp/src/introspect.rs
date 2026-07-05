@@ -7,7 +7,7 @@
 
 use rsc_template::to_snake_case;
 use std::path::{Path, PathBuf};
-use syn::{ImplItem, Item, Type};
+use syn::{Attribute, ImplItem, Item, Type};
 
 /// A field or method a template can reference through `self`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,6 +16,131 @@ pub struct Member {
     /// Rendered type (fields) or signature (methods), for completion detail.
     pub detail: String,
     pub is_method: bool,
+}
+
+/// A `#[derive(Component)]` struct found in the crate, for element/attribute/use
+/// completion.
+#[derive(Debug, Clone)]
+pub struct ComponentDef {
+    pub name: String,
+    pub fields: Vec<Member>,
+    /// Best-effort `crate::…::Name` path, from the file location.
+    pub module_path: String,
+}
+
+/// All components defined in the crate containing `from_file` (best-effort scan
+/// of the crate's `src/`).
+pub fn crate_components(from_file: &Path) -> Vec<ComponentDef> {
+    let Some(src_root) = crate_src_dir(from_file) else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    collect_rs(&src_root, &src_root, &mut out);
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
+}
+
+/// Walk up from `from` to the crate root (first `Cargo.toml`) and return its
+/// `src/` directory.
+fn crate_src_dir(from: &Path) -> Option<PathBuf> {
+    let mut dir = from.parent()?;
+    loop {
+        if dir.join("Cargo.toml").is_file() {
+            let src = dir.join("src");
+            return Some(if src.is_dir() { src } else { dir.to_path_buf() });
+        }
+        dir = dir.parent()?;
+    }
+}
+
+fn collect_rs(src_root: &Path, dir: &Path, out: &mut Vec<ComponentDef>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if path.is_dir() {
+            if name != "target" && !name.starts_with('.') {
+                collect_rs(src_root, &path, out);
+            }
+        } else if name.ends_with(".rs")
+            && let Ok(text) = std::fs::read_to_string(&path)
+        {
+            let module = module_path_for(src_root, &path);
+            collect_components_in_source(&text, &module, out);
+        }
+    }
+}
+
+fn collect_components_in_source(text: &str, module: &str, out: &mut Vec<ComponentDef>) {
+    let Ok(file) = syn::parse_file(text) else {
+        return;
+    };
+    for item in &file.items {
+        if let Item::Struct(s) = item
+            && has_component_derive(&s.attrs)
+        {
+            let fields = s
+                .fields
+                .iter()
+                .filter_map(|f| {
+                    f.ident.as_ref().map(|id| Member {
+                        name: id.to_string(),
+                        detail: render(&f.ty),
+                        is_method: false,
+                    })
+                })
+                .collect();
+            let name = s.ident.to_string();
+            out.push(ComponentDef {
+                module_path: format!("{module}::{name}"),
+                name,
+                fields,
+            });
+        }
+    }
+}
+
+fn has_component_derive(attrs: &[Attribute]) -> bool {
+    attrs.iter().any(|attr| {
+        if !attr.path().is_ident("derive") {
+            return false;
+        }
+        let mut found = false;
+        let _ = attr.parse_nested_meta(|meta| {
+            if meta.path.is_ident("Component") {
+                found = true;
+            }
+            Ok(())
+        });
+        found
+    })
+}
+
+/// Best-effort `crate::…` module path for a file under `src_root`.
+fn module_path_for(src_root: &Path, file: &Path) -> String {
+    let rel = file.strip_prefix(src_root).unwrap_or(file);
+    let mut parts: Vec<String> = rel
+        .components()
+        .filter_map(|c| c.as_os_str().to_str().map(String::from))
+        .collect();
+    if let Some(last) = parts.last_mut()
+        && let Some(stem) = last.strip_suffix(".rs")
+    {
+        if matches!(stem, "lib" | "main" | "mod") {
+            parts.pop();
+        } else {
+            *last = stem.to_string();
+        }
+    }
+    let mut path = String::from("crate");
+    for p in parts {
+        path.push_str("::");
+        path.push_str(&p);
+    }
+    path
 }
 
 /// The introspected component paired with a template.
