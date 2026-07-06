@@ -54,6 +54,11 @@ It regenerates the parser, copies the grammar into a standalone git repo under
 > The script's edit to `extension.toml` is machine-specific — **don't commit
 > it.** The committed `extension.toml` keeps a GitHub placeholder for publishing.
 
+**If Zed says "failed to compile grammar 'rsc'"** with `grammar directory …
+already exists, but is not a git clone of …`, delete the stale clone Zed made
+from a previous run: `rm -rf editors/zed/grammars/rsc` (or re-run
+`dev-setup.sh`, which now does this for you), then reinstall.
+
 ### Publishing
 
 Push `grammars/tree-sitter-rsc/` (parser `src/` committed) to its own public

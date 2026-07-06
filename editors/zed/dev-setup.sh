@@ -17,6 +17,10 @@ repo="${RSC_GRAMMAR_REPO:-$HOME/.cache/zed-rsc/tree-sitter-rsc}"
 
 command -v tree-sitter >/dev/null || { echo "error: install the tree-sitter CLI first"; exit 1; }
 
+# Zed clones the grammar into grammars/<name>/ and refuses to reuse a clone of a
+# different repo. Clear any stale one so it re-clones from the current file:// URL.
+rm -rf "$here/grammars/rsc"
+
 echo "==> generating parser in $src (ABI 14 for Zed compatibility)"
 ( cd "$src" && tree-sitter generate --abi 14 >/dev/null )
 
