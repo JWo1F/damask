@@ -17,8 +17,8 @@ repo="${RSC_GRAMMAR_REPO:-$HOME/.cache/zed-rsc/tree-sitter-rsc}"
 
 command -v tree-sitter >/dev/null || { echo "error: install the tree-sitter CLI first"; exit 1; }
 
-echo "==> generating parser in $src"
-( cd "$src" && tree-sitter generate >/dev/null )
+echo "==> generating parser in $src (ABI 14 for Zed compatibility)"
+( cd "$src" && tree-sitter generate --abi 14 >/dev/null )
 
 echo "==> syncing grammar into standalone repo $repo"
 rm -rf "$repo"
