@@ -17,7 +17,7 @@ All notable changes to RSC are documented here. The format follows
   - `{@html}` (raw), `{@render}` (render a snippet/fragment),
     `{#if}`/`{:else if}`/`{:else}`/`{/if}`, `{#each E as p[, i]}`/`{/each}`,
     `{#snippet name(params)}`/`{/snippet}`.
-  - `{#use path}` — a Rust `use`, scoped to the enclosing HTML element.
+  - `{use path}` — a Rust `use`, scoped to the enclosing HTML element.
   - **HTML and component elements**: lowercase `<div>` renders; capitalized
     `<Component attr={e}>` is built from its attributes and rendered (omitted
     fields are a compile error).

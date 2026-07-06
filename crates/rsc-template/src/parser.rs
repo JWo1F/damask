@@ -355,9 +355,6 @@ impl<'a> Parser<'a> {
 
         if let Some(body) = t.strip_prefix('#') {
             let body = body.trim_start();
-            if let Some(rest) = keyword(body, "use") {
-                return Ok(TagResult::Node(Node::Use(rest)));
-            }
             if let Some(cond) = keyword(body, "if") {
                 return Ok(TagResult::Node(Node::If(self.parse_if(open, cond)?)));
             }
@@ -609,9 +606,10 @@ mod tests {
     fn directives_and_use() {
         assert_eq!(nodes("{@html x}"), vec![Node::Html("x".into())]);
         assert_eq!(nodes("{@render foo}"), vec![Node::Render("foo".into())]);
+        // `use` is a plain block statement, not a special tag.
         assert_eq!(
-            nodes("{#use crate::Card}"),
-            vec![Node::Use("crate::Card".into())]
+            nodes("{use crate::Card}"),
+            vec![Node::Expr("use crate::Card".into())]
         );
     }
 

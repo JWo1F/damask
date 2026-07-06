@@ -146,10 +146,6 @@ fn emit_node(node: &Node, out: &mut String) -> Result<(), String> {
                 "::rsc::Render::render_into(&({code}), &mut *__rsc);\n"
             ));
         }
-        Node::Use(path) => {
-            require_expr(path, "{#use … }")?;
-            out.push_str(&format!("#[allow(unused_imports)] use {path};\n"));
-        }
         Node::If(if_node) => emit_if(if_node, out)?,
         Node::Each(each) => emit_each(each, out)?,
         Node::Snippet(snippet) => emit_snippet(snippet, out)?,
@@ -163,6 +159,10 @@ fn emit_node(node: &Node, out: &mut String) -> Result<(), String> {
 fn emit_expr(code: &str, out: &mut String) {
     let trimmed = code.trim();
     if is_statement(trimmed) {
+        // A `use` may import something used only in a sibling scope; don't warn.
+        if starts_with_kw(trimmed, "use") {
+            out.push_str("#[allow(unused_imports)] ");
+        }
         out.push_str(trimmed);
         if !trimmed.ends_with(';') {
             out.push(';');
@@ -179,9 +179,12 @@ fn emit_expr(code: &str, out: &mut String) {
     }
 }
 
-/// Whether a `{ … }` block is a statement (yields no value to print).
+/// Whether a `{ … }` block is a statement or item (yields no value to print).
 fn is_statement(trimmed: &str) -> bool {
-    trimmed.ends_with(';') || starts_with_kw(trimmed, "let") || starts_with_kw(trimmed, "const")
+    const ITEM_KEYWORDS: &[&str] = &[
+        "let", "const", "use", "fn", "static", "type", "struct", "enum", "trait", "impl", "mod",
+    ];
+    trimmed.ends_with(';') || ITEM_KEYWORDS.iter().any(|kw| starts_with_kw(trimmed, kw))
 }
 
 fn starts_with_kw(s: &str, kw: &str) -> bool {
@@ -320,7 +323,7 @@ fn emit_html_element(el: &Element, out: &mut String) -> Result<(), String> {
     raw.push('>');
     flush_raw(&mut raw, out);
 
-    // A scope block so `{#use}` (and bindings) are scoped to this element.
+    // A scope block so `{use}` (and bindings) are scoped to this element.
     out.push_str("{\n");
     emit_nodes(&el.children, out)?;
     out.push_str("}\n");
@@ -456,7 +459,7 @@ mod tests {
         assert!(
             body("{@render self.footer}").contains("::rsc::Render::render_into(&(self.footer)")
         );
-        assert!(body("{#use crate::Card}").contains("use crate::Card;"));
+        assert!(body("{use crate::Card}").contains("use crate::Card;"));
     }
 
     #[test]
@@ -475,7 +478,7 @@ mod tests {
 
     #[test]
     fn html_element_scopes_and_attrs() {
-        let b = body(r#"<div id={self.id}>{#use crate::X}hi</div>"#);
+        let b = body(r#"<div id={self.id}>{use crate::X}hi</div>"#);
         assert!(b.contains("__rsc.write_escaped(&(self.id))"));
         // element content is a scope block containing the use
         assert!(b.contains("use crate::X;"));
@@ -484,10 +487,10 @@ mod tests {
 
     #[test]
     fn let_and_use_are_element_scoped() {
-        // Both a `{let}` and a `{#use}` inside <div> land inside the element's
+        // Both a `{let}` and a `{use}` inside <div> land inside the element's
         // scope block (between the `<div>` write and the `</div>` write), so
         // they are not visible after `</div>`.
-        let b = body(r#"<div>{let x = 5}{#use crate::X}{x}</div>"#);
+        let b = body(r#"<div>{let x = 5}{use crate::X}{x}</div>"#);
         let open = b.find(r#"write_raw("<div>")"#).unwrap();
         let block_open = b[open..].find('{').unwrap() + open;
         let close = b.find(r#"write_raw("</div>")"#).unwrap();

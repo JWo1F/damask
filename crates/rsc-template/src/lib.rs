@@ -12,10 +12,9 @@
 //!
 //! | Syntax | Meaning |
 //! |--------|---------|
-//! | `{ expr }` | Rust block — prints its value (escaped), or nothing if it's a statement |
+//! | `{ expr }` | Rust block — prints its value (escaped), or nothing if it's a statement (e.g. `{use crate::X}`, `{let x = e}`) |
 //! | `{@html expr}` | write `expr` raw |
 //! | `{@render expr}` | render a snippet / fragment |
-//! | `{#use path}` | a Rust `use`, scoped to the enclosing element |
 //! | `{#if c}…{:else if c}…{:else}…{/if}` | conditional |
 //! | `{#each E as p[, i]}…{/each}` | loop |
 //! | `{#snippet name(params)}…{/snippet}` | define a reusable fragment |
@@ -72,8 +71,6 @@ pub enum Node {
     Html(String),
     /// `{@render expr}` — render a snippet / fragment.
     Render(String),
-    /// `{#use path}` — a Rust `use`, scoped to the enclosing element.
-    Use(String),
     /// `{#if …}…{/if}`.
     If(IfNode),
     /// `{#each …}…{/each}`.

@@ -245,7 +245,7 @@ fn attribute_items(path: &Path, component: &str) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// `{#use …}` — component paths in the crate.
+/// `{use …}` — component paths in the crate.
 fn use_path_items(path: &Path) -> Vec<CompletionItem> {
     introspect::crate_components(path)
         .into_iter()

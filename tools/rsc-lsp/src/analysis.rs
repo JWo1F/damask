@@ -1,7 +1,7 @@
 //! Cursor-context analysis over template text.
 //!
 //! Deliberately tolerant of half-typed tags: completion must work while the user
-//! is in the middle of writing `{ self.`, `<Fra`, `<Frame ti`, or `{#use cr`.
+//! is in the middle of writing `{ self.`, `<Fra`, `<Frame ti`, or `{use cr`.
 
 use rsc_template::in_tag;
 
@@ -10,7 +10,7 @@ use rsc_template::in_tag;
 pub enum Context {
     /// Inside a `{ … }` tag — complete `self` members.
     SelfMember,
-    /// Inside a `{#use …}` tag — complete component paths.
+    /// Inside a `{use …}` tag — complete component paths.
     UsePath,
     /// Typing an element name after `<` — complete component names.
     ElementName,
@@ -39,7 +39,7 @@ pub fn cursor_context(text: &str, offset: usize) -> Context {
     }
 }
 
-/// Whether the tag enclosing the cursor is a `{#use …}`.
+/// Whether the tag enclosing the cursor is a `{use …}` statement.
 fn is_use_tag(text: &str, offset: usize) -> bool {
     let before = &text[..offset];
     let mut depth = 0;
@@ -48,7 +48,10 @@ fn is_use_tag(text: &str, offset: usize) -> bool {
             '}' => depth += 1,
             '{' => {
                 if depth == 0 {
-                    return text[i + 1..offset].trim_start().starts_with("#use");
+                    let after = text[i + 1..offset].trim_start();
+                    return after
+                        .strip_prefix("use")
+                        .is_some_and(|r| r.is_empty() || r.starts_with(char::is_whitespace));
                 }
                 depth -= 1;
             }
@@ -102,7 +105,7 @@ mod tests {
 
     #[test]
     fn use_context() {
-        assert_eq!(ctx("<div>{#use crate::wid"), Context::UsePath);
+        assert_eq!(ctx("<div>{use crate::wid"), Context::UsePath);
     }
 
     #[test]

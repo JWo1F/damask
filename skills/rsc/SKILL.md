@@ -4,7 +4,7 @@ description: >-
   Author and modify RSC (Rust Smart Components): the paired `.rs` + `.rsc`
   component files, the `#[derive(Component)]` struct, the brace template
   tags (`{ }`, `{@html}`, `{@render}`, `{#if}`, `{#each}`, `{#snippet}`,
-  `{#use}`), HTML/component elements (`<Foo attr={e}/>`), `<slot>`s, snippets,
+  `{use}`), HTML/component elements (`<Foo attr={e}/>`), `<slot>`s, snippets,
   and custom renderers. Use whenever creating or editing a `.rsc` template or a
   `#[derive(Component)]` struct, or wiring RSC into a Rust project.
 ---
@@ -70,7 +70,7 @@ statement/binding runs and prints nothing.
 | `{ let x = e }` / `{ x; }` | binding / statement — runs, no output |
 | `{@html expr}` | print `expr` **raw** (no escaping) |
 | `{@render expr}` | render a **snippet / fragment** |
-| `{#use path}` | a Rust `use`, scoped to the enclosing element |
+| `{use path}` | a Rust `use`, scoped to the enclosing element |
 | `{#if c}…{:else if c2}…{:else}…{/if}` | conditional |
 | `{#each E as p}` / `{#each E as p, i}` `…{/each}` | loop |
 | `{#snippet name(params)}…{/snippet}` | define a reusable fragment |
@@ -93,12 +93,12 @@ braces are written as an expression: `{"{"}`.
 Lowercase tags are HTML; **capitalized tags are components**, built from their
 attributes and rendered. Attributes carry Rust: `attr={expr}`, `attr="literal"`,
 or bare `attr` (boolean). A missing required field is a **compile error**.
-`{#use}` imports (anything — components, functions), scoped to the enclosing
+`{use}` imports (anything — components, functions), scoped to the enclosing
 element.
 
 ```html
 <div>
-  {#use crate::widgets::Frame}
+  {use crate::widgets::Frame}
   <Frame title={self.heading.clone()}>
     <p>{self.body}</p>                 <!-- default slot -->
     <slot name="footer">© {self.year}</slot>
@@ -164,7 +164,7 @@ let out = r.finish();
   (omitting one is a compile error).
 - **`<slot>` fields are `Render` generics.** A component with a default slot
   needs a `children` field; `name="x"` needs an `x` field.
-- **`{#use}` is scoped** to its enclosing element — an import inside `<div>…</div>`
+- **`{use}` is scoped** to its enclosing element — an import inside `<div>…</div>`
   is not visible after `</div>`.
 - **Snippets must be defined before they are used** (they are `let` bindings).
 - **Duplicate basenames** in the *same* directory are an error; different

@@ -57,7 +57,7 @@ or binding, it runs and prints nothing.
 | `{ let x = e }` / `{ x; }` | a binding / statement — runs, prints nothing |
 | `{@html expr}` | print `expr` raw (unescaped) |
 | `{@render expr}` | render a snippet / fragment |
-| `{#use path}` | a Rust `use`, scoped to the enclosing element |
+| `{use path}` | a Rust `use`, scoped to the enclosing element |
 | `{#if c}…{:else if c2}…{:else}…{/if}` | conditional |
 | `{#each E as p}` / `{#each E as p, i}` `…{/each}` | loop |
 | `{#snippet name(params)}…{/snippet}` | define a reusable fragment |
@@ -81,7 +81,7 @@ or bare `attr` (boolean). Omitting a required field is a compile error.
 
 ```html
 <div>
-  {#use crate::widgets::Frame}        <!-- import, scoped to this <div> -->
+  {use crate::widgets::Frame}        <!-- import, scoped to this <div> -->
   <Frame title={self.heading.clone()}>
     <p>{self.body}</p>                <!-- fills the default slot -->
     <slot name="footer">© {self.year}</slot>
@@ -106,7 +106,7 @@ pub struct Frame<Body: Render, Footer: Render> {
 <section><h2>{self.title}</h2><slot/><footer><slot name="footer"/></footer></section>
 ```
 
-`{#use}` is an ordinary Rust `use` — import components, functions, or anything
+`{use}` is an ordinary Rust `use` — import components, functions, or anything
 else — and it is scoped to the HTML element that encloses it.
 
 ## Snippets
