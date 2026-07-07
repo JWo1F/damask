@@ -1,8 +1,7 @@
 name = "RSC"
 grammar = "rsc"
 path_suffixes = ["rsc"]
-autoclose_before = "}<>"
+autoclose_before = "}"
 brackets = [
     { start = "{", end = "}", close = true, newline = false },
-    { start = "<", end = ">", close = false },
 ]
