@@ -1,7 +1,70 @@
 use crate::{
-    Attr, AttrValue, EachNode, Element, ElementKind, IfNode, Node, SnippetNode, Span, Template,
+    Attr, AttrValue, EachNode, Element, ElementKind, IfNode, Node, SnippetNode, Span, Spanned,
+    Template,
 };
 use std::fmt;
+
+/// A string slice that remembers its absolute byte offset in the template
+/// source. Trimming and prefix-stripping a tag's inner text then yields a
+/// precise [`Span`] for the Rust fragment that survives — the offset bookkeeping
+/// the language server relies on to map virtual-file positions back to source.
+#[derive(Clone, Copy)]
+struct Slice<'a> {
+    s: &'a str,
+    start: usize,
+}
+
+impl<'a> Slice<'a> {
+    fn new(s: &'a str, start: usize) -> Self {
+        Slice { s, start }
+    }
+
+    fn trim(self) -> Self {
+        let lead = self.s.len() - self.s.trim_start().len();
+        Slice {
+            s: self.s.trim(),
+            start: self.start + lead,
+        }
+    }
+
+    fn trim_start(self) -> Self {
+        let lead = self.s.len() - self.s.trim_start().len();
+        Slice {
+            s: self.s.trim_start(),
+            start: self.start + lead,
+        }
+    }
+
+    fn strip_prefix(self, p: &str) -> Option<Self> {
+        self.s.strip_prefix(p).map(|r| Slice {
+            s: r,
+            start: self.start + p.len(),
+        })
+    }
+
+    /// Split on the first `sep`, dropping the separator; both halves keep their
+    /// absolute offsets.
+    fn split_once(self, sep: &str) -> Option<(Self, Self)> {
+        self.s.find(sep).map(|i| {
+            (
+                Slice::new(&self.s[..i], self.start),
+                Slice::new(&self.s[i + sep.len()..], self.start + i + sep.len()),
+            )
+        })
+    }
+
+    fn span(self) -> Span {
+        Span::new(self.start, self.start + self.s.len())
+    }
+
+    fn to_spanned(self) -> Spanned {
+        Spanned::new(self.s, self.span())
+    }
+
+    fn is_empty(self) -> bool {
+        self.s.is_empty()
+    }
+}
 
 /// A template parse failure, with the source span it occurred at.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -48,7 +111,7 @@ enum Term {
     Eof,
     ElementClose(String),
     TagClose(String),
-    ElseIf(String),
+    ElseIf(Spanned),
     Else,
 }
 
@@ -102,11 +165,15 @@ impl<'a> Parser<'a> {
     fn parse_nodes(&mut self) -> Result<(Vec<Node>, Term), ParseError> {
         let mut nodes = Vec::new();
         let mut text = String::new();
+        // Start offset of the current text run; meaningful only while `text` is
+        // non-empty. Set whenever a fresh run begins so `flush!` can span it.
+        let mut text_start = self.pos;
 
         macro_rules! flush {
             () => {
                 if !text.is_empty() {
-                    nodes.push(Node::Text(std::mem::take(&mut text)));
+                    let span = Span::new(text_start, self.pos);
+                    nodes.push(Node::Text(Spanned::new(std::mem::take(&mut text), span)));
                 }
             };
         }
@@ -121,6 +188,9 @@ impl<'a> Parser<'a> {
                 }
             } else if b == b'<' {
                 if self.starts_with("<!--") {
+                    if text.is_empty() {
+                        text_start = self.pos;
+                    }
                     let end = self.src[self.pos + 4..]
                         .find("-->")
                         .map(|r| self.pos + 4 + r + 3)
@@ -136,10 +206,16 @@ impl<'a> Parser<'a> {
                     let el = self.parse_element()?;
                     nodes.push(Node::Element(el));
                 } else {
+                    if text.is_empty() {
+                        text_start = self.pos;
+                    }
                     text.push('<');
                     self.pos += 1;
                 }
             } else {
+                if text.is_empty() {
+                    text_start = self.pos;
+                }
                 let ch = self.src[self.pos..].chars().next().unwrap();
                 text.push(ch);
                 self.pos += ch.len_utf8();
@@ -281,7 +357,7 @@ impl<'a> Parser<'a> {
         Ok(self.src[start..self.pos].to_string())
     }
 
-    fn parse_quoted(&mut self, quote: u8) -> Result<String, ParseError> {
+    fn parse_quoted(&mut self, quote: u8) -> Result<Spanned, ParseError> {
         let start = self.pos;
         self.pos += 1; // opening quote
         let content_start = self.pos;
@@ -291,16 +367,19 @@ impl<'a> Parser<'a> {
         if self.pos >= self.n {
             return Err(self.err_at(start, "unterminated attribute string".into()));
         }
+        let span = Span::new(content_start, self.pos);
         let s = self.src[content_start..self.pos].to_string();
         self.pos += 1; // closing quote
-        Ok(s)
+        Ok(Spanned::new(s, span))
     }
 
-    /// Parse a `{ … }` group and return the trimmed inner text. `pos` must be at `{`.
-    fn parse_brace_inner(&mut self) -> Result<String, ParseError> {
-        let (inner, end) = self.scan_braces(self.pos)?;
+    /// Parse a `{ … }` group and return the trimmed inner text with its span.
+    /// `pos` must be at `{`.
+    fn parse_brace_inner(&mut self) -> Result<Spanned, ParseError> {
+        let open = self.pos;
+        let (inner, end) = self.scan_braces(open)?;
         self.pos = end;
-        Ok(inner.trim().to_string())
+        Ok(Slice::new(inner, open + 1).trim().to_spanned())
     }
 
     /// Scan a balanced `{ … }` from `open` (at `{`), skipping string/char
@@ -340,61 +419,65 @@ impl<'a> Parser<'a> {
         let open = self.pos;
         let (inner_raw, end) = self.scan_braces(open)?;
         self.pos = end;
-        let t = inner_raw.trim();
+        // `inner_raw` is `src[open + 1 .. end - 1]`; carry its absolute start so
+        // every fragment we peel off keeps a correct source span.
+        let t = Slice::new(inner_raw, open + 1).trim();
 
-        if let Some(body) = t.strip_prefix('@') {
+        if let Some(body) = t.strip_prefix("@") {
             let body = body.trim_start();
             if let Some(rest) = keyword(body, "html") {
-                return Ok(TagResult::Node(Node::Html(rest)));
+                return Ok(TagResult::Node(Node::Html(rest.to_spanned())));
             }
             if let Some(rest) = keyword(body, "render") {
-                return Ok(TagResult::Node(Node::Render(rest)));
+                return Ok(TagResult::Node(Node::Render(rest.to_spanned())));
             }
-            return Err(self.err_at(open, format!("unknown directive `{{@{body}}}`")));
+            return Err(self.err_at(open, format!("unknown directive `{{@{}}}`", body.s)));
         }
 
-        if let Some(body) = t.strip_prefix('#') {
+        if let Some(body) = t.strip_prefix("#") {
             let body = body.trim_start();
             if let Some(cond) = keyword(body, "if") {
-                return Ok(TagResult::Node(Node::If(self.parse_if(open, cond)?)));
+                return Ok(TagResult::Node(Node::If(
+                    self.parse_if(open, cond.to_spanned())?,
+                )));
             }
             if let Some(rest) = keyword(body, "each") {
-                return Ok(TagResult::Node(Node::Each(self.parse_each(open, &rest)?)));
+                return Ok(TagResult::Node(Node::Each(self.parse_each(open, rest)?)));
             }
             if let Some(rest) = keyword(body, "snippet") {
                 return Ok(TagResult::Node(Node::Snippet(
-                    self.parse_snippet(open, &rest)?,
+                    self.parse_snippet(open, rest)?,
                 )));
             }
-            return Err(self.err_at(open, format!("unknown block `{{#{body}}}`")));
+            return Err(self.err_at(open, format!("unknown block `{{#{}}}`", body.s)));
         }
 
-        if let Some(body) = t.strip_prefix(':') {
+        if let Some(body) = t.strip_prefix(":") {
             let body = body.trim_start();
             if let Some(rest) = keyword(body, "else") {
                 let rest = rest.trim_start();
                 if let Some(cond) = keyword(rest, "if") {
-                    return Ok(TagResult::Term(Term::ElseIf(cond)));
+                    return Ok(TagResult::Term(Term::ElseIf(cond.to_spanned())));
                 }
                 if rest.is_empty() {
                     return Ok(TagResult::Term(Term::Else));
                 }
             }
-            return Err(self.err_at(open, format!("unknown clause `{{:{body}}}`")));
+            return Err(self.err_at(open, format!("unknown clause `{{:{}}}`", body.s)));
         }
 
-        if let Some(body) = t.strip_prefix('/') {
-            return Ok(TagResult::Term(Term::TagClose(body.trim().to_string())));
+        if let Some(body) = t.strip_prefix("/") {
+            return Ok(TagResult::Term(Term::TagClose(body.trim().s.to_string())));
         }
 
         if t.is_empty() {
             return Err(self.err_at(open, "empty tag `{}`".into()));
         }
         // A `{ … }` block — codegen decides value-vs-statement.
-        Ok(TagResult::Node(Node::Expr(t.to_string())))
+        Ok(TagResult::Node(Node::Expr(t.to_spanned())))
     }
 
-    fn parse_if(&mut self, open: usize, first_cond: String) -> Result<IfNode, ParseError> {
+    fn parse_if(&mut self, open: usize, first_cond: Spanned) -> Result<IfNode, ParseError> {
         let mut branches = Vec::new();
         let mut cond = first_cond;
         loop {
@@ -435,20 +518,20 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_each(&mut self, open: usize, code: &str) -> Result<EachNode, ParseError> {
+    fn parse_each(&mut self, open: usize, code: Slice) -> Result<EachNode, ParseError> {
         let (expr, binding) = code
             .split_once(" as ")
             .ok_or_else(|| self.err_at(open, "`{#each … as …}` requires `as`".into()))?;
-        let expr = expr.trim().to_string();
-        let binding = binding.trim().to_string();
+        let expr = expr.trim();
+        let binding = binding.trim();
         if expr.is_empty() || binding.is_empty() {
-            return Err(self.err_at(open, format!("malformed `{{#each {code}}}`")));
+            return Err(self.err_at(open, format!("malformed `{{#each {}}}`", code.s)));
         }
         let (body, term) = self.parse_nodes()?;
         match term {
             Term::TagClose(k) if k == "each" => Ok(EachNode {
-                expr,
-                binding,
+                expr: expr.to_spanned(),
+                binding: binding.to_spanned(),
                 body,
             }),
             other => Err(self.err_at(
@@ -458,21 +541,27 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_snippet(&mut self, open: usize, code: &str) -> Result<SnippetNode, ParseError> {
+    fn parse_snippet(&mut self, open: usize, code: Slice) -> Result<SnippetNode, ParseError> {
         let paren = code
+            .s
             .find('(')
             .ok_or_else(|| self.err_at(open, "`{#snippet name(params)}` needs `(`".into()))?;
         let close = code
+            .s
             .rfind(')')
             .ok_or_else(|| self.err_at(open, "`{#snippet name(params)}` needs `)`".into()))?;
-        let name = code[..paren].trim().to_string();
-        let params = code[paren + 1..close].trim().to_string();
+        let name = Slice::new(&code.s[..paren], code.start).trim();
+        let params = Slice::new(&code.s[paren + 1..close], code.start + paren + 1).trim();
         if name.is_empty() {
             return Err(self.err_at(open, "`{#snippet}` needs a name".into()));
         }
         let (body, term) = self.parse_nodes()?;
         match term {
-            Term::TagClose(k) if k == "snippet" => Ok(SnippetNode { name, params, body }),
+            Term::TagClose(k) if k == "snippet" => Ok(SnippetNode {
+                name: name.to_spanned(),
+                params: params.to_spanned(),
+                body,
+            }),
             other => Err(self.err_at(
                 open,
                 format!("`{{#snippet}}` not closed (found {})", other.describe()),
@@ -496,12 +585,15 @@ fn classify_element(tag: &str) -> ElementKind {
     }
 }
 
-fn keyword(s: &str, k: &str) -> Option<String> {
+/// If `s` begins with the whole word `k` (not just a prefix of a longer
+/// identifier), return what follows it, trimmed. `k` alone (nothing after)
+/// yields an empty slice positioned just past `k`.
+fn keyword<'a>(s: Slice<'a>, k: &str) -> Option<Slice<'a>> {
     let rest = s.strip_prefix(k)?;
-    match rest.chars().next() {
-        None => Some(String::new()),
+    match rest.s.chars().next() {
+        None => Some(Slice::new("", rest.start)),
         Some(c) if c.is_alphanumeric() || c == '_' => None,
-        Some(_) => Some(rest.trim().to_string()),
+        Some(_) => Some(rest.trim()),
     }
 }
 
@@ -539,6 +631,100 @@ fn scan_char(src: &str, i: usize) -> usize {
         }
     }
     i + 1
+}
+
+/// Byte ranges of every `{ … }` tag in `src` — the code-bearing regions to
+/// blank out when projecting a template to plain HTML for an HTML language
+/// server. Covers both text-position tags and attribute expression values
+/// (`attr={…}`), and skips HTML comments and quoted attribute strings so the
+/// braces inside them are left as literal text.
+///
+/// This lives beside the parser so it uses the same tokenization rules the real
+/// parser does, and can't drift from them.
+pub fn tag_spans(src: &str) -> Vec<Span> {
+    let bytes = src.as_bytes();
+    let n = src.len();
+    let mut spans = Vec::new();
+    let mut i = 0;
+    while i < n {
+        match bytes[i] {
+            b'<' if src[i..].starts_with("<!--") => {
+                i = src[i + 4..].find("-->").map(|r| i + 4 + r + 3).unwrap_or(n);
+            }
+            b'<' => {
+                // Inside an element tag: keep the structure, record `{…}`
+                // attribute values, and skip quoted strings, up to `>`.
+                i += 1;
+                while i < n && bytes[i] != b'>' {
+                    match bytes[i] {
+                        b'"' => i = scan_to_quote(src, i, b'"'),
+                        b'\'' => i = scan_to_quote(src, i, b'\''),
+                        b'{' => {
+                            let end = scan_braces_end(src, i);
+                            spans.push(Span::new(i, end));
+                            i = end;
+                        }
+                        _ => i += char_len(src, i),
+                    }
+                }
+                if i < n {
+                    i += 1; // consume '>'
+                }
+            }
+            b'{' => {
+                let end = scan_braces_end(src, i);
+                spans.push(Span::new(i, end));
+                i = end;
+            }
+            _ => i += char_len(src, i),
+        }
+    }
+    spans
+}
+
+/// Byte length of the UTF-8 char at `i` (at least 1).
+fn char_len(src: &str, i: usize) -> usize {
+    src[i..].chars().next().map(char::len_utf8).unwrap_or(1)
+}
+
+/// From an opening quote at `open`, return the index just past the closing
+/// `quote` (or end of input). RSC attribute strings have no escapes.
+fn scan_to_quote(src: &str, open: usize, quote: u8) -> usize {
+    let bytes = src.as_bytes();
+    let n = src.len();
+    let mut i = open + 1;
+    while i < n && bytes[i] != quote {
+        i += char_len(src, i);
+    }
+    (i + 1).min(n)
+}
+
+/// From `{` at `open`, return the index just past the matching `}` (or end of
+/// input), skipping string and char literals inside.
+fn scan_braces_end(src: &str, open: usize) -> usize {
+    let bytes = src.as_bytes();
+    let n = src.len();
+    let mut i = open + 1;
+    let mut depth = 1usize;
+    while i < n {
+        match bytes[i] {
+            b'"' => i = scan_string(src, i),
+            b'\'' => i = scan_char(src, i),
+            b'{' => {
+                depth += 1;
+                i += 1;
+            }
+            b'}' => {
+                depth -= 1;
+                i += 1;
+                if depth == 0 {
+                    return i;
+                }
+            }
+            _ => i += char_len(src, i),
+        }
+    }
+    n
 }
 
 /// Whether `offset` lies inside an open `{ … }` tag (brace depth > 0), tolerant
@@ -761,5 +947,111 @@ mod tests {
         assert!(in_tag("Hi { self.na", 12));
         assert!(!in_tag("Hi { x } bye", 12));
         assert!(in_tag("<Foo a={Bar { ", 14));
+    }
+
+    /// Blanking the reported spans (length-preserving) leaves valid HTML markup
+    /// and removes every `{ … }` region — including attribute expression values
+    /// and control-flow markers.
+    #[test]
+    fn tag_spans_cover_code_regions_only() {
+        let src = r#"<a href={self.url}>Hi {self.name}!</a>{#if x}y{/if}"#;
+        let mut blanked = src.to_string();
+        for s in tag_spans(src) {
+            blanked.replace_range(s.start..s.end, &" ".repeat(s.len()));
+        }
+        assert!(!blanked.contains('{'), "unblanked tag remains: {blanked:?}");
+        assert!(!blanked.contains('}'));
+        // The HTML structure survives, so an HTML server sees real markup.
+        assert!(blanked.contains("<a href="));
+        assert!(blanked.contains("Hi "));
+        assert!(blanked.contains("</a>"));
+        assert_eq!(blanked.len(), src.len(), "length preserved for identity mapping");
+    }
+
+    #[test]
+    fn tag_spans_preserve_quoted_attribute_braces() {
+        // A `{` inside a quoted attribute literal is text, not a tag.
+        let src = r#"<a title="{x}">t</a>"#;
+        assert!(tag_spans(src).is_empty(), "quoted braces must not be tags");
+    }
+
+    /// Collect every span-carrying fragment in a node tree, in source order.
+    fn collect<'a>(nodes: &'a [Node], out: &mut Vec<&'a Spanned>) {
+        for n in nodes {
+            match n {
+                Node::Text(s) | Node::Expr(s) | Node::Html(s) | Node::Render(s) => out.push(s),
+                Node::If(i) => {
+                    for (cond, body) in &i.branches {
+                        out.push(cond);
+                        collect(body, out);
+                    }
+                    if let Some(body) = &i.otherwise {
+                        collect(body, out);
+                    }
+                }
+                Node::Each(e) => {
+                    out.push(&e.expr);
+                    out.push(&e.binding);
+                    collect(&e.body, out);
+                }
+                Node::Snippet(s) => {
+                    out.push(&s.name);
+                    out.push(&s.params);
+                    collect(&s.body, out);
+                }
+                Node::Element(el) => {
+                    for a in &el.attrs {
+                        match &a.value {
+                            AttrValue::Literal(v) | AttrValue::Expr(v) => out.push(v),
+                            AttrValue::Boolean => {}
+                        }
+                    }
+                    collect(&el.children, out);
+                }
+            }
+        }
+    }
+
+    /// The core span invariant: slicing the source with a fragment's span yields
+    /// exactly that fragment's text. This is what makes the spans usable as a
+    /// virtual-file ↔ source position map.
+    #[test]
+    fn spans_slice_back_to_source() {
+        let src = concat!(
+            r#"Hi {self.name}! <a href={self.url} title="go">{@html self.body}</a>"#,
+            "{#if self.ok}yes{:else if self.maybe}m{:else}no{/if}",
+            "{#each &self.items as item, i}{item}{/each}",
+            "{#snippet foo(x: u8)}z{/snippet}",
+        );
+        let t = parse(src).unwrap();
+        let mut frags = Vec::new();
+        collect(&t.nodes, &mut frags);
+        assert!(frags.len() > 10, "expected many fragments, got {}", frags.len());
+        for f in &frags {
+            assert_eq!(
+                f.span.slice(src),
+                f.text,
+                "span {:?} does not slice back to {:?}",
+                (f.span.start, f.span.end),
+                f.text,
+            );
+        }
+    }
+
+    #[test]
+    fn concrete_span_offsets() {
+        // "Hi {self.name}!" — text "Hi " is 0..3, the expr "self.name" is 4..13.
+        let n = parse("Hi {self.name}!").unwrap().nodes;
+        match &n[0] {
+            Node::Text(s) => assert_eq!((s.span.start, s.span.end), (0, 3)),
+            other => panic!("{other:?}"),
+        }
+        match &n[1] {
+            Node::Expr(s) => {
+                assert_eq!(s.text, "self.name");
+                assert_eq!((s.span.start, s.span.end), (4, 13));
+            }
+            other => panic!("{other:?}"),
+        }
     }
 }

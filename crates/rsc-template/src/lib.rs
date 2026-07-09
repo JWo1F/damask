@@ -28,10 +28,12 @@
 //!   passed children; as a child of a `<Component>` it fills a named slot.
 
 mod line_index;
+mod lower;
 mod parser;
 
 pub use line_index::LineIndex;
-pub use parser::{ParseError, in_tag, is_void_element, parse};
+pub use lower::{Mapping, SourceMap, lower, lower_mapped};
+pub use parser::{ParseError, in_tag, is_void_element, parse, tag_spans};
 
 /// A half-open byte range `[start, end)` into the template source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -58,19 +60,92 @@ impl Span {
     }
 }
 
+/// A string extracted from the template — a Rust code fragment or a run of
+/// literal text — paired with the [`Span`] it came from. The span is what lets
+/// the language server map a position in a generated virtual file back to the
+/// exact byte range in the `.rsc` source.
+///
+/// Structural equality (and `Hash`) compares only `text`, so `Node` trees can be
+/// compared by shape without threading positions through every test; span
+/// correctness is checked with dedicated tests that read `.span` directly.
+#[derive(Debug, Clone)]
+pub struct Spanned {
+    pub text: String,
+    pub span: Span,
+}
+
+impl Spanned {
+    pub fn new(text: impl Into<String>, span: Span) -> Self {
+        Spanned {
+            text: text.into(),
+            span,
+        }
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.text
+    }
+}
+
+impl PartialEq for Spanned {
+    fn eq(&self, other: &Self) -> bool {
+        self.text == other.text
+    }
+}
+
+impl Eq for Spanned {}
+
+impl std::hash::Hash for Spanned {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.text.hash(state);
+    }
+}
+
+impl std::fmt::Display for Spanned {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.text)
+    }
+}
+
+/// A zero-span `Spanned`; convenient for construction in tests and for synthetic
+/// fragments that don't correspond to any source range.
+impl From<&str> for Spanned {
+    fn from(text: &str) -> Self {
+        Spanned::new(text, Span::new(0, 0))
+    }
+}
+
+impl From<String> for Spanned {
+    fn from(text: String) -> Self {
+        Spanned::new(text, Span::new(0, 0))
+    }
+}
+
+impl PartialEq<&str> for Spanned {
+    fn eq(&self, other: &&str) -> bool {
+        self.text == *other
+    }
+}
+
+impl PartialEq<str> for Spanned {
+    fn eq(&self, other: &str) -> bool {
+        self.text == other
+    }
+}
+
 /// A node in the template tree.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Node {
     /// Literal HTML text.
-    Text(String),
+    Text(Spanned),
     /// A `{ … }` tag holding a Rust block body. Codegen prints its value if it
     /// is an expression, or splices it (no output) if it is a statement /
     /// binding — `{ self.name }`, `{ 2 + 3; 10 }`, `{ let x = e }`.
-    Expr(String),
+    Expr(Spanned),
     /// `{@html expr}` — raw output.
-    Html(String),
+    Html(Spanned),
     /// `{@render expr}` — render a snippet / fragment.
-    Render(String),
+    Render(Spanned),
     /// `{#if …}…{/if}`.
     If(IfNode),
     /// `{#each …}…{/each}`.
@@ -85,7 +160,7 @@ pub enum Node {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IfNode {
     /// One entry per `{#if}` / `{:else if}` condition, with its body.
-    pub branches: Vec<(String, Vec<Node>)>,
+    pub branches: Vec<(Spanned, Vec<Node>)>,
     /// The `{:else}` body, if any.
     pub otherwise: Option<Vec<Node>>,
 }
@@ -93,16 +168,16 @@ pub struct IfNode {
 /// `{#each expr as binding}…{/each}` (binding may be `pat` or `pat, index`).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EachNode {
-    pub expr: String,
-    pub binding: String,
+    pub expr: Spanned,
+    pub binding: Spanned,
     pub body: Vec<Node>,
 }
 
 /// `{#snippet name(params)}…{/snippet}`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SnippetNode {
-    pub name: String,
-    pub params: String,
+    pub name: Spanned,
+    pub params: Spanned,
     pub body: Vec<Node>,
 }
 
@@ -139,9 +214,9 @@ pub struct Attr {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttrValue {
     /// `name="text"` or `name='text'`.
-    Literal(String),
+    Literal(Spanned),
     /// `name={expr}`.
-    Expr(String),
+    Expr(Spanned),
     /// A bare `name` (boolean).
     Boolean,
 }

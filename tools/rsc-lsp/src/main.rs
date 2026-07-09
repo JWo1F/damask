@@ -1,13 +1,25 @@
 //! Language server for RSC (`.rsc`) templates.
 //!
-//! Capabilities (see [`backend`]): parse diagnostics on open/change, in-tag
-//! completion of the paired component's fields and methods, and hover. It pairs
-//! a template with its sibling `.rs` file and introspects it with `syn`; there
-//! is no project-wide index, so the server is stateless per document.
+//! Rather than reimplement Rust and HTML intelligence, `rsc-lsp` acts as a
+//! *proxy* to the real language servers (see [`backend`]):
+//!
+//! - Code inside `{ … }` tags is lowered to Rust ([`virtual_file`]) and appended
+//!   to the component's paired `.rs`, which is fed to a child **rust-analyzer**
+//!   ([`lsp_client`]). Hover, completion, go-to-definition, and diagnostics come
+//!   back mapped to the template.
+//! - The surrounding markup is projected to an HTML skeleton ([`html_doc`]) and
+//!   forwarded to an **HTML language server** for tag/attribute intelligence.
+//!
+//! A static [`introspect`]ion of the paired component is kept as a fallback for
+//! when the downstream servers are unavailable. Positions are translated with
+//! the source maps produced during lowering; [`analysis`] classifies the cursor.
 
 mod analysis;
 mod backend;
+mod html_doc;
 mod introspect;
+mod lsp_client;
+mod virtual_file;
 
 use tower_lsp::{LspService, Server};
 

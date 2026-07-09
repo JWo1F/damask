@@ -164,6 +164,33 @@ pub fn for_template(rsc_path: &Path) -> Option<ComponentInfo> {
     None
 }
 
+/// Locate the `.rs` file paired with `rsc_path` and the component struct it
+/// defines, for building the rust-analyzer overlay. Like [`for_template`] but
+/// returns the file path rather than the introspected members.
+pub fn paired_rs(rsc_path: &Path) -> Option<(PathBuf, String)> {
+    let file_name = rsc_path.file_name()?.to_str()?;
+    let basename = component_basename(file_name)?;
+    let dir = rsc_path.parent()?;
+    for rs in sibling_rs_files(dir, &basename) {
+        if let Some(info) = introspect_file(&rs, &basename) {
+            return Some((rs, info.struct_name));
+        }
+    }
+    None
+}
+
+/// The nearest ancestor directory of `path` containing a `Cargo.toml` — the root
+/// to launch rust-analyzer at.
+pub fn project_root(path: &Path) -> Option<PathBuf> {
+    let mut dir = path.parent()?;
+    loop {
+        if dir.join("Cargo.toml").is_file() {
+            return Some(dir.to_path_buf());
+        }
+        dir = dir.parent()?;
+    }
+}
+
 /// `.rs` files to try, `<basename>.rs` first, then the rest of the directory.
 fn sibling_rs_files(dir: &Path, basename: &str) -> Vec<PathBuf> {
     let preferred = dir.join(format!("{basename}.rs"));

@@ -8,8 +8,13 @@ Syntax highlighting and language-server support for [RSC](../../README.md)
 - **Highlighting** — tag delimiters (`{`, `{#`, `{@`, `{:`, `{/`, `}`) are
   highlighted, the Rust inside `{ … }` tags is highlighted by Zed's Rust grammar
   (injected), and the surrounding markup by the HTML grammar.
-- **Language server** — parse diagnostics, and completion of the paired
-  component's fields and methods inside a tag, via `rsc-lsp`.
+- **Language server** — `rsc-lsp` proxies the real language servers rather than
+  reimplementing them. Rust inside `{ … }` tags is type-checked by a
+  **rust-analyzer** it runs against the paired component, giving true hover,
+  completion, go-to-definition, and type diagnostics; the surrounding markup is
+  forwarded to an **HTML language server** for tag/attribute intelligence. When a
+  downstream server isn't installed it falls back to static (`syn`-based)
+  field/method completion.
 
 ## Layout
 
@@ -32,6 +37,14 @@ The extension runs `rsc-lsp`, which must be on your `PATH`:
 cargo install --path tools/rsc-lsp    # from this repo
 # or, once published:  cargo install rsc-lsp
 ```
+
+For full intelligence `rsc-lsp` shells out to downstream servers, also on
+`PATH` (both optional — features degrade gracefully without them):
+
+- **rust-analyzer** (`rustup component add rust-analyzer`) — Rust hover,
+  completion, go-to-definition, and diagnostics inside `{ … }` tags.
+- **vscode-html-language-server** (from `vscode-langservers-extracted`) — markup
+  tag/attribute completion and hover.
 
 ## Installing the extension (dev)
 
