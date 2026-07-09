@@ -100,8 +100,10 @@ impl VirtualFile {
     /// position completion is requested at. Falls back to mapping the byte
     /// before the cursor and stepping one past it in the overlay.
     pub fn source_to_overlay_boundary(&self, offset: usize) -> Option<usize> {
-        self.source_to_overlay(offset)
-            .or_else(|| self.source_to_overlay(offset.checked_sub(1)?).map(|o| o + 1))
+        self.source_to_overlay(offset).or_else(|| {
+            self.source_to_overlay(offset.checked_sub(1)?)
+                .map(|o| o + 1)
+        })
     }
 
     /// Translate a byte offset in the overlay back to the `.rsc` source, if it
@@ -141,7 +143,10 @@ mod tests {
         let (vf, _) = build("Hello {self.name}!");
         assert!(vf.text.starts_with(RS), "original file preserved verbatim");
         assert!(vf.text.contains("impl Greeting"));
-        assert!(vf.text.contains("fn __rsc_check(&self, __rsc: &mut dyn ::rsc::Renderer)"));
+        assert!(
+            vf.text
+                .contains("fn __rsc_check(&self, __rsc: &mut dyn ::rsc::Renderer)")
+        );
         assert!(vf.text.contains("self.name"));
     }
 
@@ -178,10 +183,14 @@ mod tests {
         // Walk every mapping and every offset inside its source span.
         let src_bytes = src.as_bytes();
         for m in &vf.mappings {
+            // The index is the value under test — it's fed to the translation
+            // functions, not just used to reach into `src_bytes`.
+            #[allow(clippy::needless_range_loop)]
             for off in m.source.start..m.source.end {
                 let ov = vf.source_to_overlay(off).expect("mapped offset");
                 assert_eq!(
-                    vf.text.as_bytes()[ov], src_bytes[off],
+                    vf.text.as_bytes()[ov],
+                    src_bytes[off],
                     "byte mismatch at source {off}",
                 );
                 assert_eq!(vf.overlay_to_source(ov), Some(off));

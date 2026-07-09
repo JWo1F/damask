@@ -965,7 +965,11 @@ mod tests {
         assert!(blanked.contains("<a href="));
         assert!(blanked.contains("Hi "));
         assert!(blanked.contains("</a>"));
-        assert_eq!(blanked.len(), src.len(), "length preserved for identity mapping");
+        assert_eq!(
+            blanked.len(),
+            src.len(),
+            "length preserved for identity mapping"
+        );
     }
 
     #[test]
@@ -1026,7 +1030,11 @@ mod tests {
         let t = parse(src).unwrap();
         let mut frags = Vec::new();
         collect(&t.nodes, &mut frags);
-        assert!(frags.len() > 10, "expected many fragments, got {}", frags.len());
+        assert!(
+            frags.len() > 10,
+            "expected many fragments, got {}",
+            frags.len()
+        );
         for f in &frags {
             assert_eq!(
                 f.span.slice(src),

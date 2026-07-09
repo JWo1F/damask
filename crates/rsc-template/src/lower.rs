@@ -345,7 +345,10 @@ fn emit_html_element(el: &Element, e: &mut Emit) -> Result<(), String> {
     emit_nodes(&el.children, e)?;
     e.raw("}\n");
 
-    e.raw(&format!("__rsc.write_raw({:?});\n", format!("</{}>", el.tag)));
+    e.raw(&format!(
+        "__rsc.write_raw({:?});\n",
+        format!("</{}>", el.tag)
+    ));
     Ok(())
 }
 
@@ -468,7 +471,9 @@ mod tests {
     #[test]
     fn directives_and_use() {
         assert!(body("{@html self.body}").contains("write_display_raw(&(self.body))"));
-        assert!(body("{@render self.footer}").contains("::rsc::Render::render_into(&(self.footer)"));
+        assert!(
+            body("{@render self.footer}").contains("::rsc::Render::render_into(&(self.footer)")
+        );
         assert!(body("{use crate::Card}").contains("use crate::Card;"));
     }
 
@@ -477,7 +482,9 @@ mod tests {
         let b = body("{#if self.a}x{:else}y{/if}");
         assert!(b.contains("if self.a {"));
         assert!(b.contains("} else {"));
-        assert!(body("{#each &self.items as item}{item}{/each}").contains("for item in &self.items {"));
+        assert!(
+            body("{#each &self.items as item}{item}{/each}").contains("for item in &self.items {")
+        );
         assert!(
             body("{#each &self.items as item, i}{i}{/each}")
                 .contains("for (i, item) in (&self.items).into_iter().enumerate() {")

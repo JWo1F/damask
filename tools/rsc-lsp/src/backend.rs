@@ -117,10 +117,7 @@ impl Backend {
         // Sync the overlay: open the first time, change thereafter.
         let mut overlays = self.overlays.lock().await;
         let first_open = !overlays.contains_key(&rs_uri);
-        let version = overlays
-            .get(&rs_uri)
-            .map(|s| s.version + 1)
-            .unwrap_or(1);
+        let version = overlays.get(&rs_uri).map(|s| s.version + 1).unwrap_or(1);
         overlays.insert(
             rs_uri.clone(),
             OverlayState {
@@ -138,11 +135,7 @@ impl Backend {
             client.did_change(&rs_uri, version, &vf.text).await.ok()?;
         }
 
-        Some(OverlayHandle {
-            client,
-            vf,
-            rs_uri,
-        })
+        Some(OverlayHandle { client, vf, rs_uri })
     }
 
     /// Hover via rust-analyzer, with the range mapped back to the template.
@@ -153,7 +146,11 @@ impl Backend {
         }
         let h = self.ensure_overlay(rsc_uri, &rsc_text).await?;
         let ov = map_pos_to_overlay(&h.vf, &rsc_text, pos)?;
-        let raw = h.client.hover(&h.rs_uri, ov.line, ov.character).await.ok()?;
+        let raw = h
+            .client
+            .hover(&h.rs_uri, ov.line, ov.character)
+            .await
+            .ok()?;
         let mut hover: Hover = serde_json::from_value(raw).ok()?;
         if let Some(range) = hover.range {
             hover.range = map_range_to_rsc(&h.vf, &rsc_text, range);
@@ -167,9 +164,7 @@ impl Backend {
         let h = self.ensure_overlay(rsc_uri, &rsc_text).await?;
         // Completion fires with the cursor at a fragment boundary (after `.`),
         // so use the boundary-aware mapping.
-        let ov_off = h
-            .vf
-            .source_to_overlay_boundary(offset_at(&rsc_text, pos))?;
+        let ov_off = h.vf.source_to_overlay_boundary(offset_at(&rsc_text, pos))?;
         let ov = position_at(&h.vf.text, ov_off);
         let raw = h
             .client
@@ -277,7 +272,10 @@ impl Backend {
         pos: Position,
     ) -> Option<Vec<CompletionItem>> {
         let client = self.html_handle(rsc_uri, pos).await?;
-        let raw = client.completion(rsc_uri, pos.line, pos.character).await.ok()?;
+        let raw = client
+            .completion(rsc_uri, pos.line, pos.character)
+            .await
+            .ok()?;
         let items = match serde_json::from_value::<CompletionResponse>(raw).ok()? {
             CompletionResponse::Array(items) => items,
             CompletionResponse::List(list) => list.items,
@@ -330,7 +328,8 @@ impl LanguageServer for Backend {
             .lock()
             .unwrap()
             .insert(doc.uri.clone(), doc.text.clone());
-        self.publish_parse_diagnostics(doc.uri.clone(), &doc.text).await;
+        self.publish_parse_diagnostics(doc.uri.clone(), &doc.text)
+            .await;
         // Warm the overlay so rust-analyzer starts analysing immediately.
         self.ensure_overlay(&doc.uri, &doc.text).await;
     }
@@ -343,7 +342,8 @@ impl LanguageServer for Backend {
                 .lock()
                 .unwrap()
                 .insert(uri.clone(), change.text.clone());
-            self.publish_parse_diagnostics(uri.clone(), &change.text).await;
+            self.publish_parse_diagnostics(uri.clone(), &change.text)
+                .await;
             self.ensure_overlay(&uri, &change.text).await;
         }
     }
@@ -380,17 +380,37 @@ impl LanguageServer for Backend {
                 };
                 Ok(Some(CompletionResponse::Array(items)))
             }
+            // After `<` both an RSC component and a plain HTML element are
+            // valid, so the local component list is merged with the HTML
+            // server's tags rather than replacing it. The `sort_text` prefixes
+            // rank components above HTML tags while leaving each group's own
+            // ordering intact.
             Context::ElementName => {
                 let Some(path) = uri.to_file_path().ok() else {
                     return Ok(None);
                 };
-                Ok(Some(CompletionResponse::Array(component_name_items(&path))))
+                let mut items = component_name_items(&path);
+                for (i, item) in items.iter_mut().enumerate() {
+                    item.sort_text = Some(format!("0{i:04}"));
+                }
+                if let Some(html) = self.proxy_html_completion(&uri, position).await {
+                    items.extend(html.into_iter().map(|mut item| {
+                        item.sort_text = Some(format!(
+                            "1{}",
+                            item.sort_text.as_deref().unwrap_or(&item.label)
+                        ));
+                        item
+                    }));
+                }
+                Ok(Some(CompletionResponse::Array(items)))
             }
             Context::Attribute(name) => {
                 let Some(path) = uri.to_file_path().ok() else {
                     return Ok(None);
                 };
-                Ok(Some(CompletionResponse::Array(attribute_items(&path, &name))))
+                Ok(Some(CompletionResponse::Array(attribute_items(
+                    &path, &name,
+                ))))
             }
             // Plain markup (HTML element attributes, text) — the HTML server
             // handles tag/attribute completion here.
@@ -422,7 +442,9 @@ impl LanguageServer for Backend {
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         let pos = params.text_document_position_params;
-        Ok(self.proxy_definition(&pos.text_document.uri, pos.position).await)
+        Ok(self
+            .proxy_definition(&pos.text_document.uri, pos.position)
+            .await)
     }
 }
 
@@ -462,14 +484,11 @@ fn map_range_to_rsc(vf: &VirtualFile, rsc_text: &str, range: Range) -> Option<Ra
 /// Reduce a rust-analyzer completion item to a form with no overlay-relative
 /// edits: a plain insert of its label (or the edit's replacement text).
 fn sanitize_completion(item: CompletionItem) -> CompletionItem {
-    let insert_text = item
-        .insert_text
-        .clone()
-        .or_else(|| match &item.text_edit {
-            Some(CompletionTextEdit::Edit(e)) => Some(e.new_text.clone()),
-            Some(CompletionTextEdit::InsertAndReplace(e)) => Some(e.new_text.clone()),
-            None => None,
-        });
+    let insert_text = item.insert_text.clone().or_else(|| match &item.text_edit {
+        Some(CompletionTextEdit::Edit(e)) => Some(e.new_text.clone()),
+        Some(CompletionTextEdit::InsertAndReplace(e)) => Some(e.new_text.clone()),
+        None => None,
+    });
     CompletionItem {
         label: item.label,
         kind: item.kind,
@@ -507,9 +526,7 @@ fn remap_definition(
         loc
     };
     match resp {
-        GotoDefinitionResponse::Scalar(loc) => {
-            GotoDefinitionResponse::Scalar(remap_location(loc))
-        }
+        GotoDefinitionResponse::Scalar(loc) => GotoDefinitionResponse::Scalar(remap_location(loc)),
         GotoDefinitionResponse::Array(locs) => {
             GotoDefinitionResponse::Array(locs.into_iter().map(remap_location).collect())
         }
@@ -533,7 +550,11 @@ async fn publish_ra_diagnostics(
         let Some(state) = guard.get(rs_uri) else {
             return;
         };
-        (state.vf.clone(), state.rsc_uri.clone(), state.rsc_text.clone())
+        (
+            state.vf.clone(),
+            state.rsc_uri.clone(),
+            state.rsc_text.clone(),
+        )
     };
 
     let mut diagnostics = parse_diagnostics(&rsc_text);

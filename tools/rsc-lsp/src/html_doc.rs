@@ -37,10 +37,20 @@ mod tests {
     fn blanks_tags_preserving_offsets() {
         let src = "<p class=\"a\">Hi {self.name}</p>\n{#if x}<b>y</b>{/if}";
         let out = html_skeleton(src);
-        assert_eq!(out.len(), src.len(), "length preserved for identity mapping");
-        assert!(!out.contains('{') && !out.contains('}'), "tags remain: {out:?}");
+        assert_eq!(
+            out.len(),
+            src.len(),
+            "length preserved for identity mapping"
+        );
+        assert!(
+            !out.contains('{') && !out.contains('}'),
+            "tags remain: {out:?}"
+        );
         // Markup keeps its exact offsets.
-        assert_eq!(out.find("<p class=").unwrap(), src.find("<p class=").unwrap());
+        assert_eq!(
+            out.find("<p class=").unwrap(),
+            src.find("<p class=").unwrap()
+        );
         assert_eq!(out.find("<b>").unwrap(), src.find("<b>").unwrap());
         // Newline preserved so line numbers stay aligned.
         assert_eq!(out.matches('\n').count(), 1);

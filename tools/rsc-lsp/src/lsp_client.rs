@@ -60,7 +60,10 @@ impl LspClient {
     /// `Cargo.toml`), configured for overlay analysis only — no build scripts,
     /// proc-macro expansion, or check-on-save, so indexing is fast and nothing
     /// runs `cargo`.
-    pub async fn rust_analyzer(root: &Path, on_diagnostics: Option<DiagNotify>) -> io::Result<Self> {
+    pub async fn rust_analyzer(
+        root: &Path,
+        on_diagnostics: Option<DiagNotify>,
+    ) -> io::Result<Self> {
         let init = json!({
             "cargo": { "buildScripts": { "enable": false } },
             "procMacro": { "enable": false },
@@ -103,9 +106,7 @@ impl LspClient {
             .kill_on_drop(true)
             .spawn()?;
 
-        let stdin: SharedStdin = Arc::new(Mutex::new(
-            child.stdin.take().expect("piped stdin"),
-        ));
+        let stdin: SharedStdin = Arc::new(Mutex::new(child.stdin.take().expect("piped stdin")));
         let stdout = child.stdout.take().expect("piped stdout");
 
         let pending: Pending = Default::default();
@@ -439,7 +440,10 @@ mod tests {
         }
 
         let _ = std::fs::remove_dir_all(&dir);
-        assert!(found, "completion after `self.` should offer the `name` field");
+        assert!(
+            found,
+            "completion after `self.` should offer the `name` field"
+        );
     }
 
     /// The HTML half of the proxy: an HTML server offers tag completion on the
@@ -467,6 +471,9 @@ mod tests {
             }
             tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         }
-        assert!(found, "HTML completion should offer standard tags like `div`");
+        assert!(
+            found,
+            "HTML completion should offer standard tags like `div`"
+        );
     }
 }
