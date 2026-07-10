@@ -143,6 +143,7 @@ compiled against `&mut dyn Renderer`, so any renderer drives any component.
 | [`editors/zed`](editors/zed) | Zed extension (highlighting + LSP)                |
 | [`skills/rsc`](skills/rsc) | agent skill for authoring components                |
 | [`examples/showcase`](examples/showcase) | runnable example components          |
+| [`examples/dashboard`](examples/dashboard) | a full HTML page from 7 composed components |
 
 See [spec.md](spec.md) for the design and [plan.md](plan.md) for the build plan.
 

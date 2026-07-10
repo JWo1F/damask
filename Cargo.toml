@@ -6,6 +6,7 @@ members = [
     "crates/rsc-template",
     "tools/rsc-lsp",
     "examples/showcase",
+    "examples/dashboard",
 ]
 # The Zed extension is a separate wasm crate with its own toolchain target.
 exclude = ["editors/zed"]

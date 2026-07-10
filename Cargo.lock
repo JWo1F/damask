@@ -462,6 +462,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "rsc-dashboard"
+version = "0.1.0"
+dependencies = [
+ "rsc",
+]
+
+[[package]]
 name = "rsc-lsp"
 version = "0.1.0"
 dependencies = [
