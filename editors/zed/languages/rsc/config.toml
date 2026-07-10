@@ -1,7 +1,23 @@
 name = "RSC"
 grammar = "rsc"
 path_suffixes = ["rsc"]
-autoclose_before = "}"
+autoclose_before = "}>)\""
+tab_size = 2
+
+# Block tags are *flat* in the grammar — `{#if}`, its body, and `{/if}` are
+# sibling nodes, so no tree-sitter indent query can span them. These regexes
+# carry block indentation instead: a line ending in `{#…}` or `{:…}` opens or
+# continues a block (indent what follows), and a line starting with `{/…}` or
+# `{:…}` closes or continues one (outdent that line).
+#
+# Deliberately no rule for HTML elements: those indent from the injected HTML
+# layer's own queries (see injections.scm), and duplicating them here would
+# indent markup twice.
+increase_indent_pattern = '\{[#:][^}]*\}\s*$'
+decrease_indent_pattern = '^\s*\{[/:]'
+
 brackets = [
-    { start = "{", end = "}", close = true, newline = false },
+    { start = "{", end = "}", close = true, newline = true },
+    { start = "<", end = ">", close = false, newline = true, not_in = ["comment", "string"] },
+    { start = "\"", end = "\"", close = true, newline = false, not_in = ["comment", "string"] },
 ]

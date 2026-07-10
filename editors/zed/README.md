@@ -15,6 +15,13 @@ Syntax highlighting and language-server support for [RSC](../../README.md)
   forwarded to an **HTML language server** for tag/attribute intelligence. When a
   downstream server isn't installed it falls back to static (`syn`-based)
   field/method completion.
+- **Indentation** — auto-indent on newline, Tab, and re-indent. It comes from
+  three places, because no single one covers the whole file: HTML elements
+  indent via the injected HTML grammar's own queries, nested brace groups inside
+  a tag via [`indents.scm`](languages/rsc/indents.scm), and `{#if}` / `{#each}` /
+  `{#snippet}` blocks via the indent regexes in
+  [`config.toml`](languages/rsc/config.toml) — those tags are flat sibling nodes
+  in the grammar, so a tree-sitter query cannot span them.
 
 ## Layout
 
@@ -23,8 +30,9 @@ editors/zed/
 ├── extension.toml            # extension manifest + grammar + LSP registration
 ├── Cargo.toml, src/lib.rs    # the extension (wasm) that launches rsc-lsp
 ├── languages/rsc/
-│   ├── config.toml           # file association (*.rsc), brackets
+│   ├── config.toml           # file association (*.rsc), brackets, indent rules
 │   ├── highlights.scm        # delimiter / comment highlighting
+│   ├── indents.scm           # indentation for nested brace groups
 │   └── injections.scm        # Rust into tags, host language into text
 └── grammars/tree-sitter-rsc/ # the Tree-sitter grammar (source of truth)
 ```
