@@ -119,9 +119,9 @@ fn emit_node(node: &Node, e: &mut Emit) -> Result<(), String> {
         Node::Expr(code) => emit_expr(code, e),
         Node::Html(code) => {
             require_expr(code.as_str(), "{@html … }")?;
-            e.raw("__rsc.write_display_raw(&(");
+            e.raw("__rsc.write_display_raw(::rsc::as_display(&(");
             e.frag(code);
-            e.raw("));\n");
+            e.raw(")));\n");
         }
         Node::Render(code) => {
             require_expr(code.as_str(), "{@render … }")?;
@@ -156,15 +156,15 @@ fn emit_expr(code: &Spanned, e: &mut Emit) {
     } else if trimmed.contains(';') {
         // Multiple statements ending in an expression need a block; the block's
         // value is a temporary, so borrowing it is fine.
-        e.raw("__rsc.write_escaped(&({ ");
+        e.raw("__rsc.write_escaped(::rsc::as_display(&({ ");
         e.frag(code);
-        e.raw(" }));\n");
+        e.raw(" })));\n");
     } else {
         // A plain expression: borrow it directly (no block) so field access
         // like `self.name` borrows rather than moves out of `&self`.
-        e.raw("__rsc.write_escaped(&(");
+        e.raw("__rsc.write_escaped(::rsc::as_display(&(");
         e.frag(code);
-        e.raw("));\n");
+        e.raw(")));\n");
     }
 }
 
@@ -319,9 +319,9 @@ fn emit_html_element(el: &Element, e: &mut Emit) -> Result<(), String> {
                 raw.push_str(&attr.name);
                 raw.push_str("=\"");
                 flush_raw(&mut raw, e);
-                e.raw("__rsc.write_escaped(&(");
+                e.raw("__rsc.write_escaped(::rsc::as_display(&(");
                 e.frag(code);
-                e.raw("));\n");
+                e.raw(")));\n");
                 raw.push('"');
             }
         }
@@ -452,7 +452,7 @@ mod tests {
     fn text_and_expression() {
         let b = body("Hi {self.name}!");
         assert!(b.contains(r#"__rsc.write_raw("Hi ")"#));
-        assert!(b.contains("__rsc.write_escaped(&(self.name))"));
+        assert!(b.contains("__rsc.write_escaped(::rsc::as_display(&(self.name)))"));
         assert!(b.contains(r#"__rsc.write_raw("!")"#));
     }
 
@@ -465,12 +465,15 @@ mod tests {
         assert!(!is_statement("self.name"));
         assert!(!is_statement("letter")); // not the `let` keyword
         assert!(body("{let x = 5}").contains("let x = 5;"));
-        assert!(body("{2 + 3; 10}").contains("write_escaped(&({ 2 + 3; 10 }))"));
+        assert!(body("{2 + 3; 10}").contains("write_escaped(::rsc::as_display(&({ 2 + 3; 10 })))"));
     }
 
     #[test]
     fn directives_and_use() {
-        assert!(body("{@html self.body}").contains("write_display_raw(&(self.body))"));
+        assert!(
+            body("{@html self.body}")
+                .contains("write_display_raw(::rsc::as_display(&(self.body)))")
+        );
         assert!(
             body("{@render self.footer}").contains("::rsc::Render::render_into(&(self.footer)")
         );
@@ -494,7 +497,7 @@ mod tests {
     #[test]
     fn html_element_scopes_and_attrs() {
         let b = body(r#"<div id={self.id}>{use crate::X}hi</div>"#);
-        assert!(b.contains("__rsc.write_escaped(&(self.id))"));
+        assert!(b.contains("__rsc.write_escaped(::rsc::as_display(&(self.id)))"));
         // element content is a scope block containing the use
         assert!(b.contains("use crate::X;"));
         assert!(b.contains(r#"write_raw("</div>")"#));
