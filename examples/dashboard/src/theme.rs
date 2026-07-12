@@ -1,57 +1,16 @@
-//! The page's stylesheet.
+//! The page's stylesheet, embedded from `theme.css` at compile time.
 //!
-//! CSS lives in Rust rather than inside a `<style>` block because `.rsc` has no
-//! raw-text elements: a `{` in a template always opens a tag, so a rule body
-//! would be parsed as one. [`Page`](crate::page::Page) writes this through
+//! It is inlined into the document rather than linked because the example has
+//! no static-file server — [`Page`](crate::page::Page) writes it through
 //! `{@html … }`, which emits it unescaped.
+//!
+//! It cannot live in a `<style>` block in the template: `.rsc` has no raw-text
+//! elements, so a `{` in a rule body would open a tag. Keeping it in its own
+//! `.css` file also means editors treat it as CSS.
 
-pub const CSS: &str = "\
-:root{color-scheme:light dark;--bg:#0f1117;--panel:#171a23;--line:#252a36;\
---text:#e6e9ef;--muted:#98a1b3;--healthy:#3fb950;--degraded:#d29922;--down:#f85149}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);\
-font:15px/1.55 ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
-.wrap{max-width:960px;margin:0 auto;padding:0 24px}
-.masthead{border-bottom:1px solid var(--line);padding:20px 0}
-.masthead-row{display:flex;align-items:center;justify-content:space-between;gap:16px}
-.brand{font-weight:700;letter-spacing:-.01em}
-.brand span{color:var(--muted);font-weight:400}
-nav{display:flex;gap:18px}
-nav a{color:var(--muted);text-decoration:none;font-size:14px}
-nav a.active{color:var(--text);font-weight:600}
-.banner{margin-top:16px;padding:10px 14px;border-radius:8px;font-size:14px;\
-border:1px solid var(--line)}
-.banner.ok{border-color:#1c3b23;background:#112417;color:var(--healthy)}
-.banner.alert{border-color:#4b1f1f;background:#241314;color:var(--down)}
-h1{font-size:22px;margin:28px 0 4px}
-.sub{color:var(--muted);font-size:14px;margin:0 0 20px}
-.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px}
-.tile{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
-.tile .n{font-size:24px;font-weight:700}
-.tile .k{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
-.tile.healthy .n{color:var(--healthy)}
-.tile.degraded .n{color:var(--degraded)}
-.tile.down .n{color:var(--down)}
-table{width:100%;border-collapse:collapse;margin-bottom:28px}
-th{text-align:left;font-size:12px;text-transform:uppercase;letter-spacing:.06em;\
-color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line)}
-td{padding:10px;border-bottom:1px solid var(--line);font-size:14px}
-tr.alt td{background:rgba(255,255,255,.02)}
-tr.breach td{box-shadow:inset 2px 0 0 var(--down)}
-.svc{font-weight:600}
-.owner{color:var(--muted);font-size:12px}
-.badge{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
-.badge.healthy{background:#112417;color:var(--healthy)}
-.badge.degraded{background:#2a220e;color:var(--degraded)}
-.badge.down{background:#241314;color:var(--down)}
-.flag{color:var(--degraded);font-size:12px;margin-left:6px}
-.feed{list-style:none;padding:0;margin:0 0 28px}
-.feed li{display:flex;gap:10px;align-items:baseline;padding:9px 0;\
-border-bottom:1px solid var(--line);font-size:14px}
-.feed .ver{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}
-.feed .ago{margin-left:auto;color:var(--muted);font-size:12px}
-.rb{color:var(--down);font-size:12px;font-weight:600}
-.empty{color:var(--muted);font-style:italic;padding:14px 0}
-footer{border-top:1px solid var(--line);padding:18px 0 36px;color:var(--muted);font-size:13px}
-footer .row{display:flex;justify-content:space-between;gap:16px}
-";
+/// The stylesheet source.
+///
+/// `include_str!` rather than `include_bytes!`: the renderer writes `&str`, and
+/// `&[u8]` is not `Display`. Being a `&'static str` also keeps it usable in
+/// const context.
+pub const CSS: &str = include_str!("theme.css");
