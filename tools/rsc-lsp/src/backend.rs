@@ -103,7 +103,16 @@ impl Backend {
     /// Build and sync the overlay for the template at `rsc_uri`, returning a
     /// handle for forwarding a request. Returns `None` when the document has no
     /// paired component, isn't in a cargo project, or fails to lower.
-    async fn ensure_overlay(&self, rsc_uri: &Url, rsc_text: &str) -> Option<OverlayHandle> {
+    ///
+    /// `require_mapped` is a source offset the request is about. It is checked
+    /// against the freshly built overlay *before* rust-analyzer is spawned or
+    /// synced, so a request over plain markup costs a parse and nothing more.
+    async fn ensure_overlay(
+        &self,
+        rsc_uri: &Url,
+        rsc_text: &str,
+        require_mapped: Option<usize>,
+    ) -> Option<OverlayHandle> {
         let rsc_path = rsc_uri.to_file_path().ok()?;
         let (rs_path, struct_name) = introspect::paired_rs(&rsc_path)?;
         let root = introspect::project_root(&rs_path)?;
@@ -111,6 +120,11 @@ impl Backend {
         let rs_src = std::fs::read_to_string(&rs_path).ok()?;
         let template = parse(rsc_text).ok()?;
         let vf = Arc::new(VirtualFile::build(&rs_src, &struct_name, &template).ok()?);
+
+        // Not a position that lowers to Rust — leave it to the HTML server.
+        if let Some(offset) = require_mapped {
+            vf.source_to_overlay(offset)?;
+        }
 
         let client = self.ra_client_for(&root).await?;
 
@@ -141,10 +155,10 @@ impl Backend {
     /// Hover via rust-analyzer, with the range mapped back to the template.
     async fn proxy_hover(&self, rsc_uri: &Url, pos: Position) -> Option<Hover> {
         let rsc_text = self.text_of(rsc_uri)?;
-        if !in_code_tag(&rsc_text, offset_at(&rsc_text, pos)) {
-            return None;
-        }
-        let h = self.ensure_overlay(rsc_uri, &rsc_text).await?;
+        let offset = offset_at(&rsc_text, pos);
+        let h = self
+            .ensure_overlay(rsc_uri, &rsc_text, Some(offset))
+            .await?;
         let ov = map_pos_to_overlay(&h.vf, &rsc_text, pos)?;
         let raw = h
             .client
@@ -161,7 +175,7 @@ impl Backend {
     /// Completion via rust-analyzer for code inside a `{ … }` tag.
     async fn proxy_completion(&self, rsc_uri: &Url, pos: Position) -> Option<Vec<CompletionItem>> {
         let rsc_text = self.text_of(rsc_uri)?;
-        let h = self.ensure_overlay(rsc_uri, &rsc_text).await?;
+        let h = self.ensure_overlay(rsc_uri, &rsc_text, None).await?;
         // Completion fires with the cursor at a fragment boundary (after `.`),
         // so use the boundary-aware mapping.
         let ov_off = h.vf.source_to_overlay_boundary(offset_at(&rsc_text, pos))?;
@@ -188,10 +202,10 @@ impl Backend {
         pos: Position,
     ) -> Option<GotoDefinitionResponse> {
         let rsc_text = self.text_of(rsc_uri)?;
-        if !in_code_tag(&rsc_text, offset_at(&rsc_text, pos)) {
-            return None;
-        }
-        let h = self.ensure_overlay(rsc_uri, &rsc_text).await?;
+        let offset = offset_at(&rsc_text, pos);
+        let h = self
+            .ensure_overlay(rsc_uri, &rsc_text, Some(offset))
+            .await?;
         let ov = map_pos_to_overlay(&h.vf, &rsc_text, pos)?;
         let raw = h
             .client
@@ -331,7 +345,7 @@ impl LanguageServer for Backend {
         self.publish_parse_diagnostics(doc.uri.clone(), &doc.text)
             .await;
         // Warm the overlay so rust-analyzer starts analysing immediately.
-        self.ensure_overlay(&doc.uri, &doc.text).await;
+        self.ensure_overlay(&doc.uri, &doc.text, None).await;
     }
 
     async fn did_change(&self, params: DidChangeTextDocumentParams) {
@@ -344,7 +358,7 @@ impl LanguageServer for Backend {
                 .insert(uri.clone(), change.text.clone());
             self.publish_parse_diagnostics(uri.clone(), &change.text)
                 .await;
-            self.ensure_overlay(&uri, &change.text).await;
+            self.ensure_overlay(&uri, &change.text, None).await;
         }
     }
 

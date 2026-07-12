@@ -298,17 +298,17 @@ fn flush_raw(raw: &mut String, e: &mut Emit) {
 fn emit_html_element(el: &Element, e: &mut Emit) -> Result<(), String> {
     let mut raw = String::new();
     raw.push('<');
-    raw.push_str(&el.tag);
+    raw.push_str(el.tag.as_str());
 
     for attr in &el.attrs {
         match &attr.value {
             AttrValue::Boolean => {
                 raw.push(' ');
-                raw.push_str(&attr.name);
+                raw.push_str(attr.name.as_str());
             }
             AttrValue::Literal(v) => {
                 raw.push(' ');
-                raw.push_str(&attr.name);
+                raw.push_str(attr.name.as_str());
                 raw.push_str("=\"");
                 raw.push_str(v.as_str());
                 raw.push('"');
@@ -316,7 +316,7 @@ fn emit_html_element(el: &Element, e: &mut Emit) -> Result<(), String> {
             AttrValue::Expr(code) => {
                 require_expr(code.as_str(), "attribute value")?;
                 raw.push(' ');
-                raw.push_str(&attr.name);
+                raw.push_str(attr.name.as_str());
                 raw.push_str("=\"");
                 flush_raw(&mut raw, e);
                 e.raw("__rsc.write_escaped(::rsc::as_display(&(");
@@ -328,10 +328,10 @@ fn emit_html_element(el: &Element, e: &mut Emit) -> Result<(), String> {
     }
 
     if el.self_closing {
-        if is_void_element(&el.tag) {
+        if is_void_element(el.tag.as_str()) {
             raw.push('>');
         } else {
-            raw.push_str(&format!("></{}>", el.tag));
+            raw.push_str(&format!("></{}>", el.tag.as_str()));
         }
         flush_raw(&mut raw, e);
         return Ok(());
@@ -347,7 +347,7 @@ fn emit_html_element(el: &Element, e: &mut Emit) -> Result<(), String> {
 
     e.raw(&format!(
         "__rsc.write_raw({:?});\n",
-        format!("</{}>", el.tag)
+        format!("</{}>", el.tag.as_str())
     ));
     Ok(())
 }
@@ -392,19 +392,30 @@ fn emit_component_element(el: &Element, e: &mut Emit) -> Result<(), String> {
     }
 
     e.raw("::rsc::Render::render_into(&(");
-    e.raw(&el.tag);
+    // The tag name and each attribute name are spliced as *mapped* fragments:
+    // they land on the struct name and its field initialisers, so the language
+    // server can answer hover and go-to-definition over `<Comp attr=…>` itself,
+    // not just the Rust inside the attribute values.
+    e.frag(&el.tag);
     e.raw(" {\n");
 
     for attr in &el.attrs {
         match &attr.value {
             AttrValue::Expr(code) => {
                 require_expr(code.as_str(), "attribute value")?;
-                e.raw(&format!("{}: (", attr.name));
+                e.frag(&attr.name);
+                e.raw(": (");
                 e.frag(code);
                 e.raw("),\n");
             }
-            AttrValue::Literal(v) => e.raw(&format!("{}: {:?}.into(),\n", attr.name, v.text)),
-            AttrValue::Boolean => e.raw(&format!("{}: true,\n", attr.name)),
+            AttrValue::Literal(v) => {
+                e.frag(&attr.name);
+                e.raw(&format!(": {:?}.into(),\n", v.text));
+            }
+            AttrValue::Boolean => {
+                e.frag(&attr.name);
+                e.raw(": true,\n");
+            }
         }
     }
 
@@ -446,6 +457,49 @@ mod tests {
 
     fn body(src: &str) -> String {
         lower(&crate::parse(src).unwrap()).unwrap()
+    }
+
+    /// The template substrings that lowering recorded as verbatim fragments.
+    fn mapped(src: &str) -> Vec<&str> {
+        let (out, map) = lower_mapped(&crate::parse(src).unwrap()).unwrap();
+        for m in &map.mappings {
+            assert_eq!(
+                &src[m.source.start..m.source.end],
+                &out[m.generated.start..m.generated.end],
+                "mapping must cover byte-identical text",
+            );
+        }
+        map.mappings
+            .iter()
+            .map(|m| &src[m.source.start..m.source.end])
+            .collect()
+    }
+
+    /// A component's name and attribute names are mapped, so the language
+    /// server can resolve `<Comp attr=…>` itself — not only the Rust inside the
+    /// attribute values.
+    #[test]
+    fn component_name_and_attribute_names_are_mapped() {
+        let frags = mapped(r#"<Card title={self.t} label="hi" flag/>"#);
+        assert!(
+            frags.contains(&"Card"),
+            "component name unmapped: {frags:?}"
+        );
+        assert!(frags.contains(&"title"), "expr attr unmapped: {frags:?}");
+        assert!(frags.contains(&"label"), "literal attr unmapped: {frags:?}");
+        assert!(frags.contains(&"flag"), "boolean attr unmapped: {frags:?}");
+    }
+
+    /// HTML tag and attribute names are *not* mapped: they stay markup, owned by
+    /// the HTML language server, and have no Rust to resolve to.
+    #[test]
+    fn html_names_are_not_mapped() {
+        let frags = mapped(r#"<div class="x" id={self.id}>hi</div>"#);
+        assert!(!frags.contains(&"div"), "html tag mapped: {frags:?}");
+        assert!(!frags.contains(&"class"), "html attr mapped: {frags:?}");
+        assert!(!frags.contains(&"id"), "html attr mapped: {frags:?}");
+        // The Rust inside an attribute value is still mapped.
+        assert!(frags.contains(&"self.id"), "attr value unmapped: {frags:?}");
     }
 
     #[test]

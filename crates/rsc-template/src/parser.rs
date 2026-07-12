@@ -238,9 +238,12 @@ impl<'a> Parser<'a> {
         self.skip_ws();
         if self.pos < self.n && self.bytes[self.pos] == b'>' {
             self.pos += 1;
-            Ok(name)
+            Ok(name.text)
         } else {
-            Err(self.err_at(self.pos, format!("expected `>` to close `</{name}`")))
+            Err(self.err_at(
+                self.pos,
+                format!("expected `>` to close `</{}`", name.as_str()),
+            ))
         }
     }
 
@@ -258,10 +261,10 @@ impl<'a> Parser<'a> {
             self.pos += 1;
             false
         } else {
-            return Err(self.err_at(start, format!("unclosed `<{tag}` tag")));
+            return Err(self.err_at(start, format!("unclosed `<{}` tag", tag.as_str())));
         };
 
-        let kind = classify_element(&tag);
+        let kind = classify_element(tag.as_str());
         let is_void = matches!(kind, ElementKind::Html) && VOID_ELEMENTS.contains(&tag.as_str());
 
         if self_close_syntax || is_void {
@@ -276,24 +279,29 @@ impl<'a> Parser<'a> {
 
         let (children, term) = self.parse_nodes()?;
         match term {
-            Term::ElementClose(close) if close == tag => Ok(Element {
+            Term::ElementClose(close) if close == *tag.as_str() => Ok(Element {
                 tag,
                 kind,
                 attrs,
                 children,
                 self_closing: false,
             }),
-            Term::ElementClose(other) => {
-                Err(self.err_at(start, format!("`<{tag}>` closed by `</{other}>`")))
-            }
+            Term::ElementClose(other) => Err(self.err_at(
+                start,
+                format!("`<{}>` closed by `</{other}>`", tag.as_str()),
+            )),
             other => Err(self.err_at(
                 start,
-                format!("`<{tag}>` not closed (found {})", other.describe()),
+                format!(
+                    "`<{}>` not closed (found {})",
+                    tag.as_str(),
+                    other.describe()
+                ),
             )),
         }
     }
 
-    fn parse_tag_name(&mut self) -> Result<String, ParseError> {
+    fn parse_tag_name(&mut self) -> Result<Spanned, ParseError> {
         let start = self.pos;
         while self.pos < self.n {
             let b = self.bytes[self.pos];
@@ -306,7 +314,10 @@ impl<'a> Parser<'a> {
         if self.pos == start {
             return Err(self.err_at(start, "expected a tag name".into()));
         }
-        Ok(self.src[start..self.pos].to_string())
+        Ok(Spanned::new(
+            &self.src[start..self.pos],
+            Span::new(start, self.pos),
+        ))
     }
 
     fn parse_attrs(&mut self) -> Result<Vec<Attr>, ParseError> {
@@ -326,8 +337,10 @@ impl<'a> Parser<'a> {
                     Some(b'\'') => AttrValue::Literal(self.parse_quoted(b'\'')?),
                     Some(b'{') => AttrValue::Expr(self.parse_brace_inner()?),
                     _ => {
-                        return Err(self
-                            .err_at(self.pos, format!("expected a value for attribute `{name}`")));
+                        return Err(self.err_at(
+                            self.pos,
+                            format!("expected a value for attribute `{}`", name.as_str()),
+                        ));
                     }
                 };
                 attrs.push(Attr { name, value });
@@ -341,7 +354,7 @@ impl<'a> Parser<'a> {
         Ok(attrs)
     }
 
-    fn parse_attr_name(&mut self) -> Result<String, ParseError> {
+    fn parse_attr_name(&mut self) -> Result<Spanned, ParseError> {
         let start = self.pos;
         while self.pos < self.n {
             let b = self.bytes[self.pos];
@@ -354,7 +367,10 @@ impl<'a> Parser<'a> {
         if self.pos == start {
             return Err(self.err_at(start, "expected an attribute name".into()));
         }
-        Ok(self.src[start..self.pos].to_string())
+        Ok(Spanned::new(
+            &self.src[start..self.pos],
+            Span::new(start, self.pos),
+        ))
     }
 
     fn parse_quoted(&mut self, quote: u8) -> Result<Spanned, ParseError> {

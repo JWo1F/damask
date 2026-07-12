@@ -195,7 +195,9 @@ pub enum ElementKind {
 /// A parsed element.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Element {
-    pub tag: String,
+    /// Spanned so the language server can map a component name back to the
+    /// struct it lowers to (see [`lower`]); HTML tag names are never mapped.
+    pub tag: Spanned,
     pub kind: ElementKind,
     pub attrs: Vec<Attr>,
     pub children: Vec<Node>,
@@ -206,7 +208,9 @@ pub struct Element {
 /// An element attribute.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attr {
-    pub name: String,
+    /// Spanned for the same reason as [`Element::tag`]: on a component this
+    /// name lowers to a struct field, so the server can resolve it.
+    pub name: Spanned,
     pub value: AttrValue,
 }
 
