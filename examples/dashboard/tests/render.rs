@@ -56,11 +56,28 @@ fn renders_a_complete_document() {
     ] {
         assert!(out.contains(fragment), "missing {fragment:?}");
     }
-    // The stylesheet goes through `{@html}`, so its braces survive unescaped.
-    assert!(
-        out.contains(".badge.down{background:"),
-        "css not inlined raw"
-    );
+}
+
+/// The stylesheet is written with `{@html … }`, so it must reach the page
+/// verbatim. Asserted against the `<style>` block's contents rather than a
+/// formatted substring, so reformatting `theme.css` doesn't break the test.
+#[test]
+fn stylesheet_is_inlined_raw() {
+    let out = page(&demo_fleet());
+    let style = out
+        .split_once("<style>")
+        .and_then(|(_, rest)| rest.split_once("</style>"))
+        .map(|(css, _)| css)
+        .expect("page has a <style> block");
+
+    assert!(style.contains(".badge.down"), "stylesheet missing");
+    assert!(style.contains("box-sizing"), "declarations missing");
+    // Braces reach the page as braces — the parser never saw them as tags.
+    assert!(style.contains('{') && style.contains('}'), "braces lost");
+    // A quoted font name is the tell: `{ … }` would have escaped `"` to
+    // `&quot;`, so finding the quote intact proves the CSS went out unescaped.
+    assert!(style.contains("\"Menlo\""), "quotes escaped: css not raw");
+    assert!(!style.contains("&quot;"), "css was escaped");
 }
 
 #[test]
