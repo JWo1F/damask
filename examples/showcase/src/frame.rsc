@@ -1,1 +1,1 @@
-<section class="frame"><h2>{self.title}</h2><slot/><footer><slot name="footer"/></footer></section>
+<section class="frame"><h2>{self.title}</h2><slot/><footer><slot name="footer">© anon</slot></footer></section>

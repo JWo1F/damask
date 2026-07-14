@@ -89,21 +89,36 @@ or bare `attr` (boolean). Omitting a required field is a compile error.
 </div>
 ```
 
-A component declares its slots as `Render` fields and places them with `<slot/>`:
+A component places its slots with `<slot/>`. Slots are not fields — a template
+declares as many as it likes without the struct changing, and a `<slot>`'s body
+is the fallback rendered when the caller leaves it unfilled:
 
 ```rust
-use rsc::{Component, Render};
+use rsc::Component;
 
 #[derive(Component)]
-pub struct Frame<Body: Render, Footer: Render> {
+pub struct Frame {
     pub title: String,
-    pub children: Body,   // the default slot
-    pub footer: Footer,   // the `name="footer"` slot
 }
 ```
 ```html
 <!-- frame.rsc -->
-<section><h2>{self.title}</h2><slot/><footer><slot name="footer"/></footer></section>
+<section><h2>{self.title}</h2><slot/><footer><slot name="footer">© anon</slot></footer></section>
+```
+
+Slots are matched by name at render time, so a misspelled `name` fails silently
+rather than at compile time — the price of keeping them off the struct.
+
+A `<slot>` placed directly inside a component element fills that component's
+slot of the same name. A bare `<slot/>` there is still a placeholder, so it
+**forwards** — this passes the caller's content straight through to `Frame`:
+
+```html
+<!-- shell.rsc -->
+<Frame title={self.title.clone()}>
+  <slot/>                                        <!-- forward the default slot -->
+  <slot name="footer"><slot name="footer"/></slot>  <!-- fill wrapping a placeholder -->
+</Frame>
 ```
 
 `{use}` is an ordinary Rust `use` — import components, functions, or anything
@@ -119,12 +134,17 @@ else — and it is scoped to the HTML element that encloses it.
 <ul>{#each &self.labels as label}{@render item(label)}{/each}</ul>
 ```
 
-Children can also be built from Rust with `rsc::fragment`:
+Slots can also be filled from Rust, with `render_with`:
 
 ```rust
-use rsc::fragment;
-Layout { children: fragment(|r| r.write_raw("<p>hi</p>")) }.render();
+use rsc::{fragment, Component, Renderer, Slot, Slots, DEFAULT_SLOT};
+
+let body = fragment(|r: &mut dyn Renderer| r.write_raw("<p>hi</p>"));
+Layout.render_with(Slots::new(&[Slot::new(DEFAULT_SLOT, &body)]));
 ```
+
+The fills are borrowed, not owned, so slot content stays on the caller's stack
+and can borrow the caller's data without boxing.
 
 ## Custom renderers
 

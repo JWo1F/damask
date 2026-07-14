@@ -1,9 +1,7 @@
-use rsc::{Component, Render};
+use rsc::Component;
 
-// A slot/children host: `children` is any `Render` — a fragment closure or
-// another component — dropped in at `<%+ self.children %>`. Generic (not
-// `Box<dyn Render>`) so the child can borrow the caller's data with no boxing.
+// A slot host: `<slot/>` in layout.rsc renders whatever the caller passed for
+// the default slot. Slots are not fields, so the struct stays plain — callers
+// supply content with `render_with`, or as `<Layout>…</Layout>` in a template.
 #[derive(Component)]
-pub struct Layout<C: Render> {
-    pub children: C,
-}
+pub struct Layout;

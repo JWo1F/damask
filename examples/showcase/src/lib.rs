@@ -11,3 +11,4 @@ pub mod list;
 pub mod menu;
 pub mod page;
 pub mod panel;
+pub mod shell;

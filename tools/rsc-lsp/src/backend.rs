@@ -688,7 +688,8 @@ fn component_name_items(path: &Path) -> Vec<CompletionItem> {
         .collect()
 }
 
-/// `<Frame …` — the component's fields (slot `children` excluded).
+/// `<Frame …` — the component's fields. Slots are not fields, so every field is
+/// an attribute.
 fn attribute_items(path: &Path, component: &str) -> Vec<CompletionItem> {
     let components = introspect::crate_components(path);
     let Some(def) = components.iter().find(|c| c.name == component) else {
@@ -696,7 +697,6 @@ fn attribute_items(path: &Path, component: &str) -> Vec<CompletionItem> {
     };
     def.fields
         .iter()
-        .filter(|f| f.name != "children")
         .map(|f| CompletionItem {
             label: f.name.clone(),
             kind: Some(CompletionItemKind::FIELD),

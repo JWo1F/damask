@@ -9,7 +9,7 @@
 //! // ...the original greeting.rs, unchanged...
 //!
 //! impl Greeting {
-//!     fn __rsc_check(&self, __rsc: &mut dyn ::rsc::Renderer) {
+//!     fn __rsc_check(&self, __rsc: &mut dyn ::rsc::Renderer, __rsc_slots: ::rsc::Slots<'_>) {
 //!         // lowered body of greeting.rsc
 //!         __rsc.write_escaped(&(self.name));
 //!     }
@@ -67,7 +67,7 @@ impl VirtualFile {
         text.push_str(struct_name);
         text.push_str("\n{\n    fn ");
         text.push_str(CHECK_FN);
-        text.push_str("(&self, __rsc: &mut dyn ::rsc::Renderer) ");
+        text.push_str("(&self, __rsc: &mut dyn ::rsc::Renderer, __rsc_slots: ::rsc::Slots<'_>) ");
         let body_base = text.len();
         text.push_str(&body);
         text.push_str("\n}\n");
@@ -143,10 +143,9 @@ mod tests {
         let (vf, _) = build("Hello {self.name}!");
         assert!(vf.text.starts_with(RS), "original file preserved verbatim");
         assert!(vf.text.contains("impl Greeting"));
-        assert!(
-            vf.text
-                .contains("fn __rsc_check(&self, __rsc: &mut dyn ::rsc::Renderer)")
-        );
+        assert!(vf.text.contains(
+            "fn __rsc_check(&self, __rsc: &mut dyn ::rsc::Renderer, __rsc_slots: ::rsc::Slots<'_>)"
+        ));
         assert!(vf.text.contains("self.name"));
     }
 

@@ -1,10 +1,9 @@
-use rsc::{Component, Render};
+use rsc::Component;
 
-// Slots: `<slot/>` renders the default children, `<slot name="footer"/>` renders
-// the named footer slot. Slot fields are generic `Render` fields.
+// Two slots: `<slot/>` renders the default content, `<slot name="footer"/>` the
+// named one. Neither appears on the struct — a template can add or drop a slot
+// without touching this type.
 #[derive(Component)]
-pub struct Frame<Body: Render, Footer: Render> {
+pub struct Frame {
     pub title: String,
-    pub children: Body,
-    pub footer: Footer,
 }

@@ -30,6 +30,12 @@
 //!
 //! See [`renderers`] for the built-ins and [`StringRenderer`](renderers::StringRenderer)
 //! for the easiest custom-renderer starting point.
+//!
+//! ## Props and slots
+//!
+//! A struct's fields are its props. Its template's `<slot>`s are *not* fields:
+//! they are content the caller supplies, and they travel as a [`Slots`] argument
+//! to [`Render::render_slots`]. See [`Slots`] for what that buys and costs.
 
 use std::fmt::Display;
 
@@ -75,23 +81,110 @@ pub trait Renderer {
     fn finish(self: Box<Self>) -> String;
 }
 
+/// The name of the slot `<slot/>` fills — the one with no `name="…"`.
+///
+/// Slot names are ordinary strings and the default slot's is empty, so
+/// `<slot name="…"/>` can never collide with it.
+pub const DEFAULT_SLOT: &str = "";
+
+/// One named piece of caller-supplied content, as passed to
+/// [`Render::render_slots`].
+pub struct Slot<'a> {
+    name: &'a str,
+    content: &'a dyn Render,
+}
+
+impl<'a> Slot<'a> {
+    /// Fill the slot called `name` — [`DEFAULT_SLOT`] for `<slot/>` — with
+    /// `content`.
+    pub const fn new(name: &'a str, content: &'a dyn Render) -> Self {
+        Slot { name, content }
+    }
+}
+
+/// The slot content a caller passes to one component render.
+///
+/// Slots are *not* props: they are content the caller supplies positionally in
+/// the template, so they travel as an argument to
+/// [`render_slots`](Render::render_slots) rather than as struct fields. That
+/// keeps a component's struct free of `Render` type parameters however many
+/// slots its template has, and lets a template add or drop a `<slot>` without
+/// changing the struct.
+///
+/// The trade is that a slot is matched by name at render time: filling a slot a
+/// template does not declare renders nothing, and a declared slot left unfilled
+/// renders its fallback content.
+///
+/// `Slots` borrows its entries, so the fills stay on the caller's stack and can
+/// borrow the caller's data with no allocation.
+#[derive(Clone, Copy, Default)]
+pub struct Slots<'a> {
+    entries: &'a [Slot<'a>],
+}
+
+impl<'a> Slots<'a> {
+    /// No slots filled — what [`Render::render_into`] passes.
+    pub const EMPTY: Slots<'static> = Slots { entries: &[] };
+
+    /// Collect fills. A name repeated in `entries` resolves to the first.
+    pub const fn new(entries: &'a [Slot<'a>]) -> Self {
+        Slots { entries }
+    }
+
+    /// The content filling `name`, if the caller supplied it.
+    pub fn get(&self, name: &str) -> Option<&'a dyn Render> {
+        self.entries
+            .iter()
+            .find(|s| s.name == name)
+            .map(|s| s.content)
+    }
+
+    /// Render the content filling `name`, falling back to `fallback` — the
+    /// `<slot>`'s own body — when the caller left it unfilled.
+    pub fn render(
+        &self,
+        name: &str,
+        r: &mut dyn Renderer,
+        fallback: impl FnOnce(&mut dyn Renderer),
+    ) {
+        match self.get(name) {
+            Some(content) => content.render_into(r),
+            None => fallback(r),
+        }
+    }
+}
+
 /// Renderable content: given a renderer, write yourself into it.
 ///
 /// This is the shared abstraction behind composition and children/slots. Every
 /// [`Component`] is `Render`; so is a [`Fragment`] built from a closure. The
 /// `{@render … }` tag renders anything `Render`, so a component embeds a child
-/// component, a fragment, or a `children` field uniformly — and the child writes
-/// through the *parent's* renderer, so escaping stays correct.
+/// component or a fragment uniformly — and the child writes through the
+/// *parent's* renderer, so escaping stays correct.
 ///
 /// Object-safe, so `Box<dyn Render>` works for heterogeneous children.
 pub trait Render {
-    /// Write this content into `r`.
+    /// Write this content into `r`, with no slots filled.
     fn render_into(&self, r: &mut dyn Renderer);
+
+    /// Write this content into `r`, resolving its `<slot>`s against `slots`.
+    ///
+    /// The derive overrides this with the lowered template and redirects
+    /// [`render_into`](Render::render_into) here with [`Slots::EMPTY`]. The
+    /// default suits content that has no slots of its own — a [`Fragment`], a
+    /// hand-written `Render` — and lets such an impl stay a single method.
+    fn render_slots(&self, r: &mut dyn Renderer, _slots: Slots<'_>) {
+        self.render_into(r);
+    }
 }
 
 impl<T: Render + ?Sized> Render for Box<T> {
     fn render_into(&self, r: &mut dyn Renderer) {
         (**self).render_into(r);
+    }
+
+    fn render_slots(&self, r: &mut dyn Renderer, slots: Slots<'_>) {
+        (**self).render_slots(r, slots);
     }
 }
 
@@ -157,8 +250,34 @@ pub trait Component: Render {
 
     /// Render to a `String` using the [default renderer](Component::default_renderer).
     fn render(&self) -> String {
+        self.render_with(Slots::EMPTY)
+    }
+
+    /// Like [`render`](Component::render), but fills the template's `<slot>`s —
+    /// the Rust-side equivalent of `<Comp>…</Comp>` in a template.
+    ///
+    /// ```
+    /// use rsc::{fragment, Slot, Slots};
+    /// # use rsc::{Component, Render, Renderer};
+    /// # struct Layout;
+    /// # impl Render for Layout {
+    /// #     fn render_into(&self, r: &mut dyn Renderer) { self.render_slots(r, Slots::EMPTY) }
+    /// #     fn render_slots(&self, r: &mut dyn Renderer, slots: Slots<'_>) {
+    /// #         r.write_raw("<main>");
+    /// #         slots.render(rsc::DEFAULT_SLOT, r, |_| {});
+    /// #         r.write_raw("</main>");
+    /// #     }
+    /// # }
+    /// # impl Component for Layout {
+    /// #     fn default_renderer(&self) -> Box<dyn Renderer> { Box::new(rsc::HtmlRenderer::new()) }
+    /// # }
+    /// let body = fragment(|r: &mut dyn Renderer| r.write_raw("<p>hi</p>"));
+    /// let out = Layout.render_with(Slots::new(&[Slot::new(rsc::DEFAULT_SLOT, &body)]));
+    /// assert_eq!(out, "<main><p>hi</p></main>");
+    /// ```
+    fn render_with(&self, slots: Slots<'_>) -> String {
         let mut r = self.default_renderer();
-        self.render_into(r.as_mut());
+        self.render_slots(r.as_mut(), slots);
         r.finish()
     }
 }
@@ -168,7 +287,7 @@ pub trait Component: Render {
 /// `Component` here is both the trait and its derive macro.
 pub mod prelude {
     pub use crate::renderers::{HtmlRenderer, StringRenderer};
-    pub use crate::{Component, Render, Renderer, fragment};
+    pub use crate::{Component, DEFAULT_SLOT, Render, Renderer, Slot, Slots, fragment};
 }
 
 #[cfg(test)]

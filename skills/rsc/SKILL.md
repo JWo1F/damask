@@ -106,21 +106,42 @@ element.
 </div>
 ```
 
-A component declares slots as `Render` fields and places them with `<slot>`:
+A component places its slots with `<slot>`. Slots are **not fields** — the
+struct carries only props, however many slots the template has. A `<slot>`'s
+body is the fallback used when the caller leaves it unfilled:
 
 ```rust
-use rsc::{Component, Render};
+use rsc::Component;
 
 #[derive(Component)]
-pub struct Frame<Body: Render, Footer: Render> {
+pub struct Frame {
     pub title: String,
-    pub children: Body,   // <slot/>
-    pub footer: Footer,   // <slot name="footer"/>
 }
 ```
 ```html
 <!-- frame.rsc -->
-<section><h2>{self.title}</h2><slot/><footer><slot name="footer"/></footer></section>
+<section><h2>{self.title}</h2><slot/><footer><slot name="footer">© anon</slot></footer></section>
+```
+
+A `<slot>` placed directly inside a component element fills that component's
+slot of the same name. A bare `<slot/>` there is still a placeholder, so it
+**forwards** — this passes the caller's content straight through to `Frame`:
+
+```html
+<!-- shell.rsc -->
+<Frame title={self.title.clone()}>
+  <slot/>                                        <!-- forward the default slot -->
+  <slot name="footer"><slot name="footer"/></slot>  <!-- fill wrapping a placeholder -->
+</Frame>
+```
+
+From Rust, fill slots with `render_with`:
+
+```rust
+use rsc::{fragment, Component, Renderer, Slot, Slots, DEFAULT_SLOT};
+
+let body = fragment(|r: &mut dyn Renderer| r.write_raw("<p>hi</p>"));
+Layout.render_with(Slots::new(&[Slot::new(DEFAULT_SLOT, &body)]));
 ```
 
 Because attribute values move into the component's fields, borrow with `.clone()`
@@ -160,10 +181,11 @@ let out = r.finish();
 - **`{ … }` HTML-escapes; `{@html … }` does not.** Only use `{@html}` for content
   you trust or that is already escaped (e.g. a child's `.render()`).
 - **Component attributes move into fields** — pass `attr={self.x.clone()}` for a
-  `&self` field, or use `Copy` types. Every non-slot field must be supplied
+  `&self` field, or use `Copy` types. Every field must be supplied
   (omitting one is a compile error).
-- **`<slot>` fields are `Render` generics.** A component with a default slot
-  needs a `children` field; `name="x"` needs an `x` field.
+- **Slots are matched by name at render time, not compile time.** A misspelled
+  `<slot name="…">` renders the fallback (or nothing) instead of failing to
+  compile. Filling a slot the template does not declare is silently ignored.
 - **`{use}` is scoped** to its enclosing element — an import inside `<div>…</div>`
   is not visible after `</div>`.
 - **Snippets must be defined before they are used** (they are `let` bindings).

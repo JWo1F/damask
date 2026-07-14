@@ -1,6 +1,6 @@
 //! End-to-end rendering tests for the composed page.
 
-use rsc::Component;
+use rsc::{Component, DEFAULT_SLOT, Slot, Slots};
 use rsc_dashboard::dashboard::Dashboard;
 use rsc_dashboard::deploy_feed::DeployFeed;
 use rsc_dashboard::model::{Deploy, Fleet, Service, Status};
@@ -10,6 +10,10 @@ use rsc_dashboard::status_badge::StatusBadge;
 use rsc_dashboard::{demo_fleet, service_table::ServiceTable};
 
 fn page(fleet: &Fleet) -> String {
+    let dashboard = Dashboard {
+        fleet,
+        feed_limit: 2,
+    };
     Page {
         title: "Fleet status".into(),
         fleet,
@@ -17,12 +21,8 @@ fn page(fleet: &Fleet) -> String {
         current: "Overview",
         commit: "9f3c1ab7d20e".into(),
         year: 2026,
-        children: Dashboard {
-            fleet,
-            feed_limit: 2,
-        },
     }
-    .render()
+    .render_with(Slots::new(&[Slot::new(DEFAULT_SLOT, &dashboard)]))
 }
 
 fn healthy_fleet() -> Fleet {

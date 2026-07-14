@@ -65,7 +65,15 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
 
     quote! {
         impl #impl_generics ::rsc::Render for #name #ty_generics #where_clause {
-            fn render_into(&self, __rsc: &mut dyn ::rsc::Renderer) #body
+            fn render_into(&self, __rsc: &mut dyn ::rsc::Renderer) {
+                ::rsc::Render::render_slots(self, __rsc, ::rsc::Slots::EMPTY)
+            }
+
+            fn render_slots(
+                &self,
+                __rsc: &mut dyn ::rsc::Renderer,
+                __rsc_slots: ::rsc::Slots<'_>,
+            ) #body
         }
 
         impl #impl_generics ::rsc::Component for #name #ty_generics #where_clause {

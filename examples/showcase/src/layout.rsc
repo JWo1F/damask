@@ -1,1 +1,1 @@
-<main>{@render self.children}</main>
+<main><slot/></main>

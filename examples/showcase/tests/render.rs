@@ -1,7 +1,7 @@
 //! End-to-end behavior of the example components: escaping, composition,
 //! control flow, and the custom-renderer seam.
 
-use rsc::{Component, Render, Renderer, fragment};
+use rsc::{Component, DEFAULT_SLOT, Render, Renderer, Slot, Slots, fragment};
 use rsc_showcase::button::Button;
 use rsc_showcase::card::Card;
 use rsc_showcase::custom_renderer::UpcaseRenderer;
@@ -97,23 +97,51 @@ fn component_element_with_scoped_use_and_slots() {
 
 #[test]
 fn children_as_a_fragment_closure() {
-    let page = Layout {
-        children: fragment(|r| {
-            r.write_raw("<p>hi</p>");
-        }),
-    };
-    assert_eq!(page.render(), "<main><p>hi</p></main>");
+    let body = fragment(|r: &mut dyn Renderer| {
+        r.write_raw("<p>hi</p>");
+    });
+    let out = Layout.render_with(Slots::new(&[Slot::new(DEFAULT_SLOT, &body)]));
+    assert_eq!(out, "<main><p>hi</p></main>");
 }
 
 #[test]
 fn children_as_a_component() {
-    // A child component slotted into a generic children host.
-    let page = Layout {
-        children: Button {
-            label: "click".into(),
-        },
+    // A child component slotted into a slot host.
+    let button = Button {
+        label: "click".into(),
     };
-    assert_eq!(page.render(), "<main><button>click</button></main>");
+    let out = Layout.render_with(Slots::new(&[Slot::new(DEFAULT_SLOT, &button)]));
+    assert_eq!(out, "<main><button>click</button></main>");
+}
+
+#[test]
+fn unfilled_slot_renders_its_fallback() {
+    use rsc_showcase::frame::Frame;
+    // Neither slot is filled: the default slot is empty, the named one falls
+    // back to the body of its `<slot>`.
+    let frame = Frame {
+        title: "Bare".into(),
+    };
+    assert_eq!(
+        frame.render(),
+        r#"<section class="frame"><h2>Bare</h2><footer>© anon</footer></section>"#
+    );
+}
+
+#[test]
+fn slots_are_matched_by_name_in_any_order() {
+    use rsc_showcase::frame::Frame;
+    let body = fragment(|r: &mut dyn Renderer| r.write_raw("<p>b</p>"));
+    let foot = fragment(|r: &mut dyn Renderer| r.write_raw("f"));
+    let frame = Frame { title: "T".into() };
+    let out = frame.render_with(Slots::new(&[
+        Slot::new("footer", &foot),
+        Slot::new(DEFAULT_SLOT, &body),
+    ]));
+    assert_eq!(
+        out,
+        r#"<section class="frame"><h2>T</h2><p>b</p><footer>f</footer></section>"#
+    );
 }
 
 #[test]
@@ -123,4 +151,37 @@ fn custom_renderer_drives_a_stock_component() {
     let mut r: Box<dyn Renderer> = Box::new(UpcaseRenderer::new());
     g.render_into(r.as_mut());
     assert_eq!(r.finish(), "HELLO ADA!");
+}
+
+#[test]
+fn slots_forward_through_a_wrapping_component() {
+    // Shell fills Frame's slots with its own, so the caller's content lands two
+    // levels down. A bare `<slot/>` forwards the default slot; the `<slot
+    // name="footer">` fill wraps a placeholder that resolves against *Shell's*
+    // caller, not Frame's.
+    use rsc_showcase::shell::Shell;
+    let body = fragment(|r: &mut dyn Renderer| r.write_raw("<p>b</p>"));
+    let foot = fragment(|r: &mut dyn Renderer| r.write_raw("f"));
+    let shell = Shell { title: "S".into() };
+    let out = shell.render_with(Slots::new(&[
+        Slot::new(DEFAULT_SLOT, &body),
+        Slot::new("footer", &foot),
+    ]));
+    assert_eq!(
+        out,
+        r#"<section class="frame"><h2>S</h2><p>b</p><footer>f</footer></section>"#
+    );
+}
+
+#[test]
+fn forwarded_slot_falls_back_when_the_outer_caller_passes_nothing() {
+    // Shell's own `<slot name="footer"/>` is unfilled, so Frame's footer fill
+    // renders empty — Frame's fallback does not apply, because Frame's slot *was*
+    // filled (with nothing).
+    use rsc_showcase::shell::Shell;
+    let shell = Shell { title: "S".into() };
+    assert_eq!(
+        shell.render(),
+        r#"<section class="frame"><h2>S</h2><footer></footer></section>"#
+    );
 }

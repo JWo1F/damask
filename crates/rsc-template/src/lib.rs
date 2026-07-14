@@ -23,9 +23,12 @@
 //!
 //! - `<div>…</div>` — an HTML element (lowercase). Its content is a scope.
 //! - `<Component attr={expr}>…</Component>` — a component (capitalized): built
-//!   and rendered; attributes become fields, children fill slots.
-//! - `<slot/>` / `<slot name="x"/>` — a slot: in a component it renders the
-//!   passed children; as a child of a `<Component>` it fills a named slot.
+//!   and rendered; attributes become fields, content fills slots.
+//! - `<slot/>` / `<slot name="x">fallback</slot>` — a slot: renders what the
+//!   caller passed for that name, or the `<slot>`'s own body if unfilled. A
+//!   *named* `<slot>` directly inside a `<Component>` instead fills that name;
+//!   a bare `<slot/>` there is still a placeholder, so it forwards this
+//!   component's default slot into the child's.
 
 mod line_index;
 mod lower;

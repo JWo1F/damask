@@ -352,46 +352,77 @@ fn emit_html_element(el: &Element, e: &mut Emit) -> Result<(), String> {
     Ok(())
 }
 
-/// `<slot/>` / `<slot name="x"/>` in a component template — render the passed slot.
+/// `<slot/>` / `<slot name="x">fallback</slot>` in a component template — render
+/// what the caller passed for that slot, or the `<slot>`'s own body if unfilled.
 fn emit_slot_placeholder(el: &Element, e: &mut Emit) -> Result<(), String> {
-    let field = slot_field(el)?;
+    let name = slot_name(el)?;
     e.raw(&format!(
-        "::rsc::Render::render_into(&(self.{field}), &mut *__rsc);\n"
+        "__rsc_slots.render({name:?}, &mut *__rsc, |__rsc: &mut dyn ::rsc::Renderer| {{\n"
     ));
+    emit_nodes(&el.children, e)?;
+    e.raw("});\n");
     Ok(())
 }
 
-/// The component field a `<slot>` maps to: `children` for the default slot,
-/// otherwise the `name="…"` attribute.
-fn slot_field(el: &Element) -> Result<String, String> {
+/// A `<slot>`'s name: the `name="…"` attribute, or [`DEFAULT_SLOT`] (empty) for
+/// the unnamed default slot.
+///
+/// [`DEFAULT_SLOT`]: https://docs.rs/rsc/latest/rsc/constant.DEFAULT_SLOT.html
+fn slot_name(el: &Element) -> Result<String, String> {
     match el.attrs.iter().find(|a| a.name == "name") {
-        None => Ok("children".to_string()),
+        None => Ok(String::new()),
         Some(attr) => match &attr.value {
+            AttrValue::Literal(name) if name.text.is_empty() => {
+                Err("`<slot name>` must not be empty; write `<slot/>` for the default slot".into())
+            }
             AttrValue::Literal(name) => Ok(name.text.clone()),
             _ => Err("`<slot name>` must be a string literal".into()),
         },
     }
 }
 
-/// `<Comp attr={e}>…</Comp>` — build `Comp { attr: e, <slots> }` and render it.
+/// `<Comp attr={e}>…</Comp>` — build `Comp { attr: e }` and render it with the
+/// element's content as its slot fills.
 fn emit_component_element(el: &Element, e: &mut Emit) -> Result<(), String> {
-    // Partition children into named-slot fills and default-slot content.
+    // Partition children into named-slot fills and default-slot content. A
+    // *named* `<slot>` directly inside the element names the slot it fills; a
+    // bare `<slot/>` names nothing, so it stays ordinary default-slot content —
+    // a placeholder that forwards this component's own default slot, and one
+    // that can sit alongside other markup in the same fill.
     let mut default: Vec<&Node> = Vec::new();
     let mut named: Vec<(String, &[Node])> = Vec::new();
     for child in &el.children {
-        match child {
+        let fill = match child {
             Node::Element(slot) if slot.kind == ElementKind::Slot => {
-                let name = slot_field(slot)?;
-                if name == "children" {
-                    return Err("`<slot>` inside a component needs `name=\"…\"`".into());
-                }
-                named.push((name, &slot.children));
+                let name = slot_name(slot)?;
+                (!name.is_empty()).then_some((name, slot.children.as_slice()))
             }
-            other => default.push(other),
+            _ => None,
+        };
+        match fill {
+            Some((name, body)) => {
+                if named.iter().any(|(seen, _)| *seen == name) {
+                    return Err(format!("slot `{name}` is filled twice"));
+                }
+                named.push((name, body));
+            }
+            None => default.push(child),
         }
     }
 
-    e.raw("::rsc::Render::render_into(&(");
+    // Default slot: filled only when there is real (non-whitespace) content.
+    let has_default = default
+        .iter()
+        .any(|n| !matches!(n, Node::Text(t) if t.as_str().trim().is_empty()));
+
+    // The fills borrow temporaries that live to the end of this statement, so
+    // slot content stays on the stack and can borrow the enclosing scope.
+    let method = if has_default || !named.is_empty() {
+        "render_slots"
+    } else {
+        "render_into"
+    };
+    e.raw(&format!("::rsc::Render::{method}(&("));
     // The tag name and each attribute name are spliced as *mapped* fragments:
     // they land on the struct name and its field initialisers, so the language
     // server can answer hover and go-to-definition over `<Comp attr=…>` itself,
@@ -419,27 +450,29 @@ fn emit_component_element(el: &Element, e: &mut Emit) -> Result<(), String> {
         }
     }
 
-    // Default slot: sent only when there is real (non-whitespace) content.
-    let has_default = default
-        .iter()
-        .any(|n| !matches!(n, Node::Text(t) if t.as_str().trim().is_empty()));
+    e.raw("}), &mut *__rsc");
+
+    if method == "render_into" {
+        e.raw(");\n");
+        return Ok(());
+    }
+
+    e.raw(", ::rsc::Slots::new(&[\n");
     if has_default {
-        e.raw("children: ::rsc::fragment(|__rsc: &mut dyn ::rsc::Renderer| {\n");
+        e.raw("::rsc::Slot::new(::rsc::DEFAULT_SLOT, &::rsc::fragment(|__rsc: &mut dyn ::rsc::Renderer| {\n");
         for n in &default {
             emit_node(n, e)?;
         }
-        e.raw("}),\n");
+        e.raw("})),\n");
     }
-
     for (name, body) in &named {
         e.raw(&format!(
-            "{name}: ::rsc::fragment(|__rsc: &mut dyn ::rsc::Renderer| {{\n"
+            "::rsc::Slot::new({name:?}, &::rsc::fragment(|__rsc: &mut dyn ::rsc::Renderer| {{\n"
         ));
         emit_nodes(body, e)?;
-        e.raw("}),\n");
+        e.raw("})),\n");
     }
-
-    e.raw("}), &mut *__rsc);\n");
+    e.raw("]));\n");
     Ok(())
 }
 
@@ -582,17 +615,71 @@ mod tests {
     #[test]
     fn component_element_construction() {
         let b = body(r#"<Card title={2 + 8} tag="h1">body<slot name="foot">f</slot></Card>"#);
-        assert!(b.contains("::rsc::Render::render_into(&(Card {"));
+        assert!(b.contains("::rsc::Render::render_slots(&(Card {"));
         assert!(b.contains("title: (2 + 8),"));
         assert!(b.contains(r#"tag: "h1".into(),"#));
-        assert!(b.contains("children: ::rsc::fragment("));
-        assert!(b.contains("foot: ::rsc::fragment("));
+        assert!(b.contains("::rsc::Slot::new(::rsc::DEFAULT_SLOT, &::rsc::fragment("));
+        assert!(b.contains(r#"::rsc::Slot::new("foot", &::rsc::fragment("#));
     }
 
     #[test]
-    fn slot_placeholder_renders_field() {
-        assert!(body("<slot/>").contains("::rsc::Render::render_into(&(self.children)"));
-        assert!(body(r#"<slot name="foot"/>"#).contains("::rsc::Render::render_into(&(self.foot)"));
+    fn component_element_without_content_skips_slots() {
+        // Nothing to fill: no slot slice is built, and the plain render path is
+        // used — same call `{@render …}` emits.
+        let b = body(r#"<Card title="x"/>"#);
+        assert!(b.contains("::rsc::Render::render_into(&(Card {"));
+        assert!(!b.contains("::rsc::Slots::new"));
+    }
+
+    #[test]
+    fn slot_placeholder_resolves_against_the_caller_slots() {
+        assert!(body("<slot/>").contains(r#"__rsc_slots.render("", &mut *__rsc"#));
+        assert!(
+            body(r#"<slot name="foot"/>"#).contains(r#"__rsc_slots.render("foot", &mut *__rsc"#)
+        );
+    }
+
+    #[test]
+    fn slot_fallback_body_is_the_unfilled_branch() {
+        let b = body(r#"<slot name="foot">fallback</slot>"#);
+        let call = b.find(r#"__rsc_slots.render("foot""#).unwrap();
+        let fallback = b.find(r#"write_raw("fallback")"#).unwrap();
+        assert!(call < fallback, "fallback body belongs to the closure");
+    }
+
+    #[test]
+    fn bare_slot_in_a_component_forwards_the_default_slot() {
+        // Not a fill directive: it lowers as content *inside* the default fill,
+        // so it forwards this component's own default slot.
+        let b = body("<Card><slot/></Card>");
+        let fill = b.find("::rsc::Slot::new(::rsc::DEFAULT_SLOT").unwrap();
+        let forward = b.find(r#"__rsc_slots.render("""#).unwrap();
+        assert!(
+            fill < forward,
+            "forwarding placeholder sits inside the fill"
+        );
+    }
+
+    #[test]
+    fn a_forwarded_slot_mixes_with_other_content() {
+        let b = body("<Card>before<slot/>after</Card>");
+        let before = b.find(r#"write_raw("before")"#).unwrap();
+        let forward = b.find(r#"__rsc_slots.render("""#).unwrap();
+        let after = b.find(r#"write_raw("after")"#).unwrap();
+        assert!(before < forward && forward < after, "order not preserved");
+    }
+
+    #[test]
+    fn filling_a_slot_twice_is_an_error() {
+        let src = r#"<Card><slot name="a">1</slot><slot name="a">2</slot></Card>"#;
+        let err = lower(&crate::parse(src).unwrap()).unwrap_err();
+        assert!(err.contains("filled twice"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn empty_slot_name_is_an_error() {
+        let err = lower(&crate::parse(r#"<slot name=""/>"#).unwrap()).unwrap_err();
+        assert!(err.contains("must not be empty"), "unexpected: {err}");
     }
 
     #[test]
