@@ -46,6 +46,12 @@ cargo install --path tools/rsc-lsp    # from this repo
 # or, once published:  cargo install rsc-lsp
 ```
 
+The extension launches the **installed** binary, not your checkout, and the
+language server compiles the template lowering in. So after changing anything in
+`tools/rsc-lsp`, `crates/rsc-template`, or `crates/rsc`, reinstall — otherwise
+Zed keeps reporting results from the old lowering however many times you restart
+the server. `dev-setup.sh` does this for you when the installed copy is stale.
+
 For full intelligence `rsc-lsp` shells out to downstream servers, also on
 `PATH` (both optional — features degrade gracefully without them):
 
