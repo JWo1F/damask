@@ -9,8 +9,15 @@
  *
  * Text between tags is one contiguous run (so injected HTML sees whole tags),
  * including `<!-- … -->` comments, which the injected HTML grammar highlights.
- * The one edge this doesn't handle: a `{` inside an HTML comment is still read
- * as a tag.
+ *
+ * Because no HTML is modelled here, a `{ … }` anywhere is a tag — which is why
+ * interpolation inside a quoted attribute value (`class="p-3 {expr}"`) and the
+ * `class:on={expr}` directives highlight correctly with no rule of their own.
+ *
+ * Two edges this doesn't handle: a `{` inside an HTML comment is still read as a
+ * tag, and so is the conditional-class map (`class={ "c": cond }`), whose
+ * contents are then injected as Rust despite not being Rust. Both degrade to odd
+ * highlighting, never to a broken parse.
  */
 module.exports = grammar({
   name: 'rsc',

@@ -1,6 +1,6 @@
 use crate::{
-    Attr, AttrValue, EachNode, Element, ElementKind, IfNode, Node, SnippetNode, Span, Spanned,
-    Template,
+    Attr, AttrPart, AttrValue, ClassTerm, EachNode, Element, ElementKind, IfNode, Node, SnippetNode, Span,
+    Spanned, Template,
 };
 use std::fmt;
 
@@ -181,6 +181,19 @@ impl<'a> Parser<'a> {
         while self.pos < self.n {
             let b = self.bytes[self.pos];
             if b == b'{' {
+                // `{# … #}` — a comment for the reader of the template, which
+                // reaches no output at all. Told from `{#if}`/`{#each}` by the
+                // whitespace: a block keyword cannot begin with one.
+                if self.starts_with("{#") && self.is_comment_open() {
+                    flush!();
+                    let open = self.pos;
+                    let Some(end) = self.src[self.pos + 2..].find("#}") else {
+                        return Err(self.err_at(open, "unterminated `{#` comment: missing `#}`".into()));
+                    };
+                    self.pos += 2 + end + 2;
+                    text_start = self.pos;
+                    continue;
+                }
                 flush!();
                 match self.parse_tag()? {
                     TagResult::Node(node) => nodes.push(node),
@@ -327,14 +340,43 @@ impl<'a> Parser<'a> {
             if self.pos >= self.n || self.bytes[self.pos] == b'>' || self.starts_with("/>") {
                 break;
             }
+            // `{...expr}` stands where an attribute name would, and carries no
+            // name of its own — the expression supplies them.
+            if self.bytes[self.pos] == b'{' {
+                let open = self.pos;
+                let inner = self.parse_brace_inner()?;
+                let Some(expr) = inner.as_str().strip_prefix("...") else {
+                    return Err(self.err_at(
+                        open,
+                        "expected an attribute name, or `{...expr}` to spread one".into(),
+                    ));
+                };
+                let expr = expr.trim();
+                if expr.is_empty() {
+                    return Err(self.err_at(open, "empty `{...}` attribute spread".into()));
+                }
+                // Re-span onto the expression itself, past the `...`.
+                let at = inner.span.start + (inner.as_str().len() - expr.len());
+                attrs.push(Attr {
+                    name: Spanned::new("", Span::new(open, open)),
+                    value: AttrValue::Spread(Spanned::new(expr, Span::new(at, at + expr.len()))),
+                });
+                continue;
+            }
             let name = self.parse_attr_name()?;
             self.skip_ws();
             if self.pos < self.n && self.bytes[self.pos] == b'=' {
                 self.pos += 1;
                 self.skip_ws();
+                let is_class = name.as_str() == "class";
                 let value = match self.bytes.get(self.pos) {
                     Some(b'"') => AttrValue::Literal(self.parse_quoted(b'"')?),
                     Some(b'\'') => AttrValue::Literal(self.parse_quoted(b'\'')?),
+                    Some(b'[') if is_class => AttrValue::Classes(self.parse_class_list()?),
+                    Some(b'{') if is_class && self.brace_is_class_map(self.pos) => {
+                        let inner = self.parse_brace_inner()?;
+                        AttrValue::Classes(parse_class_pairs(&inner)?)
+                    }
                     Some(b'{') => AttrValue::Expr(self.parse_brace_inner()?),
                     _ => {
                         return Err(self.err_at(
@@ -352,6 +394,13 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(attrs)
+    }
+
+    /// Whether the `{#` at `pos` opens a comment rather than a block tag.
+    fn is_comment_open(&self) -> bool {
+        self.bytes
+            .get(self.pos + 2)
+            .is_some_and(|b| b.is_ascii_whitespace())
     }
 
     fn parse_attr_name(&mut self) -> Result<Spanned, ParseError> {
@@ -373,20 +422,121 @@ impl<'a> Parser<'a> {
         ))
     }
 
-    fn parse_quoted(&mut self, quote: u8) -> Result<Spanned, ParseError> {
+    /// Parse a quoted attribute value into its literal and `{ … }` parts.
+    ///
+    /// The scan stops at the closing quote, but a `{ … }` group is stepped over
+    /// whole by [`Self::scan_braces`] — so a quote inside an interpolation (a
+    /// Rust string literal, say, as in `class={if x {"a"} else {"b"}}`) does not
+    /// end the attribute.
+    fn parse_quoted(&mut self, quote: u8) -> Result<Vec<AttrPart>, ParseError> {
         let start = self.pos;
         self.pos += 1; // opening quote
-        let content_start = self.pos;
+        let mut parts = Vec::new();
+        let mut text_start = self.pos;
+
+        let push_text = |parts: &mut Vec<AttrPart>, from: usize, to: usize, src: &str| {
+            if to > from {
+                parts.push(AttrPart::Text(Spanned::new(
+                    &src[from..to],
+                    Span::new(from, to),
+                )));
+            }
+        };
+
         while self.pos < self.n && self.bytes[self.pos] != quote {
-            self.pos += 1;
+            if self.bytes[self.pos] == b'{' {
+                push_text(&mut parts, text_start, self.pos, self.src);
+                let open = self.pos;
+                let (inner, end) = self.scan_braces(open)?;
+                let expr = Slice::new(inner, open + 1).trim().to_spanned();
+                if expr.as_str().is_empty() {
+                    return Err(self.err_at(open, "empty `{}` in an attribute value".into()));
+                }
+                parts.push(AttrPart::Expr(expr));
+                self.pos = end;
+                text_start = self.pos;
+            } else {
+                self.pos += 1;
+            }
         }
         if self.pos >= self.n {
             return Err(self.err_at(start, "unterminated attribute string".into()));
         }
-        let span = Span::new(content_start, self.pos);
-        let s = self.src[content_start..self.pos].to_string();
+        push_text(&mut parts, text_start, self.pos, self.src);
         self.pos += 1; // closing quote
-        Ok(Spanned::new(s, span))
+
+        // An empty value (`class=""`) still has to survive as a value rather
+        // than as no parts at all, or it would be indistinguishable from a
+        // boolean attribute downstream.
+        if parts.is_empty() {
+            parts.push(AttrPart::Text(Spanned::new(
+                "",
+                Span::new(start + 1, start + 1),
+            )));
+        }
+        Ok(parts)
+    }
+
+    /// Whether the `{ … }` at `open` is a class map rather than a Rust block.
+    ///
+    /// The tell is a top-level `:` that is not part of a `::` path. Rust has no
+    /// expression with a bare colon at the top level of a block — type
+    /// ascription is not a thing and there is no ternary — so the two forms do
+    /// not overlap in practice. A loop label (`'a: loop`) would, but a template
+    /// attribute holding one is not a case worth trading this syntax for.
+    fn brace_is_class_map(&self, open: usize) -> bool {
+        let Ok((inner, _)) = self.scan_braces(open) else {
+            return false;
+        };
+        top_level_colon(inner).is_some()
+    }
+
+    /// Parse `[ term, term, … ]` into class terms. `pos` must be at `[`.
+    fn parse_class_list(&mut self) -> Result<Vec<ClassTerm>, ParseError> {
+        let open = self.pos;
+        let inner_start = open + 1;
+        let mut i = inner_start;
+        let mut depth = 1usize;
+        while i < self.n {
+            match self.bytes[i] {
+                b'"' => i = scan_string(self.src, i),
+                b'\'' => i = scan_char(self.src, i),
+                b'[' => {
+                    depth += 1;
+                    i += 1;
+                }
+                b']' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                    i += 1;
+                }
+                _ => i += char_len(self.src, i),
+            }
+        }
+        if i >= self.n {
+            return Err(self.err_at(open, "unclosed class list: missing `]`".into()));
+        }
+        let inner = Slice::new(&self.src[inner_start..i], inner_start);
+        self.pos = i + 1;
+
+        let mut terms = Vec::new();
+        for item in split_top_level(inner, b',') {
+            let item = item.trim();
+            if item.s.is_empty() {
+                continue;
+            }
+            // A nested `{ … }` inside a list is a map of conditional classes,
+            // so the two forms compose: `[base, { "on": cond }]`.
+            if item.s.starts_with('{') && item.s.ends_with('}') {
+                let body = Slice::new(&item.s[1..item.s.len() - 1], item.start + 1);
+                terms.extend(parse_class_pairs(&body.trim().to_spanned())?);
+            } else {
+                terms.push(class_term(item.to_spanned()));
+            }
+        }
+        Ok(terms)
     }
 
     /// Parse a `{ … }` group and return the trimmed inner text with its span.
@@ -717,6 +867,113 @@ fn scan_to_quote(src: &str, open: usize, quote: u8) -> usize {
 
 /// From `{` at `open`, return the index just past the matching `}` (or end of
 /// input), skipping string and char literals inside.
+/// A single class-list term: a literal `None` drops out, anything else is Rust.
+fn class_term(text: Spanned) -> ClassTerm {
+    if text.as_str() == "None" {
+        ClassTerm::Nothing
+    } else {
+        ClassTerm::Expr(text)
+    }
+}
+
+/// Byte offset of the first top-level `:` that is not part of `::`, if any.
+///
+/// "Top level" means outside every bracket, string and char literal, so the
+/// colon in `{ "a": matches!(x, Foo::B) }` is found and the one in `Foo::B` is
+/// not.
+fn top_level_colon(src: &str) -> Option<usize> {
+    let bytes = src.as_bytes();
+    let n = src.len();
+    let mut i = 0usize;
+    let mut depth = 0i32;
+    while i < n {
+        match bytes[i] {
+            b'"' => i = scan_string(src, i),
+            b'\'' => i = scan_char(src, i),
+            b'(' | b'[' | b'{' | b'<' => {
+                depth += 1;
+                i += 1;
+            }
+            b')' | b']' | b'}' | b'>' => {
+                depth -= 1;
+                i += 1;
+            }
+            b':' if depth == 0 => {
+                if bytes.get(i + 1) == Some(&b':') {
+                    i += 2;
+                } else {
+                    return Some(i);
+                }
+            }
+            _ => i += char_len(src, i),
+        }
+    }
+    None
+}
+
+/// Split on a top-level separator, keeping each piece's absolute span.
+fn split_top_level(src: Slice<'_>, sep: u8) -> Vec<Slice<'_>> {
+    let bytes = src.s.as_bytes();
+    let n = src.s.len();
+    let mut out = Vec::new();
+    let mut i = 0usize;
+    let mut start = 0usize;
+    let mut depth = 0i32;
+    while i < n {
+        match bytes[i] {
+            b'"' => i = scan_string(src.s, i),
+            b'\'' => i = scan_char(src.s, i),
+            b'(' | b'[' | b'{' => {
+                depth += 1;
+                i += 1;
+            }
+            b')' | b']' | b'}' => {
+                depth -= 1;
+                i += 1;
+            }
+            b if b == sep && depth == 0 => {
+                out.push(Slice::new(&src.s[start..i], src.start + start));
+                i += 1;
+                start = i;
+            }
+            _ => i += char_len(src.s, i),
+        }
+    }
+    out.push(Slice::new(&src.s[start..n], src.start + start));
+    out
+}
+
+/// Parse `"a": cond, "b": cond` into conditional class terms.
+fn parse_class_pairs(body: &Spanned) -> Result<Vec<ClassTerm>, ParseError> {
+    let src = Slice::new(body.as_str(), body.span.start);
+    let mut terms = Vec::new();
+    for pair in split_top_level(src, b',') {
+        let pair = pair.trim();
+        if pair.s.is_empty() {
+            continue;
+        }
+        let Some(at) = top_level_colon(pair.s) else {
+            return Err(ParseError {
+                message: format!("expected `name: condition` in a class map, found `{}`", pair.s),
+                span: Span::new(pair.start, pair.start + pair.s.len()),
+            });
+        };
+        let name = Slice::new(&pair.s[..at], pair.start).trim();
+        let when = Slice::new(&pair.s[at + 1..], pair.start + at + 1).trim();
+        if name.s.is_empty() || when.s.is_empty() {
+            return Err(ParseError {
+                message: "a class map entry needs both a name and a condition".into(),
+                span: Span::new(pair.start, pair.start + pair.s.len()),
+            });
+        }
+        terms.push(ClassTerm::Cond {
+            name: name.to_spanned(),
+            when: when.to_spanned(),
+        });
+    }
+    Ok(terms)
+}
+
 fn scan_braces_end(src: &str, open: usize) -> usize {
     let bytes = src.as_bytes();
     let n = src.len();
@@ -861,7 +1118,7 @@ mod tests {
                     el.attrs[1],
                     Attr {
                         name: "class".into(),
-                        value: AttrValue::Literal("link".into())
+                        value: AttrValue::text("link")
                     }
                 );
                 assert_eq!(
@@ -914,7 +1171,7 @@ mod tests {
                             slot.attrs[0],
                             Attr {
                                 name: "name".into(),
-                                value: AttrValue::Literal("foot".into())
+                                value: AttrValue::text("foot")
                             }
                         );
                     }
@@ -989,6 +1246,20 @@ mod tests {
     }
 
     #[test]
+    fn comments_reach_no_output() {
+        let t = parse("a{# not rendered #}b").unwrap();
+        assert_eq!(t.nodes, vec![Node::Text("a".into()), Node::Text("b".into())]);
+        // A block keyword cannot begin with whitespace, so `{#if}` is untouched.
+        assert!(matches!(
+            parse("{#if x}y{/if}").unwrap().nodes.as_slice(),
+            [Node::If(_)]
+        ));
+        // Braces and tags inside a comment are text, not structure.
+        assert_eq!(parse("{#\n {self.x} <div> \n#}").unwrap().nodes, vec![]);
+        assert!(parse("{# unterminated").is_err());
+    }
+
+    #[test]
     fn tag_spans_preserve_quoted_attribute_braces() {
         // A `{` inside a quoted attribute literal is text, not a tag.
         let src = r#"<a title="{x}">t</a>"#;
@@ -1022,7 +1293,26 @@ mod tests {
                 Node::Element(el) => {
                     for a in &el.attrs {
                         match &a.value {
-                            AttrValue::Literal(v) | AttrValue::Expr(v) => out.push(v),
+                            AttrValue::Expr(v) | AttrValue::Spread(v) => out.push(v),
+                            AttrValue::Literal(parts) => {
+                                for part in parts {
+                                    match part {
+                                        AttrPart::Text(t) | AttrPart::Expr(t) => out.push(t),
+                                    }
+                                }
+                            }
+                            AttrValue::Classes(terms) => {
+                                for term in terms {
+                                    match term {
+                                        ClassTerm::Expr(t) => out.push(t),
+                                        ClassTerm::Cond { name, when } => {
+                                            out.push(name);
+                                            out.push(when);
+                                        }
+                                        ClassTerm::Nothing => {}
+                                    }
+                                }
+                            }
                             AttrValue::Boolean => {}
                         }
                     }

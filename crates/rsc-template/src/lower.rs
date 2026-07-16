@@ -21,8 +21,8 @@
 //! other by a constant offset.
 
 use crate::{
-    AttrValue, EachNode, Element, ElementKind, IfNode, Node, SnippetNode, Span, Spanned, Template,
-    is_void_element,
+    Attr, AttrPart, AttrValue, ClassTerm, EachNode, Element, ElementKind, IfNode, Node, SnippetNode,
+    Span, Spanned, Template, is_void_element,
 };
 
 /// A verbatim correspondence between a `.rsc` source range and the generated
@@ -300,31 +300,80 @@ fn emit_html_element(el: &Element, e: &mut Emit) -> Result<(), String> {
     raw.push('<');
     raw.push_str(el.tag.as_str());
 
+    // `class:name={cond}` directives override whatever `class` produces, so the
+    // two cannot be emitted independently: they are collected and written once,
+    // at the position `class` occupies (or the first directive's, if there is no
+    // `class`). Without any directive a plain `class="…"` stays on the ordinary
+    // path below, so the common case still lowers to literal text.
+    let directives: Vec<&Attr> = el
+        .attrs
+        .iter()
+        .filter(|a| a.name.as_str().starts_with("class:"))
+        .collect();
+
     for attr in &el.attrs {
+        let name = attr.name.as_str();
+        if name.starts_with("class:") {
+            continue;
+        }
+        if name == "class" && (!directives.is_empty() || matches!(attr.value, AttrValue::Classes(_)))
+        {
+            flush_raw(&mut raw, e);
+            emit_class_list(Some(&attr.value), &directives, e)?;
+            continue;
+        }
         match &attr.value {
             AttrValue::Boolean => {
                 raw.push(' ');
                 raw.push_str(attr.name.as_str());
             }
-            AttrValue::Literal(v) => {
+            // Only `class` parses into this, and only the branch above emits it.
+            AttrValue::Classes(_) => {
+                return Err(format!("`{name}` cannot take a class list; only `class` can"));
+            }
+            AttrValue::Spread(code) => {
+                require_expr(code.as_str(), "{...} attribute spread")?;
+                flush_raw(&mut raw, e);
+                e.raw("::rsc::AttrSpread::write_attrs(&(");
+                e.frag(code);
+                e.raw("), &mut *__rsc);\n");
+            }
+            AttrValue::Literal(parts) => {
                 raw.push(' ');
                 raw.push_str(attr.name.as_str());
                 raw.push_str("=\"");
-                raw.push_str(v.as_str());
+                for part in parts {
+                    match part {
+                        AttrPart::Text(t) => raw.push_str(t.as_str()),
+                        AttrPart::Expr(code) => {
+                            require_expr(code.as_str(), "attribute value")?;
+                            flush_raw(&mut raw, e);
+                            e.raw("__rsc.write_escaped(::rsc::as_display(&(");
+                            e.frag(code);
+                            e.raw(")));\n");
+                        }
+                    }
+                }
                 raw.push('"');
             }
+            // `name={expr}` defers the whole attribute to the value's type, so
+            // a `bool` can render a bare `disabled` and an `Option` can decline
+            // to render anything at all. That is why the name and quotes are
+            // not written here: there may be nothing to write them around.
             AttrValue::Expr(code) => {
                 require_expr(code.as_str(), "attribute value")?;
-                raw.push(' ');
-                raw.push_str(attr.name.as_str());
-                raw.push_str("=\"");
                 flush_raw(&mut raw, e);
-                e.raw("__rsc.write_escaped(::rsc::as_display(&(");
+                e.raw("::rsc::Attr::write_attr(&(");
                 e.frag(code);
-                e.raw(")));\n");
-                raw.push('"');
+                e.raw(&format!("), {:?}, &mut *__rsc);\n", attr.name.as_str()));
             }
         }
+    }
+
+    // Directives with no `class` of their own to attach to.
+    if !directives.is_empty() && !el.attrs.iter().any(|a| a.name.as_str() == "class") {
+        flush_raw(&mut raw, e);
+        emit_class_list(None, &directives, e)?;
     }
 
     if el.self_closing {
@@ -364,6 +413,114 @@ fn emit_slot_placeholder(el: &Element, e: &mut Emit) -> Result<(), String> {
     Ok(())
 }
 
+/// Emit a Rust expression for a quoted attribute value: the literal itself when
+/// it has no holes, a `format!` when it does.
+fn emit_literal_string(parts: &[AttrPart], e: &mut Emit) -> Result<(), String> {
+    if let [AttrPart::Text(t)] = parts {
+        e.raw(&format!("{:?}", t.text));
+        return Ok(());
+    }
+    let mut fmt = String::new();
+    let mut args: Vec<&Spanned> = Vec::new();
+    for part in parts {
+        match part {
+            AttrPart::Text(t) => fmt.push_str(&t.text.replace('{', "{{").replace('}', "}}")),
+            AttrPart::Expr(code) => {
+                require_expr(code.as_str(), "attribute value")?;
+                fmt.push_str("{}");
+                args.push(code);
+            }
+        }
+    }
+    e.raw(&format!("::std::format!({fmt:?}"));
+    for arg in args {
+        e.raw(", ");
+        e.frag(arg);
+    }
+    e.raw(")");
+    Ok(())
+}
+
+/// Emit the `class` attribute built from its value and any `class:` directives.
+///
+/// Everything lands in one [`rsc::ClassList`], which dedupes and preserves
+/// first-mention order — that is what lets a directive override the base list
+/// rather than append a contradicting name after it.
+fn emit_class_list(
+    value: Option<&AttrValue>,
+    directives: &[&Attr],
+    e: &mut Emit,
+) -> Result<(), String> {
+    e.raw("{\nlet mut __rsc_class = ::rsc::ClassList::new();\n");
+
+    match value {
+        None => {}
+        Some(AttrValue::Classes(terms)) => {
+            for term in terms {
+                match term {
+                    ClassTerm::Nothing => {}
+                    ClassTerm::Expr(code) => {
+                        require_expr(code.as_str(), "class list entry")?;
+                        e.raw("::rsc::ClassItem::add_to(&(");
+                        e.frag(code);
+                        e.raw("), &mut __rsc_class);\n");
+                    }
+                    ClassTerm::Cond { name, when } => {
+                        require_expr(when.as_str(), "class condition")?;
+                        // Spliced bare, as `{#if}` does: parenthesising warns
+                        // `unused_parens` in the user's crate, not in ours.
+                        e.raw("if ");
+                        e.frag(when);
+                        e.raw(" { ::rsc::ClassItem::add_to(&(");
+                        e.frag(name);
+                        e.raw("), &mut __rsc_class); }\n");
+                    }
+                }
+            }
+        }
+        Some(AttrValue::Literal(parts)) => {
+            e.raw("::rsc::ClassItem::add_to(&(");
+            emit_literal_string(parts, e)?;
+            e.raw("), &mut __rsc_class);\n");
+        }
+        Some(AttrValue::Expr(code)) => {
+            require_expr(code.as_str(), "class")?;
+            e.raw("::rsc::ClassItem::add_to(&(");
+            e.frag(code);
+            e.raw("), &mut __rsc_class);\n");
+        }
+        Some(AttrValue::Boolean) => return Err("`class` needs a value".into()),
+        // A spread carries its own names, so it never reaches here as `class`.
+        Some(AttrValue::Spread(_)) => unreachable!("a spread has no attribute name"),
+    }
+
+    // Applied after the base list, because that is what "takes precedence"
+    // means: the directive is the last word on whether its class is there.
+    for attr in directives {
+        let name = &attr.name.as_str()["class:".len()..];
+        if name.is_empty() {
+            return Err("`class:` needs a class name after the colon".into());
+        }
+        e.raw(&format!("__rsc_class.set({name:?}, "));
+        match &attr.value {
+            AttrValue::Boolean => e.raw("true"),
+            AttrValue::Expr(code) => {
+                require_expr(code.as_str(), "class directive")?;
+                e.frag(code);
+            }
+            _ => {
+                return Err(format!(
+                    "`class:{name}` takes a boolean expression, as `class:{name}={{…}}`"
+                ));
+            }
+        }
+        e.raw(");\n");
+    }
+
+    e.raw("__rsc_class.write_attr(\"class\", &mut *__rsc);\n}\n");
+    Ok(())
+}
+
 /// A `<slot>`'s name: the `name="…"` attribute, or [`DEFAULT_SLOT`] (empty) for
 /// the unnamed default slot.
 ///
@@ -371,11 +528,16 @@ fn emit_slot_placeholder(el: &Element, e: &mut Emit) -> Result<(), String> {
 fn slot_name(el: &Element) -> Result<String, String> {
     match el.attrs.iter().find(|a| a.name == "name") {
         None => Ok(String::new()),
+        // A slot name is resolved at compile time, so it must be one static
+        // piece — an interpolated one would name a different slot per render.
         Some(attr) => match &attr.value {
-            AttrValue::Literal(name) if name.text.is_empty() => {
-                Err("`<slot name>` must not be empty; write `<slot/>` for the default slot".into())
-            }
-            AttrValue::Literal(name) => Ok(name.text.clone()),
+            AttrValue::Literal(parts) => match parts.as_slice() {
+                [AttrPart::Text(name)] if name.text.is_empty() => Err(
+                    "`<slot name>` must not be empty; write `<slot/>` for the default slot".into(),
+                ),
+                [AttrPart::Text(name)] => Ok(name.text.clone()),
+                _ => Err("`<slot name>` must be a plain string literal".into()),
+            },
             _ => Err("`<slot name>` must be a string literal".into()),
         },
     }
@@ -439,13 +601,35 @@ fn emit_component_element(el: &Element, e: &mut Emit) -> Result<(), String> {
                 e.frag(code);
                 e.raw("),\n");
             }
-            AttrValue::Literal(v) => {
+            // A quoted value lands on a field, so it must be a `String`-ish
+            // value rather than markup: an interpolating one is formatted, and
+            // a plain one stays the literal it was so it can `.into()` whatever
+            // the field is.
+            AttrValue::Literal(parts) => {
                 e.frag(&attr.name);
-                e.raw(&format!(": {:?}.into(),\n", v.text));
+                e.raw(": ");
+                emit_literal_string(parts, e)?;
+                e.raw(".into(),\n");
             }
             AttrValue::Boolean => {
                 e.frag(&attr.name);
                 e.raw(": true,\n");
+            }
+            // A class list assembles markup, and a component prop is a value.
+            // `class={…}` with an ordinary expression is the way to pass one.
+            AttrValue::Classes(_) => {
+                return Err(format!(
+                    "`{}` is a component prop, so it cannot take a class list",
+                    attr.name.as_str()
+                ));
+            }
+            // Spreading fills in attributes, and a component has fields. There
+            // is no field name to give the value, so there is nothing to build.
+            AttrValue::Spread(_) => {
+                return Err(
+                    "`{...}` spreads attributes onto an HTML element; a component takes named props"
+                        .into(),
+                );
             }
         }
     }
@@ -584,10 +768,80 @@ mod tests {
     #[test]
     fn html_element_scopes_and_attrs() {
         let b = body(r#"<div id={self.id}>{use crate::X}hi</div>"#);
-        assert!(b.contains("__rsc.write_escaped(::rsc::as_display(&(self.id)))"));
+        // `name={expr}` defers to the value's type, which is what lets it
+        // render nothing at all.
+        assert!(b.contains(r#"::rsc::Attr::write_attr(&(self.id), "id", &mut *__rsc);"#));
         // element content is a scope block containing the use
         assert!(b.contains("use crate::X;"));
         assert!(b.contains(r#"write_raw("</div>")"#));
+    }
+
+    #[test]
+    fn quoted_attribute_values_interpolate() {
+        let b = body(r#"<div title="a {self.x} b"></div>"#);
+        assert!(b.contains(r#"write_raw("<div title=\"a ")"#));
+        assert!(b.contains("__rsc.write_escaped(::rsc::as_display(&(self.x)))"));
+        assert!(b.contains(r#"write_raw(" b\">")"#));
+        // A value with no holes stays literal text, not a format!.
+        assert!(body(r#"<div title="plain"></div>"#).contains(r#" title=\"plain\""#));
+    }
+
+    /// An interpolating value lands on a component *field*, so it must be an
+    /// owned `String` expression and not a borrow of one — the class-list path
+    /// wraps its argument in `&(…)` itself, and an extra one there was absorbed
+    /// by the blanket impl rather than reported.
+    #[test]
+    fn interpolating_value_on_a_component_prop_is_owned() {
+        let b = body(r#"<Comp class="a {self.x} b"/>"#);
+        assert!(
+            b.contains(r#"class: ::std::format!("a {} b", self.x).into()"#),
+            "{b}"
+        );
+    }
+
+    #[test]
+    fn class_list_and_map_forms() {
+        let b = body(r#"<div class=[Some("a"), None, "b", { "c": self.on }]></div>"#);
+        assert!(b.contains("let mut __rsc_class = ::rsc::ClassList::new();"));
+        assert!(b.contains(r#"::rsc::ClassItem::add_to(&(Some("a")), &mut __rsc_class);"#));
+        // A literal `None` contributes nothing and is not emitted at all: it
+        // has no type to infer, so it cannot be lowered as an expression.
+        assert!(!b.contains("None"));
+        assert!(b.contains(r#"if self.on { ::rsc::ClassItem::add_to(&("c")"#));
+
+        let m = body(r#"<div class={ "c": self.on, "d": !self.on }></div>"#);
+        assert!(m.contains(r#"if self.on { ::rsc::ClassItem::add_to(&("c")"#));
+        assert!(m.contains(r#"if !self.on { ::rsc::ClassItem::add_to(&("d")"#));
+    }
+
+    #[test]
+    fn class_brace_disambiguates_map_from_expression() {
+        // No top-level colon: an ordinary Rust expression, not a map.
+        let e = body(r#"<div class={self.class()}></div>"#);
+        assert!(e.contains(r#"::rsc::Attr::write_attr(&(self.class()), "class""#));
+        // A `::` path inside is not a colon for these purposes.
+        let p = body(r#"<div class={ "c": matches!(self.t, Tone::Ok) }></div>"#);
+        assert!(p.contains("__rsc_class"));
+    }
+
+    #[test]
+    fn attribute_spread() {
+        let b = body(r#"<div {...self.extra}></div>"#);
+        assert!(b.contains("::rsc::AttrSpread::write_attrs(&(self.extra), &mut *__rsc);"));
+        // A component takes named props, so there is nothing to spread onto.
+        assert!(lower(&crate::parse(r#"<Comp {...self.extra}/>"#).unwrap()).is_err());
+    }
+
+    #[test]
+    fn class_directives_take_precedence() {
+        let b = body(r#"<div class="a b" class:b={self.off} class:c></div>"#);
+        assert!(b.contains(r#"::rsc::ClassItem::add_to(&("a b"), &mut __rsc_class);"#));
+        assert!(b.contains(r#"__rsc_class.set("b", self.off);"#));
+        assert!(b.contains(r#"__rsc_class.set("c", true);"#));
+        // The whole thing is written once, after the directives are applied.
+        assert!(b.contains(r#"__rsc_class.write_attr("class", &mut *__rsc);"#));
+        // A directive with no `class` of its own still produces the attribute.
+        assert!(body(r#"<div class:c={self.on}></div>"#).contains("__rsc_class"));
     }
 
     #[test]

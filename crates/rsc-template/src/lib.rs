@@ -208,7 +208,7 @@ pub struct Element {
     pub self_closing: bool,
 }
 
-/// An element attribute.
+/// An element attribute, or a `{...expr}` spread of several.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Attr {
     /// Spanned for the same reason as [`Element::tag`]: on a component this
@@ -220,12 +220,77 @@ pub struct Attr {
 /// The value of an attribute.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AttrValue {
-    /// `name="text"` or `name='text'`.
-    Literal(Spanned),
+    /// `name="text"` or `name='text'`, which may interpolate: the quoted run is
+    /// a list of parts rather than one string, so `class="px-3 {self.tone()}"`
+    /// is a literal and an expression side by side.
+    ///
+    /// A quoted value is always emitted — the quotes say the attribute is
+    /// there, whatever its parts evaluate to. Omission is [`AttrValue::Expr`]'s
+    /// job, where the type of the expression can ask for it.
+    Literal(Vec<AttrPart>),
     /// `name={expr}`.
     Expr(Spanned),
     /// A bare `name` (boolean).
     Boolean,
+    /// `{...expr}` — a run of attributes prepared elsewhere.
+    ///
+    /// The escape hatch for the attributes a component cannot name: those whose
+    /// *name* is computed (`data-<controller>-target`) or that arrive as a map.
+    /// The expression yields anything implementing `rsc::AttrSpread`, which is
+    /// responsible for its own escaping — which is why the trait is implemented
+    /// for a key/value map and for `&'static str`, but not for `String`.
+    Spread(Spanned),
+    /// A class list: `class=[…]` or `class={ "a": cond }`.
+    ///
+    /// Only `class` parses this way. The forms are not Rust — `{ "a": cond }`
+    /// is neither a block nor a struct literal — so they are a grammar of their
+    /// own rather than an expression handed to the compiler, and giving every
+    /// attribute that grammar would make `foo={ … }` ambiguous for no gain.
+    Classes(Vec<ClassTerm>),
+}
+
+/// One entry in a `class` list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClassTerm {
+    /// A Rust expression yielding something string-ish, or an `Option` of one.
+    Expr(Spanned),
+    /// A literal `None`, which contributes nothing.
+    ///
+    /// Recognised as a token rather than evaluated: a bare `None` has no type
+    /// to infer from, so `[Some("a"), None]` would not compile if it were
+    /// lowered as an expression. Dropping it here is also what it means.
+    Nothing,
+    /// `"name": cond` — the class is present while `cond` holds.
+    Cond { name: Spanned, when: Spanned },
+}
+
+impl AttrValue {
+    /// A quoted value with no interpolation — the common case, and the one
+    /// worth a constructor because it is otherwise a one-element `Vec`.
+    pub fn text(s: impl Into<String>) -> Self {
+        AttrValue::Literal(vec![AttrPart::Text(Spanned::new(s.into(), Span::new(0, 0)))])
+    }
+
+    /// The value as one static string, when it is one — `None` for anything
+    /// that has to be evaluated.
+    pub fn as_static_text(&self) -> Option<&str> {
+        match self {
+            AttrValue::Literal(parts) => match parts.as_slice() {
+                [AttrPart::Text(t)] => Some(t.as_str()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
+
+/// One piece of a quoted attribute value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttrPart {
+    /// Literal text between the interpolations.
+    Text(Spanned),
+    /// A `{ … }` hole, printed escaped.
+    Expr(Spanned),
 }
 
 /// A parsed template: the top-level node list.

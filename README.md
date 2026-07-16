@@ -79,6 +79,49 @@ Lowercase tags are HTML. **Capitalized tags are components** — built from thei
 attributes and rendered. Attributes carry Rust: `attr={expr}`, `attr="literal"`,
 or bare `attr` (boolean). Omitting a required field is a compile error.
 
+Quoted values interpolate, and on an HTML element `attr={expr}` asks the value's
+type how to appear — a `bool` renders a bare attribute or none at all, an
+`Option` renders nothing when `None`:
+
+```html
+<input title="row {self.n}" disabled={self.locked} placeholder={self.hint}/>
+```
+
+`disabled` appears only when `locked`, because in HTML the *presence* of the
+attribute is what disables the control — `disabled="false"` disables it too.
+
+### Class lists
+
+`class` takes three further forms, and a `class:` directive overrules them all:
+
+```html
+<div class=[self.extra, "base", { "is-open": self.open }] class:base={!self.bare}>
+```
+
+Entries may be strings, `Option`s of them, or a map of conditional names; a
+literal `None` is dropped at compile time (a bare `None` has no type to infer).
+Names are deduplicated and keep their first-mention order, and an empty result
+omits the attribute.
+
+> **CSS scanners and `class:`.** A directive puts the class name in the
+> *attribute name* (`class:animate-pulse`), where Tailwind and friends do not
+> look — the rule gets compiled out of your stylesheet. When a class has to be
+> discoverable by a scanner, use the map form, whose names are ordinary strings:
+> `class={ "animate-pulse": cond }`.
+
+### Spreading attributes
+
+`{...expr}` splices a prepared run of attributes — for the ones a component
+cannot name, such as a computed `data-<controller>-target`, or a map:
+
+```html
+<input {...self.wiring} {...&self.data}/>
+```
+
+`AttrSpread` is implemented for `&'static str` (markup the author wrote — the
+lifetime is what keeps a request-derived value out) and for `[(K, V)]` /
+`Vec<(K, V)>`, which escapes and is where anything derived from state belongs.
+
 ```html
 <div>
   {use crate::widgets::Frame}        <!-- import, scoped to this <div> -->

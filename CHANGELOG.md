@@ -31,6 +31,34 @@ All notable changes to RSC are documented here. The format follows
     trade is that names are matched at render time, not compile time.
   - The parser balances nested braces and respects string/char literals, so
     struct literals work inside `{@render …}` and attribute values.
+- **Attribute values that can decline to render**, via the `Attr` trait.
+  `name={expr}` asks the value's type how to appear: `bool` renders a bare
+  `disabled` when true and *nothing* when false (an attribute's presence is what
+  HTML reads, so `disabled="false"` is a disabled control), and `Option<T>`
+  renders nothing for `None`. Implemented for the string types, the numbers,
+  `bool` and `Option` of those. There is deliberately no blanket impl over
+  `Display`, which would collide with exactly the two impls that matter — a type
+  of your own implements `Attr` or reaches the template as a string.
+- **Interpolation in quoted attribute values**: `class="px-3 {self.tone()}"`
+  holds literal and `{ … }` parts, each escaped. A value with no holes still
+  lowers to literal text, so the common case costs nothing.
+- **Class lists.** `class` (and only `class`) additionally accepts:
+  - `class=[Some("a"), None, "b", { "c": cond }]` — a list whose entries may be
+    strings, `Option`s of them, or a map of conditional names. A literal `None`
+    is dropped at compile time, since a bare `None` has no type to infer.
+  - `class={ "c": cond, "d": cond }` — the map form alone. Told apart from an
+    ordinary `class={expr}` by a top-level `:` that is not part of a `::` path.
+  - `class:name={cond}` — a directive that adds or removes one name and
+    **takes precedence** over whatever the list produced.
+
+  Everything lands in one `ClassList`, which dedupes and keeps first-mention
+  order; an empty result omits the attribute.
+- **Attribute spreading**: `<button {...expr}>` splices a prepared run of
+  attributes, for the ones a component cannot name — a computed name such as
+  `data-<controller>-target`, or a map. The `AttrSpread` trait is implemented
+  for `&'static str` (markup the author wrote — the lifetime is what keeps a
+  request-derived value out) and for `[(K, V)]`/`Vec<(K, V)>`, which escapes and
+  is where anything derived from state belongs.
 - **Sibling template resolution** via `Span::local_file()` (stable on Rust
   1.88+): `<name>.rsc` is found next to the struct with no build script; editing
   it triggers a rebuild through an emitted `include_bytes!`.

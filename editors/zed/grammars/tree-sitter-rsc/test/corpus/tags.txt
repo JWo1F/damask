@@ -79,3 +79,29 @@ a<!-- a comment -->b
 
 (document
   (text))
+
+==================
+interpolation inside a quoted attribute value
+==================
+
+<div class="px-3 {self.tone()}">hi</div>
+
+---
+
+(document
+  (text)
+  (tag (tag_open) (code) (tag_delimiter))
+  (text))
+
+==================
+class directive and class list
+==================
+
+<div class=[self.extra, "b"] class:on={self.open}></div>
+
+---
+
+(document
+  (text)
+  (tag (tag_open) (code) (tag_delimiter))
+  (text))

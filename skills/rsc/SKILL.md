@@ -96,6 +96,58 @@ or bare `attr` (boolean). A missing required field is a **compile error**.
 `{use}` imports (anything — components, functions), scoped to the enclosing
 element.
 
+Quoted values **interpolate**: `title="row {self.n}"`. On an HTML element,
+`attr={expr}` asks the value's type how to appear (the `Attr` trait):
+
+| Value type | Renders |
+|-----------|---------|
+| `bool` | a bare ` attr` when true, **nothing** when false |
+| `Option<T>` | nothing when `None`, else as `T` |
+| `&str` / `String` / numbers / `char` | ` attr="escaped"` |
+
+Use a `bool` for HTML boolean attributes — `disabled={self.locked}`. Never
+`disabled="{…}"`: in HTML the attribute's *presence* disables the control, so
+`disabled="false"` is still disabled. There is no blanket `Display` impl; a type
+of your own implements `Attr` or reaches the template as a string.
+
+### Class lists
+
+`class` — and only `class` — takes three further forms:
+
+```html
+<div class="a b"                                  <!-- as ever, interpolating -->
+     class=[self.extra, None, "b", { "c": cond }] <!-- list; None is dropped -->
+     class:c={cond}>                              <!-- directive; wins over the above -->
+```
+
+- List entries are strings, `Option`s of them, or a `{ "name": cond }` map. A
+  literal `None` is dropped at compile time (a bare `None` has no type to infer).
+- `class={ "c": cond }` is the map alone; it is told from an ordinary
+  `class={expr}` by a top-level `:` that is not part of a `::` path.
+- `class:name={cond}` adds or removes one name and **takes precedence** over
+  whatever the list produced. A bare `class:name` is always on.
+- Names dedupe, keep first-mention order, and an empty result omits `class`.
+
+> **CSS scanners and `class:`.** A directive puts the class name in the
+> *attribute name* (`class:animate-pulse`), where Tailwind and friends do not
+> look — the rule gets compiled out of your stylesheet. When a class has to be
+> discoverable by a scanner, use the map form, whose names are ordinary strings:
+> `class={ "animate-pulse": cond }`.
+
+### Spreading attributes
+
+`{...expr}` splices a prepared run of attributes — for the ones a component
+cannot name (a computed `data-<controller>-target`, or a map):
+
+```html
+<input {...self.wiring} {...&self.data}/>
+```
+
+`AttrSpread` is implemented for `&'static str` (markup the author wrote; the
+lifetime keeps a request-derived value out) and `[(K, V)]`/`Vec<(K, V)>`, which
+escapes — use that for anything derived from state. Only on HTML elements: a
+component takes named props.
+
 ```html
 <div>
   {use crate::widgets::Frame}
@@ -178,6 +230,10 @@ let out = r.finish();
 
 ## Pitfalls
 
+- **Control flow does not work in attribute position.** `<input {#if x}foo{/if}>`
+  is a parse error, and attribute *names* are static (no `data-{key}=`). Express
+  a conditional attribute with a `bool`/`Option` value instead; for a map of
+  `data-*`, build the run in Rust and emit it with `{@html}` in content position.
 - **`{ … }` HTML-escapes; `{@html … }` does not.** Only use `{@html}` for content
   you trust or that is already escaped (e.g. a child's `.render()`).
 - **Component attributes move into fields** — pass `attr={self.x.clone()}` for a

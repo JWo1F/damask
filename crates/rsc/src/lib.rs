@@ -39,8 +39,10 @@
 
 use std::fmt::Display;
 
+pub mod attr;
 pub mod renderers;
 
+pub use attr::{Attr, AttrSpread, ClassItem, ClassList};
 pub use renderers::HtmlRenderer;
 
 /// Derive macro that generates a [`Component`] impl from a struct's paired
@@ -286,6 +288,7 @@ pub trait Component: Render {
 ///
 /// `Component` here is both the trait and its derive macro.
 pub mod prelude {
+    pub use crate::attr::{Attr, AttrSpread, ClassItem, ClassList};
     pub use crate::renderers::{HtmlRenderer, StringRenderer};
     pub use crate::{Component, DEFAULT_SLOT, Render, Renderer, Slot, Slots, fragment};
 }

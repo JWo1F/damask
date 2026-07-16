@@ -185,3 +185,99 @@ fn forwarded_slot_falls_back_when_the_outer_caller_passes_nothing() {
         r#"<section class="frame"><h2>S</h2><footer></footer></section>"#
     );
 }
+
+/// A `bool` attribute is present or absent, never `="false"` — the HTML rule,
+/// since any value at all leaves the control disabled. An `Option` attribute
+/// omits itself when `None`.
+#[test]
+fn conditional_attributes_are_present_or_absent() {
+    use rsc_showcase::control::Control;
+
+    let on = Control {
+        disabled: true,
+        placeholder: Some("name".into()),
+        extra: None,
+        invalid: false,
+        compact: false,
+        wiring: "",
+        data: Vec::new(),
+    }
+    .render();
+    assert!(on.contains(" disabled"), "{on}");
+    assert!(!on.contains("disabled=\""), "{on}");
+    assert!(on.contains(r#"placeholder="name""#), "{on}");
+
+    let off = Control {
+        disabled: false,
+        placeholder: None,
+        extra: None,
+        invalid: false,
+        compact: false,
+        wiring: "",
+        data: Vec::new(),
+    }
+    .render();
+    assert!(!off.contains("disabled"), "{off}");
+    assert!(!off.contains("placeholder"), "{off}");
+}
+
+/// The class list drops `None`, keeps first-mention order, dedupes, and lets a
+/// `class:` directive overrule what the list produced.
+#[test]
+fn class_list_composes_and_directives_win() {
+    use rsc_showcase::control::Control;
+
+    let a = Control {
+        disabled: false,
+        placeholder: None,
+        extra: Some("lead"),
+        invalid: true,
+        compact: true,
+        wiring: "",
+        data: Vec::new(),
+    }
+    .render();
+    // `extra`, then the plain name, then the map entry whose condition holds.
+    // `class:base={!self.invalid}` is false here, so it removes `base` even
+    // though the list added it — the directive is the last word.
+    assert!(a.contains(r#"class="lead invalid compact""#), "{a}");
+
+    let b = Control {
+        disabled: false,
+        placeholder: None,
+        extra: None,
+        invalid: false,
+        compact: false,
+        wiring: "",
+        data: Vec::new(),
+    }
+    .render();
+    // `extra` is None and contributes nothing; the false map entry is absent;
+    // `class:base` re-adds a name already present, which must not duplicate it.
+    assert!(b.contains(r#"class="base""#), "{b}");
+}
+
+/// `{...expr}` splices attributes a component cannot name: a computed name, or
+/// a map. The `&'static str` form is markup the author wrote; the pair form
+/// escapes, so state can go through it safely.
+#[test]
+fn attribute_spread_splices_and_escapes() {
+    use rsc_showcase::control::Control;
+
+    let out = Control {
+        disabled: false,
+        placeholder: None,
+        extra: None,
+        invalid: false,
+        compact: false,
+        wiring: r#"data-relay-edit-target="name" hidden"#,
+        data: vec![("data-host".to_string(), r#"" onclick="x"#.to_string())],
+    }
+    .render();
+
+    assert!(out.contains(r#"data-relay-edit-target="name" hidden"#), "{out}");
+    // The pair form escapes, so a host named `" onclick=` stays a host name
+    // rather than becoming an attribute of its own.
+    assert!(!out.contains(r#"onclick="x""#), "{out}");
+    assert!(out.contains("&quot;"), "{out}");
+}

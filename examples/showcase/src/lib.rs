@@ -3,6 +3,7 @@
 
 pub mod button;
 pub mod card;
+pub mod control;
 pub mod custom_renderer;
 pub mod frame;
 pub mod greeting;
