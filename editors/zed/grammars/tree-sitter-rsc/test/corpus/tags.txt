@@ -19,7 +19,10 @@ Hello {self.name}!
 
 (document
   (text)
-  (tag (tag_open) (code) (tag_delimiter))
+  (tag
+    (tag_open)
+    (code)
+    (tag_delimiter))
   (text))
 
 ==================
@@ -32,8 +35,14 @@ directives
 
 (document
   (text)
-  (tag (tag_open) (code) (tag_delimiter))
-  (tag (tag_open) (code) (tag_delimiter))
+  (tag
+    (tag_open)
+    (code)
+    (tag_delimiter))
+  (tag
+    (tag_open)
+    (code)
+    (tag_delimiter))
   (text))
 
 ==================
@@ -46,11 +55,24 @@ each block
 
 (document
   (text)
-  (tag (tag_open) (code) (tag_delimiter))
-  (text)
-  (tag (tag_open) (code) (tag_delimiter))
-  (text)
-  (tag (tag_open) (code) (tag_delimiter))
+  (tag
+    (tag_open)
+    (code)
+    (tag_delimiter))
+  (element
+    (tag_name
+      (element_name)))
+  (tag
+    (tag_open)
+    (code)
+    (tag_delimiter))
+  (element
+    (tag_name
+      (element_name)))
+  (tag
+    (tag_open)
+    (code)
+    (tag_delimiter))
   (text))
 
 ==================
@@ -65,12 +87,14 @@ render with nested braces and a brace in a string
   (text)
   (tag
     (tag_open)
-    (code (code (string)))
+    (code
+      (code
+        (string)))
     (tag_delimiter))
   (text))
 
 ==================
-html comment is plain text
+html comment is its own node
 ==================
 
 a<!-- a comment -->b
@@ -78,6 +102,8 @@ a<!-- a comment -->b
 ---
 
 (document
+  (text)
+  (html_comment)
   (text))
 
 ==================
@@ -90,7 +116,21 @@ interpolation inside a quoted attribute value
 
 (document
   (text)
-  (tag (tag_open) (code) (tag_delimiter))
+  (element
+    (tag_name
+      (element_name))
+    (class_attribute
+      (directive_prefix)
+      (quoted_value
+        (text)
+        (tag
+          (tag_open)
+          (code)
+          (tag_delimiter)))))
+  (text)
+  (element
+    (tag_name
+      (element_name)))
   (text))
 
 ==================
@@ -103,5 +143,139 @@ class directive and class list
 
 (document
   (text)
-  (tag (tag_open) (code) (tag_delimiter))
+  (element
+    (tag_name
+      (element_name))
+    (class_attribute
+      (directive_prefix)
+      (class_list
+        (class_expr)
+        (class_string)))
+    (class_directive
+      (class_directive_name
+        (directive_prefix)
+        (class_name))
+      (tag
+        (tag_open)
+        (code)
+        (tag_delimiter))))
+  (element
+    (tag_name
+      (element_name)))
+  (text))
+
+==================
+{# #} comment reaches no output
+==================
+
+a{# not rendered: as, if, statistics #}b
+
+---
+
+(document
+  (text)
+  (comment)
+  (text))
+
+==================
+a bare < stays prose
+==================
+
+a < b and 3<4
+
+---
+
+(document
+  (text))
+
+==================
+conditional class map
+==================
+
+<div class={ "on": self.open, "off": !self.open }></div>
+
+---
+
+(document
+  (text)
+  (element
+    (tag_name
+      (element_name))
+    (class_attribute
+      (directive_prefix)
+      (class_brace
+        (class_pair
+          (class_key)
+          (class_condition
+            (code)))
+        (class_pair
+          (class_key)
+          (class_condition
+            (code))))))
+  (element
+    (tag_name
+      (element_name)))
+  (text))
+
+==================
+attribute spread
+==================
+
+<input {...self.wiring} {...&self.data}/>
+
+---
+
+(document
+  (text)
+  (element
+    (tag_name
+      (element_name))
+    (spread
+      (code))
+    (spread
+      (code)))
+  (text))
+
+==================
+doctype
+==================
+
+<!DOCTYPE html>
+<html></html>
+
+---
+
+(document
+  (text)
+  (doctype)
+  (text)
+  (element
+    (tag_name
+      (element_name)))
+  (element
+    (tag_name
+      (element_name)))
+  (text))
+
+==================
+brackets inside a class list's strings
+==================
+
+<div class=["p-[3px] rounded-[9px]", self.class]></div>
+
+---
+
+(document
+  (text)
+  (element
+    (tag_name
+      (element_name))
+    (class_attribute
+      (directive_prefix)
+      (class_list
+        (class_string)
+        (class_expr))))
+  (element
+    (tag_name
+      (element_name)))
   (text))

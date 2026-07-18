@@ -33,6 +33,17 @@ pub fn html_skeleton(rsc_src: &str) -> String {
 mod tests {
     use super::html_skeleton;
 
+    /// A comment is prose, so it can hold an unmatched brace. Found by its
+    /// `#}` rather than by balancing, or one would blank the rest of the file.
+    #[test]
+    fn comment_with_a_lone_brace_blanks_only_itself() {
+        let src = "{# a note about a { brace #}<p>hi</p>";
+        let out = html_skeleton(src);
+        assert_eq!(out.len(), src.len());
+        assert!(out.ends_with("<p>hi</p>"), "{out}");
+        assert!(out.starts_with("    "), "{out}");
+    }
+
     #[test]
     fn blanks_tags_preserving_offsets() {
         let src = "<p class=\"a\">Hi {self.name}</p>\n{#if x}<b>y</b>{/if}";

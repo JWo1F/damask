@@ -817,6 +817,16 @@ pub fn tag_spans(src: &str) -> Vec<Span> {
             b'<' if src[i..].starts_with("<!--") => {
                 i = src[i + 4..].find("-->").map(|r| i + 4 + r + 3).unwrap_or(n);
             }
+            // A `{# … #}` comment is blanked whole, and found by its `#}` rather
+            // than by balancing braces: it holds prose, and a lone `{` in a
+            // sentence would otherwise run the span to the end of the file.
+            b'{' if src[i..].starts_with("{#")
+                && src[i + 2..].chars().next().is_some_and(char::is_whitespace) =>
+            {
+                let end = src[i + 2..].find("#}").map(|r| i + 2 + r + 2).unwrap_or(n);
+                spans.push(Span::new(i, end));
+                i = end;
+            }
             b'<' => {
                 // Inside an element tag: keep the structure, record `{…}`
                 // attribute values, and skip quoted strings, up to `>`.
@@ -1012,6 +1022,23 @@ pub fn in_tag(src: &str, offset: usize) -> bool {
             let end = src[i + 4..]
                 .find("-->")
                 .map(|r| i + 4 + r + 3)
+                .unwrap_or(src.len());
+            if end > offset {
+                return false;
+            }
+            i = end;
+            continue;
+        }
+        // A `{# … #}` comment is not a tag, however many braces it contains.
+        // Counting them would offer completions to someone writing prose, and
+        // an unbalanced brace in a sentence would leave the file looking like
+        // one long unclosed tag.
+        if src[i..].starts_with("{#")
+            && src[i + 2..].chars().next().is_some_and(char::is_whitespace)
+        {
+            let end = src[i + 2..]
+                .find("#}")
+                .map(|r| i + 2 + r + 2)
                 .unwrap_or(src.len());
             if end > offset {
                 return false;

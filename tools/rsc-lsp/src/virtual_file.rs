@@ -169,6 +169,25 @@ mod tests {
         assert_eq!(vf.source_to_overlay(0), None);
     }
 
+    /// Hover and go-to-definition work by mapping a source offset into the
+    /// overlay, so every Rust position in a class value has to be mapped —
+    /// including the ones with no `{ … }` around them, which is every entry of
+    /// a list.
+    #[test]
+    fn class_values_are_mapped_for_hover() {
+        let rsc = r#"<div class=[self.extra, { "on": self.ok }] class:off={!self.ok}></div>"#;
+        let (vf, _) = build(rsc);
+        for needle in ["self.extra", "self.ok }", "!self.ok"] {
+            let at = rsc.find(needle).unwrap();
+            let ov = vf
+                .source_to_overlay(at)
+                .unwrap_or_else(|| panic!("`{needle}` is unmapped, so nothing can hover it"));
+            let want = needle.trim_end_matches(" }");
+            assert_eq!(&vf.text[ov..ov + want.len()], want);
+            assert_eq!(vf.overlay_to_source(ov), Some(at));
+        }
+    }
+
     /// Every mapped source byte must translate to an overlay byte that holds the
     /// same character, and translate back to itself.
     #[test]
