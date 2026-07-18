@@ -47,6 +47,16 @@ pub struct SourceMap {
 struct Emit {
     out: String,
     map: SourceMap,
+    /// Whether the last literal emitted ended with a newline run, so the next
+    /// one must not start with a second. Two runs in a row are what a `{# … #}`
+    /// comment leaves when it vanishes — the text before it and the text after
+    /// it are separate nodes, each ending and beginning with the same
+    /// separator — and what a `{#if}` leaves at each edge of its body.
+    ///
+    /// Dropping the duplicate is safe for the same reason resizing one is: it
+    /// is never the *last* run between two things, because the run that made
+    /// this flag true is still there.
+    at_line_start: bool,
 }
 
 impl Emit {
@@ -54,6 +64,7 @@ impl Emit {
         Emit {
             out: String::new(),
             map: SourceMap::default(),
+            at_line_start: false,
         }
     }
 
@@ -99,42 +110,182 @@ pub fn lower_mapped(template: &Template) -> Result<(String, SourceMap), String> 
     // Bring `Component`/`Render` into scope (unnamed) so `child.render()` and
     // `{@render …}`-style calls resolve without the author importing the traits.
     e.raw("{\n#[allow(unused_imports)] use ::rsc::{Component as _, Render as _};\n");
-    emit_nodes(&template.nodes, &mut e)?;
+    emit_nodes(&template.nodes, Layout::ROOT, &mut e)?;
     e.raw("}\n");
     Ok((e.out, e.map))
 }
 
-fn emit_nodes(nodes: &[Node], e: &mut Emit) -> Result<(), String> {
-    for node in nodes {
-        emit_node(node, e)?;
+/// Spaces per level of nesting in the generated literals. Matches
+/// `rsc::renderers::INDENT_WIDTH`, which supplies the other half of the sum.
+const INDENT_WIDTH: usize = 2;
+
+/// Where a run of nodes sits, for laying its literal whitespace out.
+///
+/// A template is laid out from *its own* root: a component knows how deep its
+/// markup is inside itself and nothing about the call site that renders it, so
+/// the two depths are added at run time (see `Renderer::push_indent`). This is
+/// the half that is static.
+#[derive(Debug, Clone, Copy)]
+struct Layout {
+    /// Nesting depth of these nodes, in HTML elements.
+    depth: usize,
+    /// Depth the last whitespace run closes to — the enclosing element's, since
+    /// what follows it is that element's end tag.
+    closing: usize,
+    /// Inside `<pre>` and friends, where a space is a space the reader gets.
+    verbatim: bool,
+}
+
+impl Layout {
+    /// The top of a template, and of any markup relocated into another one
+    /// (slot fills, snippet bodies), which is laid out from its own root for
+    /// the same reason a component is.
+    const ROOT: Layout = Layout {
+        depth: 0,
+        closing: 0,
+        verbatim: false,
+    };
+
+    /// The layout for the children of an element at this layout's depth.
+    fn inside(self, verbatim: bool) -> Layout {
+        Layout {
+            depth: self.depth + 1,
+            closing: self.depth,
+            verbatim: self.verbatim || verbatim,
+        }
+    }
+
+    /// The layout for a control-flow body — `{#if}`, `{#each}`. These are not
+    /// elements and produce no tag, so they do not nest the output.
+    fn same(self) -> Layout {
+        self
+    }
+}
+
+/// HTML elements whose content is not laid out, because whitespace inside them
+/// is significant (`pre`, `textarea`) or is program text whose meaning a stray
+/// space can change (`script`, `style`).
+fn is_verbatim_element(tag: &str) -> bool {
+    matches!(tag, "pre" | "textarea" | "script" | "style")
+}
+
+/// Re-lay out the literal whitespace of a text node.
+///
+/// Every run of whitespace containing a newline collapses to exactly one
+/// newline plus this template's own indentation — which is what removes the
+/// blank lines a `{# … #}` comment or a control-flow tag leaves behind when it
+/// vanishes, and what makes the indentation the tree's rather than the
+/// author's.
+///
+/// The transform only ever *resizes* a run that already contains a newline. It
+/// never introduces a newline between two things the author wrote adjacent, and
+/// never removes the last newline separating two things they wrote apart. HTML
+/// renders any such run as a single space wherever whitespace is insignificant,
+/// so the document is unchanged — and where whitespace *is* significant, the
+/// run is inside a verbatim element and is not touched at all.
+///
+/// Runs with no newline are the author's own spacing inside a line and are left
+/// exactly as written.
+fn relayout_text(s: &str, layout: Layout, is_last: bool, at_line_start: &mut bool) -> String {
+    if layout.verbatim {
+        *at_line_start = false;
+        return s.to_string();
+    }
+    let mut out = String::with_capacity(s.len());
+    let mut rest = s;
+
+    // A leading run when the previous literal already ended in one: the
+    // separator has been written, so this is the duplicate.
+    if *at_line_start {
+        rest = rest.trim_start_matches([' ', '\t', '\r', '\n']);
+    }
+    while let Some(nl) = rest.find('\n') {
+        // Back up over any spaces already copied that belong to this run: the
+        // run starts at the last non-whitespace byte, not at the newline.
+        let head = &rest[..nl];
+        let keep = head.trim_end_matches([' ', '\t', '\r', '\n']).len();
+        out.push_str(&head[..keep]);
+
+        let after = &rest[nl + 1..];
+        let run = after.len() - after.trim_start_matches([' ', '\t', '\r', '\n']).len();
+        rest = &after[run..];
+
+        // The final run of the final text node in an element is followed by
+        // that element's end tag, so it closes to the element's own depth.
+        let depth = if rest.is_empty() && is_last {
+            layout.closing
+        } else {
+            layout.depth
+        };
+        out.push('\n');
+        out.extend(std::iter::repeat_n(' ', depth * INDENT_WIDTH));
+    }
+    out.push_str(rest);
+    // Trailing whitespace with a newline is what the next literal may skip. An
+    // empty result wrote nothing and so cannot have moved the line.
+    if !out.is_empty() {
+        *at_line_start = out
+            .rsplit_once('\n')
+            .is_some_and(|(_, tail)| tail.chars().all(|c| c == ' ' || c == '\t'));
+    }
+    out
+}
+
+fn emit_nodes(nodes: &[Node], layout: Layout, e: &mut Emit) -> Result<(), String> {
+    for (i, node) in nodes.iter().enumerate() {
+        emit_node(node, layout, i + 1 == nodes.len(), e)?;
     }
     Ok(())
 }
 
-fn emit_node(node: &Node, e: &mut Emit) -> Result<(), String> {
+fn emit_node(node: &Node, layout: Layout, is_last: bool, e: &mut Emit) -> Result<(), String> {
     match node {
         // Text becomes an escaped string literal — not a verbatim copy, so it is
         // not mapped here; text positions belong to the HTML virtual document.
-        Node::Text(text) => e.raw(&format!("__rsc.write_raw({:?});\n", text.as_str())),
+        Node::Text(text) => {
+            let laid_out = relayout_text(text.as_str(), layout, is_last, &mut e.at_line_start);
+            if !laid_out.is_empty() {
+                e.raw(&format!("__rsc.write_text({laid_out:?});\n"));
+            }
+        }
         Node::Expr(code) => emit_expr(code, e),
         Node::Html(code) => {
             require_expr(code.as_str(), "{@html … }")?;
             e.raw("__rsc.write_display_raw(::rsc::as_display(&(");
             e.frag(code);
             e.raw(")));\n");
+            e.at_line_start = false;
         }
+        // A snippet or fragment is laid out from its own root, like a
+        // component, so the depth of the site rendering it is added here.
         Node::Render(code) => {
             require_expr(code.as_str(), "{@render … }")?;
-            e.raw("::rsc::Render::render_into(&(");
-            e.frag(code);
-            e.raw("), &mut *__rsc);\n");
+            indented(layout.depth, e, |e| {
+                e.raw("::rsc::Render::render_into(&(");
+                e.frag(code);
+                e.raw("), &mut *__rsc);\n");
+            });
+            e.at_line_start = false;
         }
-        Node::If(if_node) => emit_if(if_node, e)?,
-        Node::Each(each) => emit_each(each, e)?,
+        Node::If(if_node) => emit_if(if_node, layout.same(), e)?,
+        Node::Each(each) => emit_each(each, layout.same(), e)?,
         Node::Snippet(snippet) => emit_snippet(snippet, e)?,
-        Node::Element(element) => emit_element(element, e)?,
+        Node::Element(element) => emit_element(element, layout, e)?,
     }
     Ok(())
+}
+
+/// Wrap `body` in the renderer calls that add `depth` levels to whatever it
+/// writes. Emits nothing when there is no depth to add, so markup at the root of
+/// a template costs nothing.
+fn indented(depth: usize, e: &mut Emit, body: impl FnOnce(&mut Emit)) {
+    if depth == 0 {
+        body(e);
+        return;
+    }
+    e.raw(&format!("__rsc.push_indent({depth});\n"));
+    body(e);
+    e.raw(&format!("__rsc.pop_indent({depth});\n"));
 }
 
 /// A `{ … }` block: splice it as a statement (no output) if it's a binding or
@@ -166,6 +317,12 @@ fn emit_expr(code: &Spanned, e: &mut Emit) {
         e.frag(code);
         e.raw(")));\n");
     }
+    // A `{use}` or `{let}` writes nothing, so it cannot have moved the line —
+    // and a template's header of `{use}` tags is otherwise a run of blank lines
+    // at the top of every page it renders.
+    if !is_statement(trimmed) {
+        e.at_line_start = false;
+    }
 }
 
 /// Whether a `{ … }` block is a statement or item (yields no value to print).
@@ -183,8 +340,15 @@ fn starts_with_kw(s: &str, kw: &str) -> bool {
         && s.starts_with(kw)
 }
 
-fn emit_if(if_node: &IfNode, e: &mut Emit) -> Result<(), String> {
+/// Which branch runs is a run-time fact, so the line position after the whole
+/// construct is only known where every path agrees on it — including the path
+/// that runs no branch at all, which leaves it as it was. Each branch therefore
+/// starts from the state before the tag, and the states they end in are met.
+fn emit_if(if_node: &IfNode, layout: Layout, e: &mut Emit) -> Result<(), String> {
+    let before = e.at_line_start;
+    let mut agreed = before;
     for (i, (cond, body)) in if_node.branches.iter().enumerate() {
+        e.at_line_start = before;
         require_expr(cond.as_str(), "{#if … }")?;
         if i == 0 {
             e.raw("if ");
@@ -193,19 +357,26 @@ fn emit_if(if_node: &IfNode, e: &mut Emit) -> Result<(), String> {
         }
         e.frag(cond);
         e.raw(" {\n");
-        emit_nodes(body, e)?;
+        emit_nodes(body, layout, e)?;
+        agreed &= e.at_line_start;
     }
     if let Some(otherwise) = &if_node.otherwise {
         e.raw("} else {\n");
-        emit_nodes(otherwise, e)?;
+        e.at_line_start = before;
+        emit_nodes(otherwise, layout, e)?;
+        agreed &= e.at_line_start;
     }
     e.raw("}\n");
+    e.at_line_start = agreed;
     Ok(())
 }
 
 /// `{#each E as p}` → `for p in E {`, and `{#each E as p, i}` →
 /// `for (i, p) in (E).into_iter().enumerate() {`.
-fn emit_each(each: &EachNode, e: &mut Emit) -> Result<(), String> {
+fn emit_each(each: &EachNode, layout: Layout, e: &mut Emit) -> Result<(), String> {
+    // An empty iterator runs the body no times, so the state after the loop is
+    // known only where the body agrees with the state before it.
+    let before = e.at_line_start;
     let (expr, binding) = (each.expr.as_str().trim(), each.binding.as_str().trim());
     if expr.is_empty() || binding.is_empty() {
         return Err("malformed `{#each}`".into());
@@ -230,8 +401,9 @@ fn emit_each(each: &EachNode, e: &mut Emit) -> Result<(), String> {
             e.raw(") in (");
             e.frag(&each.expr);
             e.raw(").into_iter().enumerate() {\n");
-            emit_nodes(&each.body, e)?;
+            emit_nodes(&each.body, layout, e)?;
             e.raw("}\n");
+            e.at_line_start &= before;
             return Ok(());
         }
     }
@@ -240,8 +412,9 @@ fn emit_each(each: &EachNode, e: &mut Emit) -> Result<(), String> {
     e.raw(" in ");
     e.frag(&each.expr);
     e.raw(" {\n");
-    emit_nodes(&each.body, e)?;
+    emit_nodes(&each.body, layout, e)?;
     e.raw("}\n");
+    e.at_line_start &= before;
     Ok(())
 }
 
@@ -274,16 +447,17 @@ fn emit_snippet(snippet: &SnippetNode, e: &mut Emit) -> Result<(), String> {
         e.frag(&snippet.params);
         e.raw("| ::rsc::fragment(move |__rsc: &mut dyn ::rsc::Renderer| {\n");
     }
-    emit_nodes(&snippet.body, e)?;
+    e.at_line_start = false;
+    emit_nodes(&snippet.body, Layout::ROOT, e)?;
     e.raw("});\n");
     Ok(())
 }
 
-fn emit_element(el: &Element, e: &mut Emit) -> Result<(), String> {
+fn emit_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), String> {
     match el.kind {
-        ElementKind::Html => emit_html_element(el, e),
-        ElementKind::Component => emit_component_element(el, e),
-        ElementKind::Slot => emit_slot_placeholder(el, e),
+        ElementKind::Html => emit_html_element(el, layout, e),
+        ElementKind::Component => emit_component_element(el, layout, e),
+        ElementKind::Slot => emit_slot_placeholder(el, layout, e),
     }
 }
 
@@ -292,10 +466,11 @@ fn flush_raw(raw: &mut String, e: &mut Emit) {
     if !raw.is_empty() {
         e.raw(&format!("__rsc.write_raw({raw:?});\n"));
         raw.clear();
+        e.at_line_start = false;
     }
 }
 
-fn emit_html_element(el: &Element, e: &mut Emit) -> Result<(), String> {
+fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), String> {
     let mut raw = String::new();
     raw.push('<');
     raw.push_str(el.tag.as_str());
@@ -389,27 +564,49 @@ fn emit_html_element(el: &Element, e: &mut Emit) -> Result<(), String> {
     raw.push('>');
     flush_raw(&mut raw, e);
 
+    // Whitespace inside `<pre>` and friends is the reader's, so the renderer is
+    // told to stop laying anything out until the end tag. The flag is set at run
+    // time as well as honoured at compile time, because a component rendered in
+    // here carries its own literals and knows nothing about where it landed.
+    let verbatim = is_verbatim_element(el.tag.as_str());
+    if verbatim {
+        e.raw("__rsc.set_verbatim(true);\n");
+    }
+
     // A scope block so `{use}` (and bindings) are scoped to this element.
     e.raw("{\n");
-    emit_nodes(&el.children, e)?;
+    emit_nodes(&el.children, layout.inside(verbatim), e)?;
     e.raw("}\n");
+
+    if verbatim {
+        e.raw("__rsc.set_verbatim(false);\n");
+    }
 
     e.raw(&format!(
         "__rsc.write_raw({:?});\n",
         format!("</{}>", el.tag.as_str())
     ));
+    e.at_line_start = false;
     Ok(())
 }
 
 /// `<slot/>` / `<slot name="x">fallback</slot>` in a component template — render
 /// what the caller passed for that slot, or the `<slot>`'s own body if unfilled.
-fn emit_slot_placeholder(el: &Element, e: &mut Emit) -> Result<(), String> {
+fn emit_slot_placeholder(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), String> {
     let name = slot_name(el)?;
+    // The fill was written in the caller and laid out from *its* root, because
+    // where it lands is this template's business, not the caller's — so the
+    // slot's depth is added to it here. The fallback below is this template's
+    // own markup and already carries that depth, so the two cannot share one
+    // bracket: `Slots::render` applies the depth to whichever it takes.
     e.raw(&format!(
-        "__rsc_slots.render({name:?}, &mut *__rsc, |__rsc: &mut dyn ::rsc::Renderer| {{\n"
+        "__rsc_slots.render({name:?}, &mut *__rsc, {}, |__rsc: &mut dyn ::rsc::Renderer| {{\n",
+        layout.depth
     ));
-    emit_nodes(&el.children, e)?;
+    e.at_line_start = false;
+    emit_nodes(&el.children, layout.same(), e)?;
     e.raw("});\n");
+    e.at_line_start = false;
     Ok(())
 }
 
@@ -545,7 +742,7 @@ fn slot_name(el: &Element) -> Result<String, String> {
 
 /// `<Comp attr={e}>…</Comp>` — build `Comp { attr: e }` and render it with the
 /// element's content as its slot fills.
-fn emit_component_element(el: &Element, e: &mut Emit) -> Result<(), String> {
+fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), String> {
     // Partition children into named-slot fills and default-slot content. A
     // *named* `<slot>` directly inside the element names the slot it fills; a
     // bare `<slot/>` names nothing, so it stays ordinary default-slot content —
@@ -584,6 +781,14 @@ fn emit_component_element(el: &Element, e: &mut Emit) -> Result<(), String> {
     } else {
         "render_into"
     };
+    // The component's markup is laid out from its own root, so the depth of
+    // this call site is what places it. The bracket spans the whole statement
+    // rather than just the call, because the slot fills below are closures the
+    // callee invokes while it runs — they need the same depth, plus the one the
+    // callee's `<slot>` adds.
+    if layout.depth > 0 {
+        e.raw(&format!("__rsc.push_indent({});\n", layout.depth));
+    }
     e.raw(&format!("::rsc::Render::{method}(&("));
     // The tag name and each attribute name are spliced as *mapped* fragments:
     // they land on the struct name and its field initialisers, so the language
@@ -638,14 +843,19 @@ fn emit_component_element(el: &Element, e: &mut Emit) -> Result<(), String> {
 
     if method == "render_into" {
         e.raw(");\n");
+        e.at_line_start = false;
+        if layout.depth > 0 {
+            e.raw(&format!("__rsc.pop_indent({});\n", layout.depth));
+        }
         return Ok(());
     }
 
     e.raw(", ::rsc::Slots::new(&[\n");
     if has_default {
         e.raw("::rsc::Slot::new(::rsc::DEFAULT_SLOT, &::rsc::fragment(|__rsc: &mut dyn ::rsc::Renderer| {\n");
-        for n in &default {
-            emit_node(n, e)?;
+        e.at_line_start = false;
+        for (i, n) in default.iter().enumerate() {
+            emit_node(n, Layout::ROOT, i + 1 == default.len(), e)?;
         }
         e.raw("})),\n");
     }
@@ -653,10 +863,15 @@ fn emit_component_element(el: &Element, e: &mut Emit) -> Result<(), String> {
         e.raw(&format!(
             "::rsc::Slot::new({name:?}, &::rsc::fragment(|__rsc: &mut dyn ::rsc::Renderer| {{\n"
         ));
-        emit_nodes(body, e)?;
+        e.at_line_start = false;
+        emit_nodes(body, Layout::ROOT, e)?;
         e.raw("})),\n");
     }
     e.raw("]));\n");
+    e.at_line_start = false;
+    if layout.depth > 0 {
+        e.raw(&format!("__rsc.pop_indent({});\n", layout.depth));
+    }
     Ok(())
 }
 
@@ -722,9 +937,9 @@ mod tests {
     #[test]
     fn text_and_expression() {
         let b = body("Hi {self.name}!");
-        assert!(b.contains(r#"__rsc.write_raw("Hi ")"#));
+        assert!(b.contains(r#"__rsc.write_text("Hi ")"#));
         assert!(b.contains("__rsc.write_escaped(::rsc::as_display(&(self.name)))"));
-        assert!(b.contains(r#"__rsc.write_raw("!")"#));
+        assert!(b.contains(r#"__rsc.write_text("!")"#));
     }
 
     #[test]
@@ -897,7 +1112,7 @@ mod tests {
     fn slot_fallback_body_is_the_unfilled_branch() {
         let b = body(r#"<slot name="foot">fallback</slot>"#);
         let call = b.find(r#"__rsc_slots.render("foot""#).unwrap();
-        let fallback = b.find(r#"write_raw("fallback")"#).unwrap();
+        let fallback = b.find(r#"write_text("fallback")"#).unwrap();
         assert!(call < fallback, "fallback body belongs to the closure");
     }
 
@@ -917,9 +1132,9 @@ mod tests {
     #[test]
     fn a_forwarded_slot_mixes_with_other_content() {
         let b = body("<Card>before<slot/>after</Card>");
-        let before = b.find(r#"write_raw("before")"#).unwrap();
+        let before = b.find(r#"write_text("before")"#).unwrap();
         let forward = b.find(r#"__rsc_slots.render("""#).unwrap();
-        let after = b.find(r#"write_raw("after")"#).unwrap();
+        let after = b.find(r#"write_text("after")"#).unwrap();
         assert!(before < forward && forward < after, "order not preserved");
     }
 
@@ -991,5 +1206,115 @@ mod tests {
                 .unwrap_or_else(|| panic!("no mapping for {needle:?}"));
             assert_eq!(&out[m.generated.start..m.generated.end], needle);
         }
+    }
+
+    // ------------------------------------------------------- literal layout
+    //
+    // These pin the *static* half: what each template's own literals look like.
+    // The other half — the depth of the call site rendering the component — is
+    // added at run time and tested in `rsc::renderers`.
+
+    /// The literal text a lowered template writes, in order.
+    fn literals(src: &str) -> Vec<String> {
+        let out = body(src);
+        let mut found = Vec::new();
+        let mut rest = out.as_str();
+        while let Some((i, call)) = ["__rsc.write_text(\"", "__rsc.write_raw(\""]
+            .iter()
+            .filter_map(|c| rest.find(c).map(|i| (i, *c)))
+            .min()
+        {
+            rest = &rest[i + call.len()..];
+            let end = {
+                let (mut j, b) = (0, rest.as_bytes());
+                loop {
+                    match b[j] {
+                        b'\\' => j += 2,
+                        b'"' => break j,
+                        _ => j += 1,
+                    }
+                }
+            };
+            found.push(rest[..end].replace("\\n", "\n").replace("\\\"", "\""));
+            rest = &rest[end..];
+        }
+        found
+    }
+
+    /// The whole point: a `{# … #}` comment leaves the newlines that surrounded
+    /// it behind, and they used to reach the browser as a blank line.
+    #[test]
+    fn a_comment_leaves_no_blank_line_behind() {
+        let out = literals("<div>\n\n  {# gone #}\n\n  <b>x</b>\n</div>").concat();
+        assert!(!out.contains("\n\n"), "blank line survived: {out:?}");
+        assert_eq!(out, "<div>\n  <b>x</b>\n</div>");
+    }
+
+    #[test]
+    fn nesting_is_two_spaces_per_element() {
+        let out = literals("<a>\n<b>\n<c>x</c>\n</b>\n</a>").concat();
+        assert_eq!(out, "<a>\n  <b>\n    <c>x</c>\n  </b>\n</a>");
+    }
+
+    /// Control flow produces no tag, so it must not nest the output — the
+    /// author indents inside `{#if}`, the document should not.
+    #[test]
+    fn control_flow_does_not_nest_the_output() {
+        let out = literals("<a>\n  {#if c}\n    <b/>\n  {/if}\n</a>").concat();
+        assert_eq!(out, "<a>\n  <b></b>\n</a>");
+    }
+
+    /// A run with no newline is the author's spacing inside a line, and is
+    /// content: `</b> up` must not become `</b>up`, nor gain a break.
+    #[test]
+    fn spacing_within_a_line_is_left_alone() {
+        let out = literals("<p><b>6</b> up · <b>2</b> down</p>").concat();
+        assert_eq!(out, "<p><b>6</b> up · <b>2</b> down</p>");
+    }
+
+    #[test]
+    fn a_pre_keeps_its_own_whitespace() {
+        let out = literals("<div>\n  <pre>\n\n   ragged\n  </pre>\n</div>").concat();
+        assert!(out.contains("\n\n   ragged\n  "), "pre was reformatted: {out:?}");
+    }
+
+    #[test]
+    fn a_pre_brackets_the_renderer_too() {
+        // A component rendered inside carries its own literals and cannot know
+        // it landed in a `<pre>`, so the flag has to exist at run time as well.
+        let out = body("<pre><Child/></pre>");
+        assert!(out.contains("set_verbatim(true)") && out.contains("set_verbatim(false)"));
+    }
+
+    #[test]
+    fn a_child_is_bracketed_with_the_depth_of_its_call_site() {
+        let out = body("<a>\n  <b>\n    <Card/>\n  </b>\n</a>");
+        assert!(out.contains("push_indent(2)"), "{out}");
+        assert!(out.contains("pop_indent(2)"), "{out}");
+    }
+
+    /// Markup at the root of a template needs no adjustment, and emitting the
+    /// calls anyway would cost every page a pair of no-ops per component.
+    #[test]
+    fn a_child_at_the_root_is_not_bracketed() {
+        let out = body("<Card/>");
+        assert!(!out.contains("push_indent"), "{out}");
+    }
+
+    /// Slot content is written in the caller and laid out from the caller's
+    /// root, because where it lands is the callee's business. The depth is
+    /// applied by `Slots::render`, which is the only place that knows whether
+    /// the fill or the fallback was taken.
+    #[test]
+    fn a_slot_fill_is_laid_out_from_its_own_root() {
+        let out = literals("<a>\n  <Card>\n    <b>\n      <c/>\n    </b>\n  </Card>\n</a>");
+        let all = out.concat();
+        assert!(all.contains("<b>\n  <c></c>\n</b>"), "fill must start at column 0: {all:?}");
+    }
+
+    #[test]
+    fn a_slot_declares_its_depth_to_the_renderer() {
+        let out = body("<div>\n  <p>\n    <slot/>\n  </p>\n</div>");
+        assert!(out.contains("__rsc_slots.render(\"\", &mut *__rsc, 2,"), "{out}");
     }
 }

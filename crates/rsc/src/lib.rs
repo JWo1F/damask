@@ -43,7 +43,7 @@ pub mod attr;
 pub mod renderers;
 
 pub use attr::{Attr, AttrSpread, ClassItem, ClassList};
-pub use renderers::HtmlRenderer;
+pub use renderers::{HtmlRenderer, Whitespace};
 
 /// Derive macro that generates a [`Component`] impl from a struct's paired
 /// `.rsc` template. Shares its name with the trait (like `serde::Serialize`), so
@@ -61,9 +61,22 @@ pub use rsc_macros::Component;
 pub trait Renderer {
     /// Append text with no transformation.
     ///
-    /// Literal template text and already-safe content (such as a child
-    /// component's rendered output) go through here.
+    /// Tags and already-safe content go through here. A tag's bytes are never
+    /// laid out: the only newline one can contain is inside an attribute value,
+    /// and a value is content — re-indenting a multi-line `title` would change
+    /// what it says.
     fn write_raw(&mut self, s: &str);
+
+    /// Append literal text from between a template's tags.
+    ///
+    /// Separate from [`write_raw`](Renderer::write_raw) because this is the
+    /// only markup a renderer may lay out: it is the whitespace *between*
+    /// elements, which HTML renders as a single space however much of it there
+    /// is. The default treats it as raw, so a renderer that does not format
+    /// needs nothing.
+    fn write_text(&mut self, s: &str) {
+        self.write_raw(s);
+    }
 
     /// Append a value, applying this renderer's escaping policy.
     ///
@@ -77,6 +90,35 @@ pub trait Renderer {
     /// override it to write in place.
     fn write_display_raw(&mut self, value: &dyn Display) {
         self.write_raw(&value.to_string());
+    }
+
+    /// Enter `levels` of nesting, for renderers that lay their output out.
+    ///
+    /// Indentation is a property of the *call site*, not of the component: one
+    /// compiled `render_into` serves every place a component is used, and those
+    /// sit at different depths. So a depth cannot be baked into a component's
+    /// literals — the caller, which does know its own depth statically, opens
+    /// the levels here and the renderer carries the running total.
+    ///
+    /// A no-op by default, which is what keeps this trait object-safe and every
+    /// renderer written before it existed correct without being touched.
+    fn push_indent(&mut self, levels: usize) {
+        let _ = levels;
+    }
+
+    /// Leave `levels` opened by [`push_indent`](Renderer::push_indent).
+    fn pop_indent(&mut self, levels: usize) {
+        let _ = levels;
+    }
+
+    /// Enter or leave a region where whitespace is significant — the content of
+    /// `<pre>`, `<textarea>`, `<script>` and `<style>`, where a space this
+    /// renderer added is a space the reader gets.
+    ///
+    /// Nests, because such an element can contain a component containing more
+    /// of them.
+    fn set_verbatim(&mut self, on: bool) {
+        let _ = on;
     }
 
     /// Consume the renderer and produce the finished output.
@@ -143,14 +185,25 @@ impl<'a> Slots<'a> {
 
     /// Render the content filling `name`, falling back to `fallback` — the
     /// `<slot>`'s own body — when the caller left it unfilled.
+    ///
+    /// `indent` is the slot's depth in the template that declares it. It applies
+    /// to a *fill* only: that markup was written in the caller and laid out from
+    /// the caller's root, so this is what places it. The fallback is the
+    /// declaring template's own markup and already carries the depth, which is
+    /// why the two branches cannot share one bracket.
     pub fn render(
         &self,
         name: &str,
         r: &mut dyn Renderer,
+        indent: usize,
         fallback: impl FnOnce(&mut dyn Renderer),
     ) {
         match self.get(name) {
-            Some(content) => content.render_into(r),
+            Some(content) => {
+                r.push_indent(indent);
+                content.render_into(r);
+                r.pop_indent(indent);
+            }
             None => fallback(r),
         }
     }
@@ -266,7 +319,7 @@ pub trait Component: Render {
     /// #     fn render_into(&self, r: &mut dyn Renderer) { self.render_slots(r, Slots::EMPTY) }
     /// #     fn render_slots(&self, r: &mut dyn Renderer, slots: Slots<'_>) {
     /// #         r.write_raw("<main>");
-    /// #         slots.render(rsc::DEFAULT_SLOT, r, |_| {});
+    /// #         slots.render(rsc::DEFAULT_SLOT, r, 0, |_| {});
     /// #         r.write_raw("</main>");
     /// #     }
     /// # }
@@ -289,7 +342,7 @@ pub trait Component: Render {
 /// `Component` here is both the trait and its derive macro.
 pub mod prelude {
     pub use crate::attr::{Attr, AttrSpread, ClassItem, ClassList};
-    pub use crate::renderers::{HtmlRenderer, StringRenderer};
+    pub use crate::renderers::{HtmlRenderer, Whitespace, StringRenderer};
     pub use crate::{Component, DEFAULT_SLOT, Render, Renderer, Slot, Slots, fragment};
 }
 

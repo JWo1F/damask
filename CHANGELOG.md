@@ -8,6 +8,26 @@ All notable changes to RSC are documented here. The format follows
 
 ### Added
 
+- Templates are laid out rather than copied verbatim: a whitespace run
+  containing a newline becomes one newline plus the node's nesting depth, so a
+  `{# … #}` comment or a `{#if}` tag no longer leaves a blank line in the
+  output. `renderers::Whitespace` — and the crate's `pretty` / `minify`
+  features — then choose whether the renderer adds the call site's depth to a
+  component's markup, or crushes each run to the single space it renders as
+  (~14% of a page). Spec §8.5 gives the argument for why none of it can change
+  the rendered document.
+- `Renderer::write_text`, for the literal text between a template's tags — the
+  only markup a renderer may lay out. Defaults to `write_raw`, so a renderer
+  that does not format needs no change.
+- `Renderer::push_indent` / `pop_indent` / `set_verbatim`, all defaulting to
+  no-ops, so the trait stays object-safe and existing renderers keep working.
+
+### Changed
+
+- `Slots::render` takes the declaring `<slot>`'s depth, which it applies to a
+  fill (written in the caller, laid out from the caller's root) but not to the
+  fallback (the declaring template's own markup).
+
 - **Components via `#[derive(Component)]`** on a normal struct (its fields are
   the props). Methods are a plain `impl`; `#[template(path = "…")]` overrides
   the paired template.

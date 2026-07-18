@@ -11,6 +11,17 @@ readme = "../../README.md"
 keywords = ["template", "component", "html", "macro", "render"]
 categories = ["template-engine", "web-programming"]
 
+[features]
+# How `HtmlRenderer::new()` treats the newlines in the markup handed to it.
+# This is a feature rather than an argument because `Component::render` builds
+# its own renderer — there is no call site to pass a choice at, and threading
+# one through every component would put a formatting concern in every template.
+#
+# Neither alters the rendered document; see `renderers::Whitespace` for why.
+# Off by default, which emits each template's bytes exactly as written.
+pretty = []
+minify = []
+
 [dependencies]
 rsc-macros.workspace = true
 
