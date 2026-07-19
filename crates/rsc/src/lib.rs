@@ -111,6 +111,24 @@ pub trait Renderer {
         let _ = levels;
     }
 
+    /// Set the indentation already written for the current line to `depth`
+    /// levels below the running total, because what comes next is the end tag
+    /// of an element at that depth.
+    ///
+    /// Only the run-time side can get this right. The last thing an element
+    /// writes before its end tag may come from a `{#if}` that rendered nothing,
+    /// in which case the separator standing before the tag is the one written
+    /// for a *child* and is a level too deep — and whether that happened is not
+    /// known until the branch is taken. So the depth is corrected here rather
+    /// than baked in.
+    ///
+    /// Does nothing where the line is not open: an element whose content is on
+    /// one line (`<span>Wi-Fi</span>`) has no separator to correct, and adding
+    /// one would be the one edit that changes the document.
+    fn close_line(&mut self, depth: usize) {
+        let _ = depth;
+    }
+
     /// Enter or leave a region where whitespace is significant — the content of
     /// `<pre>`, `<textarea>`, `<script>` and `<style>`, where a space this
     /// renderer added is a space the reader gets.

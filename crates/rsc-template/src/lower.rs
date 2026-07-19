@@ -157,8 +157,17 @@ impl Layout {
 
     /// The layout for a control-flow body — `{#if}`, `{#each}`. These are not
     /// elements and produce no tag, so they do not nest the output.
+    ///
+    /// `closing` resets to the body's own depth: the last node of a *body* is
+    /// not the last before an end tag, it is followed by whatever comes after
+    /// the `{/if}`, which is a sibling at the same depth. Where the body really
+    /// is the last thing in its element, `Renderer::close_line` corrects the
+    /// run at run time — which is the only place that can tell.
     fn same(self) -> Layout {
-        self
+        Layout {
+            closing: self.depth,
+            ..self
+        }
     }
 }
 
@@ -580,6 +589,13 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
 
     if verbatim {
         e.raw("__rsc.set_verbatim(false);\n");
+    } else {
+        // The separator standing before this end tag was written for whatever
+        // child came last — which may have been a `{#if}` that rendered
+        // nothing, leaving the run before it, one level too deep. Which of
+        // those happened is a run-time fact, so the tag states its own depth
+        // and the renderer corrects what is there.
+        e.raw(&format!("__rsc.close_line({});\n", layout.depth));
     }
 
     e.raw(&format!(
@@ -1260,8 +1276,23 @@ mod tests {
     /// author indents inside `{#if}`, the document should not.
     #[test]
     fn control_flow_does_not_nest_the_output() {
-        let out = literals("<a>\n  {#if c}\n    <b/>\n  {/if}\n</a>").concat();
-        assert_eq!(out, "<a>\n  <b></b>\n</a>");
+        let src = "<a>\n  {#if c}\n    <b/>\n  {/if}\n</a>";
+        assert_eq!(literals(src).concat(), "<a>\n  <b></b>\n  </a>");
+        // The run before `</a>` stays at the child's depth here because whether
+        // the branch rendered — and so which run it even is — is not known
+        // until it runs. `close_line` settles it there.
+        assert!(body(src).contains("__rsc.close_line(0)"));
+    }
+
+    /// The last node of a control-flow *body* is followed by whatever comes
+    /// after the `{/if}`, not by an end tag, so it must not dedent as though it
+    /// were closing something — `<c/>` here has to land at the child's depth,
+    /// not the element's. The final run is a different matter: it really is the
+    /// element's last, and dedents.
+    #[test]
+    fn a_branch_does_not_dedent_its_last_line() {
+        let out = literals("<a>\n  {#if c}\n    <b/>\n  {/if}\n  <c/>\n</a>").concat();
+        assert_eq!(out, "<a>\n  <b></b>\n  <c></c>\n</a>");
     }
 
     /// A run with no newline is the author's spacing inside a line, and is
@@ -1284,6 +1315,28 @@ mod tests {
         // it landed in a `<pre>`, so the flag has to exist at run time as well.
         let out = body("<pre><Child/></pre>");
         assert!(out.contains("set_verbatim(true)") && out.contains("set_verbatim(false)"));
+    }
+
+    /// The shape that made the flaw visible: the last child is a conditional,
+    /// so which whitespace run stands before the end tag is not known here.
+    #[test]
+    fn an_element_states_its_own_depth_for_its_end_tag() {
+        let out = body("<a>\n  <b/>\n  {#if c}\n    <i/>\n  {/if}\n</a>");
+        assert!(out.contains("__rsc.close_line(0)"), "{out}");
+    }
+
+    #[test]
+    fn a_nested_element_states_its_nesting() {
+        let out = body("<a>\n  <b>\n    <c/>\n  </b>\n</a>");
+        assert!(out.contains("__rsc.close_line(1)"), "{out}");
+    }
+
+    /// Inside a verbatim element the run before the end tag is the author's,
+    /// and `</pre>` sitting where they put it is the point.
+    #[test]
+    fn a_verbatim_element_does_not_close_its_line() {
+        let out = body("<pre>\n  x\n</pre>");
+        assert!(!out.contains("close_line"), "{out}");
     }
 
     #[test]

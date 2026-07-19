@@ -19,8 +19,9 @@ All notable changes to RSC are documented here. The format follows
 - `Renderer::write_text`, for the literal text between a template's tags — the
   only markup a renderer may lay out. Defaults to `write_raw`, so a renderer
   that does not format needs no change.
-- `Renderer::push_indent` / `pop_indent` / `set_verbatim`, all defaulting to
-  no-ops, so the trait stays object-safe and existing renderers keep working.
+- `Renderer::push_indent` / `pop_indent` / `set_verbatim` / `close_line`, all
+  defaulting to no-ops, so the trait stays object-safe and existing renderers
+  keep working.
 
 ### Changed
 

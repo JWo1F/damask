@@ -238,6 +238,19 @@ impl Renderer for StringRenderer {
         self.line_open = false;
     }
 
+    /// Rewrites the indentation standing at the end of the buffer. Only in
+    /// [`Whitespace::Pretty`], which is the only policy that writes any:
+    /// minified output has a single space there, and it is already right.
+    fn close_line(&mut self, depth: usize) {
+        if self.whitespace != Whitespace::Pretty || self.verbatim > 0 || !self.line_open {
+            return;
+        }
+        self.buf.truncate(self.buf.trim_end_matches([' ', '\t']).len());
+        for _ in 0..(self.indent + depth) * INDENT_WIDTH {
+            self.buf.push(' ');
+        }
+    }
+
     fn push_indent(&mut self, levels: usize) {
         self.indent += levels;
     }
@@ -301,6 +314,9 @@ macro_rules! builtin_renderer {
             }
             fn write_display_raw(&mut self, value: &dyn Display) {
                 self.0.write_display_raw(value);
+            }
+            fn close_line(&mut self, depth: usize) {
+                self.0.close_line(depth);
             }
             fn push_indent(&mut self, levels: usize) {
                 self.0.push_indent(levels);
@@ -480,6 +496,70 @@ mod tests {
     fn raw_display_output_is_not_laid_out() {
         let out = render(Whitespace::Minified, |r| r.write_display_raw(&"<i>a</i>\n  <i>b</i>"));
         assert_eq!(out, "<i>a</i>\n  <i>b</i>");
+    }
+
+    /// The separator before an end tag was written for the last child, which
+    /// puts it a level too deep. `close_line` is what an element uses to say
+    /// where its own tag belongs.
+    #[test]
+    fn closing_a_line_re_indents_to_the_elements_own_depth() {
+        let out = render(Whitespace::Pretty, |r| {
+            r.write_raw("<a>");
+            r.write_text("\n    ");
+            r.write_raw("<b></b>");
+            r.write_text("\n    ");
+            r.close_line(0);
+            r.write_raw("</a>");
+        });
+        assert_eq!(out, "<a>\n    <b></b>\n</a>");
+    }
+
+    #[test]
+    fn closing_a_line_counts_the_call_sites_depth_too() {
+        let out = render(Whitespace::Pretty, |r| {
+            r.push_indent(2);
+            r.write_text("\n      ");
+            r.close_line(1);
+            r.write_raw("</a>");
+        });
+        assert_eq!(out, "\n      </a>", "2 pushed + 1 own = 3 levels");
+    }
+
+    /// The one case it must decline: content that was written on a single line
+    /// has no separator to correct, and inventing one would put a space inside
+    /// an inline run.
+    #[test]
+    fn closing_a_line_never_breaks_inline_content() {
+        let out = render(Whitespace::Pretty, |r| {
+            r.push_indent(3);
+            r.write_raw("<span>");
+            r.write_text("Wi-Fi");
+            r.close_line(0);
+            r.write_raw("</span>");
+        });
+        assert_eq!(out, "<span>Wi-Fi</span>");
+    }
+
+    #[test]
+    fn closing_a_line_leaves_minified_output_alone() {
+        let out = render(Whitespace::Minified, |r| {
+            r.write_raw("<a>");
+            r.write_text("\n  ");
+            r.close_line(0);
+            r.write_raw("</a>");
+        });
+        assert_eq!(out, "<a> </a>");
+    }
+
+    #[test]
+    fn closing_a_line_is_inert_inside_a_verbatim_region() {
+        let out = render(Whitespace::Pretty, |r| {
+            r.set_verbatim(true);
+            r.write_text("\n      ");
+            r.close_line(0);
+            r.write_raw("</pre>");
+        });
+        assert_eq!(out, "\n      </pre>");
     }
 
     /// A tag is written raw, because the only newline one can hold is inside an
