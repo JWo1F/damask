@@ -92,8 +92,8 @@ braces are written as an expression: `{"{"}`.
 
 Lowercase tags are HTML; **capitalized tags are components**, built from their
 attributes and rendered. Attributes carry Rust: `attr={expr}`, `attr="literal"`,
-or bare `attr` (boolean). A missing required field is a **compile error**.
-`{use}` imports (anything — components, functions), scoped to the enclosing
+or bare `attr` (boolean). A missing required field is a **compile error** naming
+it. `{use}` imports (anything — components, functions), scoped to the enclosing
 element.
 
 Quoted values **interpolate**: `title="row {self.n}"`. On an HTML element,
@@ -109,6 +109,45 @@ Use a `bool` for HTML boolean attributes — `disabled={self.locked}`. Never
 `disabled="{…}"`: in HTML the attribute's *presence* disables the control, so
 `disabled="false"` is still disabled. There is no blanket `Display` impl; a type
 of your own implements `Attr` or reaches the template as a string.
+
+### Skippable props
+
+A prop must be passed unless its **type** says what leaving it out means, and
+only `Option<_>` does — a skipped one arrives as `None`:
+
+```rust
+#[derive(Component)]
+pub struct Notice {
+    pub title: String,             // required
+    pub detail: Option<String>,    // skippable → None
+    pub dismissible: Option<bool>, // a flag a caller may omit
+}
+```
+```html
+<Notice title="Deploy finished"/>                    <!-- both skipped → None -->
+<Notice title="Rollback" detail="check the log" dismissible/>
+```
+
+A quoted value reaches an `Option` prop directly — `detail="…"` and
+`detail="row {self.n}"` both arrive as `Some`, with no `Some(…)` written at the
+call site. A `{ … }` value stays exact, so forwarding one is
+`detail={self.detail.clone()}`.
+
+`#[component(default)]` on the struct makes **every** prop skippable; the ones a
+call site omits come from the struct's own `Default`. Worth it where the
+defaults are meaningful rather than zero values:
+
+```rust
+#[derive(Component)]
+#[component(default)]
+pub struct Theme { pub accent: String, pub label: String, pub dense: bool }
+
+impl Default for Theme { /* accent: "indigo", label: "Theme", dense: false */ }
+```
+```html
+<Theme/>                        <!-- every prop from Default -->
+<Theme label="Compact"/>        <!-- accent and dense from Default -->
+```
 
 ### Class lists
 
@@ -237,8 +276,15 @@ let out = r.finish();
 - **`{ … }` HTML-escapes; `{@html … }` does not.** Only use `{@html}` for content
   you trust or that is already escaped (e.g. a child's `.render()`).
 - **Component attributes move into fields** — pass `attr={self.x.clone()}` for a
-  `&self` field, or use `Copy` types. Every field must be supplied
-  (omitting one is a compile error).
+  `&self` field, or use `Copy` types. Every field must be supplied unless it is
+  skippable (see below); omitting a required one is a compile error.
+- **A skippable prop is an `Option`, always.** `bool` is required like anything
+  else — write `Option<bool>` for a flag a caller may leave out.
+- **A `{ … }` value is the prop's type exactly** — including its `Option`, so
+  pass `detail={Some(x)}` or forward `detail={self.detail.clone()}`. Only a
+  *quoted* value converts (into the `Option` as well). That exactness is what
+  keeps `count={2 + 8}` inferring to the prop's integer type and `&Vec<T>`
+  coercing to a `&[T]` prop.
 - **Slots are matched by name at render time, not compile time.** A misspelled
   `<slot name="…">` renders the fallback (or nothing) instead of failing to
   compile. Filling a slot the template does not declare is silently ignored.

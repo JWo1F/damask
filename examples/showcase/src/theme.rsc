@@ -1,0 +1,1 @@
+<span class=[self.accent, { "dense": self.dense }]>{self.label}</span>

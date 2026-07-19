@@ -1,0 +1,1 @@
+<p class="notice" title={self.detail} data-tone={self.tone} data-dismissible={self.dismissible}>{self.title}</p>

@@ -8,6 +8,12 @@ All notable changes to RSC are documented here. The format follows
 
 ### Added
 
+- Props a call site may skip. A prop whose type is `Option<_>` may be left out
+  of a `<Comp …/>` tag and arrives as `None`; `#[component(default)]` on the
+  struct extends that to every prop, filling the skipped ones from the struct's
+  `Default`. A required prop left out is still a compile error, and now names
+  the prop. A quoted value also reaches an `Option` prop directly
+  (`detail="…"` → `Some("…")`), where it previously needed `{Some(…)}`. Spec §7.
 - Templates are laid out rather than copied verbatim: a whitespace run
   containing a newline becomes one newline plus the node's nesting depth, so a
   `{# … #}` comment or a `{#if}` tag no longer leaves a blank line in the
@@ -40,8 +46,8 @@ All notable changes to RSC are documented here. The format follows
     `{#snippet name(params)}`/`{/snippet}`.
   - `{use path}` — a Rust `use`, scoped to the enclosing HTML element.
   - **HTML and component elements**: lowercase `<div>` renders; capitalized
-    `<Component attr={e}>` is built from its attributes and rendered (omitted
-    fields are a compile error).
+    `<Component attr={e}>` is built from its attributes and rendered (omitting
+    a field that is not skippable is a compile error).
   - **Slots**: `<slot/>` / `<slot name="x">fallback</slot>` render caller-passed
     content, or the slot's own body when unfilled. Slots are not struct fields —
     they travel as a `Slots` argument to `Render::render_slots`, so a template

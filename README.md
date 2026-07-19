@@ -77,7 +77,10 @@ through.
 
 Lowercase tags are HTML. **Capitalized tags are components** — built from their
 attributes and rendered. Attributes carry Rust: `attr={expr}`, `attr="literal"`,
-or bare `attr` (boolean). Omitting a required field is a compile error.
+or bare `attr` (boolean). Omitting a required field is a compile error naming
+it; a field whose type is `Option<_>` may be omitted and arrives as `None`, and
+`#[component(default)]` on the struct makes every field skippable, filling the
+omitted ones from its `Default`.
 
 Quoted values interpolate, and on an HTML element `attr={expr}` asks the value's
 type how to appear — a `bool` renders a bare attribute or none at all, an

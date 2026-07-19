@@ -16,16 +16,29 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
         Err(e) => return e.to_compile_error(),
     };
 
+    let defaulted = match crate::props::extract_defaulted(&input.attrs) {
+        Ok(v) => v,
+        Err(e) => return e.to_compile_error(),
+    };
+    // Emitted whatever happens below: a template that fails to resolve or parse
+    // is one error, and every call site reporting that the component cannot be
+    // built would bury it.
+    let builder = crate::props::expand(&input, defaulted);
+    let failed = |span, msg: &str| {
+        let error = compile_error(span, msg);
+        quote! { #builder #error }
+    };
+
     let name_snake = to_snake_case(&name.to_string());
     let resolved = match resolve(source_file.as_deref(), &name_snake, explicit.as_deref()) {
         Ok(r) => r,
-        Err(msg) => return compile_error(name.span(), &msg),
+        Err(msg) => return failed(name.span(), &msg),
     };
 
     let template = match rsc_template::parse(&resolved.source) {
         Ok(t) => t,
         Err(e) => {
-            return compile_error(
+            return failed(
                 name.span(),
                 &format!("in template `{}`: {e}", resolved.path.display()),
             );
@@ -37,7 +50,7 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
     let body_src = match rsc_template::lower(&template) {
         Ok(src) => src,
         Err(msg) => {
-            return compile_error(
+            return failed(
                 name.span(),
                 &format!("in template `{}`: {msg}", resolved.path.display()),
             );
@@ -49,7 +62,7 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
     let body: TokenStream = match body_src.parse() {
         Ok(ts) => ts,
         Err(e) => {
-            return compile_error(
+            return failed(
                 name.span(),
                 &format!(
                     "in template `{}`: generated Rust did not parse ({e}). \
@@ -81,6 +94,10 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
                 ::std::boxed::Box::new(::rsc::renderers::HtmlRenderer::new())
             }
         }
+
+        // The builder a template's `<Name …/>` goes through, since a call site
+        // cannot see which props it left out.
+        #builder
 
         // Tie the template file into the crate's dependency graph so editing it
         // triggers a rebuild — no build script required.

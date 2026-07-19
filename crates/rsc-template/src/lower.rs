@@ -21,8 +21,8 @@
 //! other by a constant offset.
 
 use crate::{
-    Attr, AttrPart, AttrValue, ClassTerm, EachNode, Element, ElementKind, IfNode, Node, SnippetNode,
-    Span, Spanned, Template, is_void_element,
+    Attr, AttrPart, AttrValue, ClassTerm, EachNode, Element, ElementKind, IfNode, Node,
+    SnippetNode, Span, Spanned, Template, is_void_element,
 };
 
 /// A verbatim correspondence between a `.rsc` source range and the generated
@@ -500,7 +500,8 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
         if name.starts_with("class:") {
             continue;
         }
-        if name == "class" && (!directives.is_empty() || matches!(attr.value, AttrValue::Classes(_)))
+        if name == "class"
+            && (!directives.is_empty() || matches!(attr.value, AttrValue::Classes(_)))
         {
             flush_raw(&mut raw, e);
             emit_class_list(Some(&attr.value), &directives, e)?;
@@ -513,7 +514,9 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
             }
             // Only `class` parses into this, and only the branch above emits it.
             AttrValue::Classes(_) => {
-                return Err(format!("`{name}` cannot take a class list; only `class` can"));
+                return Err(format!(
+                    "`{name}` cannot take a class list; only `class` can"
+                ));
             }
             AttrValue::Spread(code) => {
                 require_expr(code.as_str(), "{...} attribute spread")?;
@@ -806,35 +809,57 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
         e.raw(&format!("__rsc.push_indent({});\n", layout.depth));
     }
     e.raw(&format!("::rsc::Render::{method}(&("));
+    // Built through the derive's hidden builder rather than as a struct literal:
+    // the props named here are the ones the author wrote, and only the derive
+    // knows which of the rest may be skipped and what they default to. A prop
+    // left out that cannot be is a trait-bound error naming it.
+    //
     // The tag name and each attribute name are spliced as *mapped* fragments:
-    // they land on the struct name and its field initialisers, so the language
-    // server can answer hover and go-to-definition over `<Comp attr=…>` itself,
-    // not just the Rust inside the attribute values.
+    // they land on the struct name and its per-prop setters, which the derive
+    // spans onto the fields, so the language server can answer hover and
+    // go-to-definition over `<Comp attr=…>` itself, not just the Rust inside the
+    // attribute values.
     e.frag(&el.tag);
-    e.raw(" {\n");
+    e.raw("::__rsc_props()\n");
 
     for attr in &el.attrs {
         match &attr.value {
             AttrValue::Expr(code) => {
                 require_expr(code.as_str(), "attribute value")?;
+                e.raw(".");
                 e.frag(&attr.name);
-                e.raw(": (");
+                e.raw("((");
                 e.frag(code);
-                e.raw("),\n");
+                e.raw("))\n");
             }
-            // A quoted value lands on a field, so it must be a `String`-ish
-            // value rather than markup: an interpolating one is formatted, and
-            // a plain one stays the literal it was so it can `.into()` whatever
-            // the field is.
+            // A quoted value lands on a prop, so it must be a `String`-ish value
+            // rather than markup: an interpolating one is formatted, and a plain
+            // one stays the literal it was.
+            //
+            // Both convert against the prop's type, but only one can do it
+            // through `Into`: an interpolated value is a `String`, which reaches
+            // an `Option<String>` prop as readily as a `String` one, while
+            // static text is a `&'static str`, which reaches no `Option` at all.
+            // `props::literal` is that missing step, and infers which it needs
+            // from the prop.
             AttrValue::Literal(parts) => {
+                let interpolating = !matches!(parts.as_slice(), [AttrPart::Text(_)]);
+                e.raw(".");
                 e.frag(&attr.name);
-                e.raw(": ");
+                e.raw("(");
+                if !interpolating {
+                    e.raw("::rsc::props::literal(");
+                }
                 emit_literal_string(parts, e)?;
-                e.raw(".into(),\n");
+                e.raw(if interpolating { ".into())\n" } else { "))\n" });
             }
+            // `.into()` for the same reason a quoted value has one: the bare
+            // form is how `flag` and `flag={true}` are written, and it should
+            // reach an `Option<bool>` prop as readily as a `bool` one.
             AttrValue::Boolean => {
+                e.raw(".");
                 e.frag(&attr.name);
-                e.raw(": true,\n");
+                e.raw("(true.into())\n");
             }
             // A class list assembles markup, and a component prop is a value.
             // `class={…}` with an ordinary expression is the way to pass one.
@@ -855,7 +880,7 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
         }
     }
 
-    e.raw("}), &mut *__rsc");
+    e.raw(".__rsc_build()), &mut *__rsc");
 
     if method == "render_into" {
         e.raw(");\n");
@@ -1017,7 +1042,7 @@ mod tests {
         assert!(body(r#"<div title="plain"></div>"#).contains(r#" title=\"plain\""#));
     }
 
-    /// An interpolating value lands on a component *field*, so it must be an
+    /// An interpolating value lands on a component *prop*, so it must be an
     /// owned `String` expression and not a borrow of one — the class-list path
     /// wraps its argument in `&(…)` itself, and an extra one there was absorbed
     /// by the blanket impl rather than reported.
@@ -1025,7 +1050,7 @@ mod tests {
     fn interpolating_value_on_a_component_prop_is_owned() {
         let b = body(r#"<Comp class="a {self.x} b"/>"#);
         assert!(
-            b.contains(r#"class: ::std::format!("a {} b", self.x).into()"#),
+            b.contains(r#".class(::std::format!("a {} b", self.x).into())"#),
             "{b}"
         );
     }
@@ -1100,9 +1125,10 @@ mod tests {
     #[test]
     fn component_element_construction() {
         let b = body(r#"<Card title={2 + 8} tag="h1">body<slot name="foot">f</slot></Card>"#);
-        assert!(b.contains("::rsc::Render::render_slots(&(Card {"));
-        assert!(b.contains("title: (2 + 8),"));
-        assert!(b.contains(r#"tag: "h1".into(),"#));
+        assert!(b.contains("::rsc::Render::render_slots(&(Card::__rsc_props()"));
+        assert!(b.contains(".title((2 + 8))"));
+        assert!(b.contains(r#".tag(::rsc::props::literal("h1"))"#));
+        assert!(b.contains(".__rsc_build())"));
         assert!(b.contains("::rsc::Slot::new(::rsc::DEFAULT_SLOT, &::rsc::fragment("));
         assert!(b.contains(r#"::rsc::Slot::new("foot", &::rsc::fragment("#));
     }
@@ -1112,7 +1138,7 @@ mod tests {
         // Nothing to fill: no slot slice is built, and the plain render path is
         // used — same call `{@render …}` emits.
         let b = body(r#"<Card title="x"/>"#);
-        assert!(b.contains("::rsc::Render::render_into(&(Card {"));
+        assert!(b.contains("::rsc::Render::render_into(&(Card::__rsc_props()"));
         assert!(!b.contains("::rsc::Slots::new"));
     }
 
@@ -1306,7 +1332,10 @@ mod tests {
     #[test]
     fn a_pre_keeps_its_own_whitespace() {
         let out = literals("<div>\n  <pre>\n\n   ragged\n  </pre>\n</div>").concat();
-        assert!(out.contains("\n\n   ragged\n  "), "pre was reformatted: {out:?}");
+        assert!(
+            out.contains("\n\n   ragged\n  "),
+            "pre was reformatted: {out:?}"
+        );
     }
 
     #[test]
@@ -1362,12 +1391,18 @@ mod tests {
     fn a_slot_fill_is_laid_out_from_its_own_root() {
         let out = literals("<a>\n  <Card>\n    <b>\n      <c/>\n    </b>\n  </Card>\n</a>");
         let all = out.concat();
-        assert!(all.contains("<b>\n  <c></c>\n</b>"), "fill must start at column 0: {all:?}");
+        assert!(
+            all.contains("<b>\n  <c></c>\n</b>"),
+            "fill must start at column 0: {all:?}"
+        );
     }
 
     #[test]
     fn a_slot_declares_its_depth_to_the_renderer() {
         let out = body("<div>\n  <p>\n    <slot/>\n  </p>\n</div>");
-        assert!(out.contains("__rsc_slots.render(\"\", &mut *__rsc, 2,"), "{out}");
+        assert!(
+            out.contains("__rsc_slots.render(\"\", &mut *__rsc, 2,"),
+            "{out}"
+        );
     }
 }

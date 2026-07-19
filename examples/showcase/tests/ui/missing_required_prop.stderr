@@ -1,0 +1,20 @@
+error[E0277]: missing a required prop: rsc_showcase::notice::__RscNotice_title
+ --> tests/ui/missing_required_prop.rs:7:48
+  |
+7 |     let _ = Notice::__rsc_props().detail(None).__rsc_build();
+  |                                                ^^^^^^^^^^^ a required prop was not given
+  |
+  = help: the trait `rsc::props::Provided` is not implemented for `rsc_showcase::notice::__RscNotice_title`
+  = note: a prop is required unless its type is `Option<_>`, which makes leaving it out mean `None`
+  = note: `#[component(default)]` on the struct makes every prop skippable, filling the rest from its `Default`
+help: the trait `rsc::props::Provided` is implemented for `rsc::props::Set`
+ --> $WORKSPACE/crates/rsc/src/props.rs
+  |
+  | impl Provided for Set {}
+  | ^^^^^^^^^^^^^^^^^^^^^
+note: required by a bound in `rsc_showcase::notice::__RscPropsNotice::<__RscM0>::__rsc_build`
+ --> src/notice.rs
+  |
+  | #[derive(Component)]
+  |          ^^^^^^^^^ required by this bound in `__RscPropsNotice::<__RscM0>::__rsc_build`
+  = note: this error originates in the derive macro `Component` (in Nightly builds, run with -Z macro-backtrace for more info)

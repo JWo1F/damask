@@ -36,10 +36,17 @@
 //! A struct's fields are its props. Its template's `<slot>`s are *not* fields:
 //! they are content the caller supplies, and they travel as a [`Slots`] argument
 //! to [`Render::render_slots`]. See [`Slots`] for what that buys and costs.
+//!
+//! A prop must be passed unless its type says what leaving it out means:
+//! `Option<_>` is `None`. `#[component(default)]` on the struct extends that to
+//! every prop, filling the skipped ones from its `Default`. See [`props`] for
+//! how a call site — which cannot see the struct it is building — is held to
+//! that.
 
 use std::fmt::Display;
 
 pub mod attr;
+pub mod props;
 pub mod renderers;
 
 pub use attr::{Attr, AttrSpread, ClassItem, ClassList};
@@ -360,7 +367,7 @@ pub trait Component: Render {
 /// `Component` here is both the trait and its derive macro.
 pub mod prelude {
     pub use crate::attr::{Attr, AttrSpread, ClassItem, ClassList};
-    pub use crate::renderers::{HtmlRenderer, Whitespace, StringRenderer};
+    pub use crate::renderers::{HtmlRenderer, StringRenderer, Whitespace};
     pub use crate::{Component, DEFAULT_SLOT, Render, Renderer, Slot, Slots, fragment};
 }
 

@@ -275,9 +275,83 @@ fn attribute_spread_splices_and_escapes() {
     }
     .render();
 
-    assert!(out.contains(r#"data-relay-edit-target="name" hidden"#), "{out}");
+    assert!(
+        out.contains(r#"data-relay-edit-target="name" hidden"#),
+        "{out}"
+    );
     // The pair form escapes, so a host named `" onclick=` stays a host name
     // rather than becoming an attribute of its own.
     assert!(!out.contains(r#"onclick="x""#), "{out}");
     assert!(out.contains("&quot;"), "{out}");
+}
+
+/// A prop whose type is `Option<_>` may be skipped at the call site; it arrives
+/// as `None`, which the attribute rules then omit. A required prop still has to
+/// be passed — leaving one out is a compile error, covered by `tests/ui`.
+#[test]
+fn optional_props_may_be_skipped() {
+    use rsc_showcase::notice::Notice;
+
+    let bare = Notice {
+        title: "T".into(),
+        detail: None,
+        tone: None,
+        dismissible: None,
+    }
+    .render();
+    assert_eq!(bare, r#"<p class="notice">T</p>"#);
+
+    // What the call site in `board.rsc` builds, naming none of the three.
+    assert!(
+        board().contains(r#"<p class="notice">Deploy finished</p>"#),
+        "{}",
+        board()
+    );
+}
+
+/// An `Option` prop is first-class in the *value* too: a quoted attribute lands
+/// inside the `Option` with no `Some(…)` at the call site — static text and
+/// interpolated alike, and whatever string type the `Option` wraps.
+#[test]
+fn a_quoted_value_reaches_an_option_prop() {
+    // detail="check {self.log}" → Option<String>, tone="warn" → Option<&str>,
+    // and the bare `dismissible` → Option<bool>.
+    assert!(
+        board().contains(r#"title="check the log" data-tone="warn" data-dismissible>Rollback</p>"#),
+        "{}",
+        board()
+    );
+}
+
+/// A generic component's builder carries its generics, so `note` is skippable
+/// there too and `T` is still inferred from what the call site passes — the
+/// setter takes the prop's type exactly, so `{42}` is an `i32` rather than an
+/// ambiguity among every `From` impl.
+#[test]
+fn generic_component_skips_a_prop() {
+    assert!(board().contains("<em>42</em>"), "{}", board());
+}
+
+/// `#[component(default)]` lets a call site skip any number of props; each one
+/// it skips comes from the struct's `Default`, and the ones it sets win.
+#[test]
+fn defaulted_component_fills_in_the_rest() {
+    assert!(
+        board().contains(r#"<span class="indigo">Theme</span>"#),
+        "{}",
+        board()
+    );
+    assert!(
+        board().contains(r#"<span class="indigo dense">Compact</span>"#),
+        "{}",
+        board()
+    );
+}
+
+/// The page whose template skips props at every call site in it.
+fn board() -> String {
+    rsc_showcase::board::Board {
+        log: "the log".into(),
+    }
+    .render()
 }

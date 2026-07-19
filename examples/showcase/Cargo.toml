@@ -12,5 +12,8 @@ publish = false
 [dependencies]
 rsc.workspace = true
 
+[dev-dependencies]
+trybuild = "1"
+
 [lints]
 workspace = true
