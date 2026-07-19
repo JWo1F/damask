@@ -1,4 +1,4 @@
-use rsc::Component;
+use damask::Component;
 use std::fmt::Display;
 
 /// The builder carries the component's own generics, so a generic component

@@ -1,6 +1,6 @@
 [package]
-name = "rsc-showcase"
-description = "Runnable RSC example components."
+name = "damask-showcase"
+description = "Runnable Damask example components."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-rsc.workspace = true
+damask.workspace = true
 
 [dev-dependencies]
 trybuild = "1"

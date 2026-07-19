@@ -1,5 +1,5 @@
 use crate::button::Button;
-use rsc::Component;
+use damask::Component;
 
 // Composition via the string path: `{@html self.button.render()}` writes the
 // child's finished (already-escaped) HTML raw. Same output as `Card`'s

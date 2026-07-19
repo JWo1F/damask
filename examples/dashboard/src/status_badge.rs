@@ -1,4 +1,4 @@
-use rsc::Component;
+use damask::Component;
 
 use crate::model::Status;
 

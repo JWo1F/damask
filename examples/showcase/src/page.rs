@@ -1,4 +1,4 @@
-use rsc::Component;
+use damask::Component;
 
 // Component elements + scoped import: `{use}` brings `Frame` into scope for the
 // enclosing `<div>`, then `<Frame …>…</Frame>` builds and renders it, filling

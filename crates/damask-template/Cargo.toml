@@ -1,0 +1,15 @@
+[package]
+name = "damask-template"
+description = "Template parser for Damask. Shared by the macro and the language server."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+readme = "../../README.md"
+keywords = ["template", "parser", "component", "html", "markup"]
+categories = ["template-engine", "parser-implementations"]
+
+[lints]
+workspace = true

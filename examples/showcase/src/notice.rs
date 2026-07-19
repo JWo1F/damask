@@ -1,4 +1,4 @@
-use rsc::Component;
+use damask::Component;
 
 /// Props a call site may leave out.
 ///

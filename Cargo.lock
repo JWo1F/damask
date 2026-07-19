@@ -49,6 +49,56 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "damask"
+version = "0.1.0"
+dependencies = [
+ "damask-macros",
+ "trybuild",
+]
+
+[[package]]
+name = "damask-dashboard"
+version = "0.1.0"
+dependencies = [
+ "damask",
+]
+
+[[package]]
+name = "damask-lsp"
+version = "0.1.0"
+dependencies = [
+ "damask-template",
+ "proc-macro2",
+ "quote",
+ "serde_json",
+ "syn 2.0.119",
+ "tokio",
+ "tower-lsp",
+]
+
+[[package]]
+name = "damask-macros"
+version = "0.1.0"
+dependencies = [
+ "damask-template",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
+]
+
+[[package]]
+name = "damask-showcase"
+version = "0.1.0"
+dependencies = [
+ "damask",
+ "trybuild",
+]
+
+[[package]]
+name = "damask-template"
+version = "0.1.0"
+
+[[package]]
 name = "dashmap"
 version = "5.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -452,56 +502,6 @@ checksum = "ed2bf2547551a7053d6fdfafda3f938979645c44812fbfcda098faae3f1a362d"
 dependencies = [
  "bitflags 2.13.1",
 ]
-
-[[package]]
-name = "rsc"
-version = "0.1.0"
-dependencies = [
- "rsc-macros",
- "trybuild",
-]
-
-[[package]]
-name = "rsc-dashboard"
-version = "0.1.0"
-dependencies = [
- "rsc",
-]
-
-[[package]]
-name = "rsc-lsp"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "rsc-template",
- "serde_json",
- "syn 2.0.119",
- "tokio",
- "tower-lsp",
-]
-
-[[package]]
-name = "rsc-macros"
-version = "0.1.0"
-dependencies = [
- "proc-macro2",
- "quote",
- "rsc-template",
- "syn 2.0.119",
-]
-
-[[package]]
-name = "rsc-showcase"
-version = "0.1.0"
-dependencies = [
- "rsc",
- "trybuild",
-]
-
-[[package]]
-name = "rsc-template"
-version = "0.1.0"
 
 [[package]]
 name = "scopeguard"

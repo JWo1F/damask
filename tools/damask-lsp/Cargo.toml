@@ -1,0 +1,36 @@
+[package]
+name = "damask-lsp"
+description = "Language server for Damask templates."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+readme = "../../README.md"
+keywords = ["lsp", "language-server", "template", "component", "editor"]
+categories = ["development-tools", "text-editors"]
+
+[[bin]]
+name = "damask-lsp"
+path = "src/main.rs"
+
+[dependencies]
+damask-template.workspace = true
+syn.workspace = true
+quote.workspace = true
+proc-macro2.workspace = true
+tower-lsp = "0.20"
+tokio = { version = "1", features = [
+    "rt-multi-thread",
+    "io-std",
+    "io-util",
+    "macros",
+    "process",
+    "sync",
+    "time",
+] }
+serde_json = "1"
+
+[lints]
+workspace = true

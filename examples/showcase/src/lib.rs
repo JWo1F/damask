@@ -1,4 +1,4 @@
-//! Runnable RSC example components, exercised by the integration tests and the
+//! Runnable Damask example components, exercised by the integration tests and the
 //! `showcase` binary.
 
 pub mod board;

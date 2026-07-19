@@ -1,13 +1,13 @@
-//! Zed extension for RSC: registers the `.rsc` language (grammar + queries in
-//! `languages/rsc/`) and launches the `rsc-lsp` language server.
+//! Zed extension for Damask: registers the `.dmk` language (grammar + queries in
+//! `languages/damask/`) and launches the `damask-lsp` language server.
 
 use zed_extension_api::{self as zed, Result};
 
-struct RscExtension;
+struct DamaskExtension;
 
-impl zed::Extension for RscExtension {
+impl zed::Extension for DamaskExtension {
     fn new() -> Self {
-        RscExtension
+        DamaskExtension
     }
 
     fn language_server_command(
@@ -15,10 +15,10 @@ impl zed::Extension for RscExtension {
         _language_server_id: &zed::LanguageServerId,
         worktree: &zed::Worktree,
     ) -> Result<zed::Command> {
-        // `rsc-lsp` is installed by the user (e.g. `cargo install rsc-lsp`) and
-        // found on PATH. RSC has no downloadable prebuilt server binary.
-        let path = worktree.which("rsc-lsp").ok_or_else(|| {
-            "rsc-lsp not found on PATH — install it with `cargo install rsc-lsp`".to_string()
+        // `damask-lsp` is installed by the user (e.g. `cargo install damask-lsp`) and
+        // found on PATH. Damask has no downloadable prebuilt server binary.
+        let path = worktree.which("damask-lsp").ok_or_else(|| {
+            "damask-lsp not found on PATH — install it with `cargo install damask-lsp`".to_string()
         })?;
 
         Ok(zed::Command {
@@ -29,4 +29,4 @@ impl zed::Extension for RscExtension {
     }
 }
 
-zed::register_extension!(RscExtension);
+zed::register_extension!(DamaskExtension);

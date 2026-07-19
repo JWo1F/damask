@@ -38,7 +38,7 @@ jobs:
       - name: Install tree-sitter CLI
         run: npm install -g tree-sitter-cli
       - name: Regenerate parser and run corpus tests
-        working-directory: editors/zed/grammars/tree-sitter-rsc
+        working-directory: editors/zed/grammars/tree-sitter-damask
         run: |
           tree-sitter generate
           tree-sitter test
@@ -54,4 +54,4 @@ jobs:
       # Workspace-aware dry-run resolves the three crates against each other via
       # a temporary registry (cargo >= 1.90), so it works before anything is on
       # crates.io. The same command without --dry-run publishes them in order.
-      - run: cargo publish --dry-run -p rsc-template -p rsc-macros -p rsc
+      - run: cargo publish --dry-run -p damask-template -p damask-macros -p damask

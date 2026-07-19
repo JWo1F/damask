@@ -1,4 +1,4 @@
-//! A complete HTML document assembled from composed RSC components.
+//! A complete HTML document assembled from composed Damask components.
 //!
 //! Where the `showcase` crate demonstrates one feature per component, this
 //! example is a single realistic page: [`Page`](page::Page) is the document

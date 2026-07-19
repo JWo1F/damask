@@ -1,4 +1,4 @@
-use rsc::Component;
+use damask::Component;
 
 /// `#[component(default)]` — every prop may be skipped, and the ones a call site
 /// omits come from the struct's own `Default`.

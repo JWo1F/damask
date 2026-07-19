@@ -1,18 +1,18 @@
-id = "rsc"
-name = "RSC (Rust Smart Components)"
-description = "Syntax highlighting and language server for RSC templates (.rsc)"
+id = "damask"
+name = "Damask"
+description = "Syntax highlighting and language server for Damask templates (.dmk)"
 version = "0.1.0"
 schema_version = 1
-authors = ["RSC contributors"]
-repository = "https://github.com/jwo1f/rsc"
+authors = ["Damask contributors"]
+repository = "https://github.com/jwo1f/damask"
 
-# The grammar source lives in `grammars/tree-sitter-rsc/`. Zed fetches grammars
+# The grammar source lives in `grammars/tree-sitter-damask/`. Zed fetches grammars
 # from git, so publish that directory as its own repository and point `rev` at a
 # commit. See README.md for the local-development alternative.
-[grammars.rsc]
-repository = "file:///Users/jwo1f/.cache/zed-rsc/tree-sitter-rsc"
-rev = "a936423d1adf3862b4c4485b42da116f19003cc8"
+[grammars.damask]
+repository = "file:///Users/jwo1f/.cache/zed-damask/tree-sitter-damask"
+rev = "213a546e3ed2c16e736059b2facbd261411d622e"
 
-[language_servers.rsc-lsp]
-name = "RSC Language Server"
-languages = ["RSC"]
+[language_servers.damask-lsp]
+name = "Damask Language Server"
+languages = ["Damask"]

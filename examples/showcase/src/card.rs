@@ -1,5 +1,5 @@
 use crate::button::Button;
-use rsc::Component;
+use damask::Component;
 
 // Composition via `<%+ self.button %>`: the child renders directly into the
 // parent's buffer (no intermediate String).

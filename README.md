@@ -1,4 +1,4 @@
-# RSC — Rust Smart Components
+# Damask — compile-time components for Rust
 
 React-like, **compile-time** components for Rust. A component is a struct (its
 fields are its props) paired with an HTML template that uses a
@@ -7,9 +7,9 @@ at build time, so rendering is plain, allocation-light Rust — no runtime templ
 engine.
 
 ```rust
-use rsc::Component;
+use damask::Component;
 
-// greeting.rs  (paired with greeting.rsc)
+// greeting.rs  (paired with greeting.dmk)
 #[derive(Component)]
 pub struct Greeting {
     pub name: String,
@@ -17,7 +17,7 @@ pub struct Greeting {
 ```
 
 ```html
-<!-- greeting.rsc -->
+<!-- greeting.dmk -->
 Hello {self.name}!
 ```
 
@@ -33,13 +33,13 @@ assert_eq!(Greeting { name: "<b>".into() }.render(), "Hello &lt;b&gt;!");
 
    ```toml
    [dependencies]
-   rsc = "0.1"
+   damask = "0.1"
    ```
 
 2. Create a component as **two files that share a basename**, in the same
-   directory — `button.rs` and `button.rsc`.
+   directory — `button.rs` and `button.dmk`.
 
-3. `use rsc::Component;`, `#[derive(Component)]` your struct, and call
+3. `use damask::Component;`, `#[derive(Component)]` your struct, and call
    `.render()`.
 
 The template is found automatically next to the struct (via `Span::local_file`),
@@ -140,7 +140,7 @@ declares as many as it likes without the struct changing, and a `<slot>`'s body
 is the fallback rendered when the caller leaves it unfilled:
 
 ```rust
-use rsc::Component;
+use damask::Component;
 
 #[derive(Component)]
 pub struct Frame {
@@ -148,7 +148,7 @@ pub struct Frame {
 }
 ```
 ```html
-<!-- frame.rsc -->
+<!-- frame.dmk -->
 <section><h2>{self.title}</h2><slot/><footer><slot name="footer">© anon</slot></footer></section>
 ```
 
@@ -160,7 +160,7 @@ slot of the same name. A bare `<slot/>` there is still a placeholder, so it
 **forwards** — this passes the caller's content straight through to `Frame`:
 
 ```html
-<!-- shell.rsc -->
+<!-- shell.dmk -->
 <Frame title={self.title.clone()}>
   <slot/>                                        <!-- forward the default slot -->
   <slot name="footer"><slot name="footer"/></slot>  <!-- fill wrapping a placeholder -->
@@ -183,7 +183,7 @@ else — and it is scoped to the HTML element that encloses it.
 Slots can also be filled from Rust, with `render_with`:
 
 ```rust
-use rsc::{fragment, Component, Renderer, Slot, Slots, DEFAULT_SLOT};
+use damask::{fragment, Component, Renderer, Slot, Slots, DEFAULT_SLOT};
 
 let body = fragment(|r: &mut dyn Renderer| r.write_raw("<p>hi</p>"));
 Layout.render_with(Slots::new(&[Slot::new(DEFAULT_SLOT, &body)]));
@@ -202,12 +202,12 @@ compiled against `&mut dyn Renderer`, so any renderer drives any component.
 
 | Crate / dir                | Purpose                                             |
 |----------------------------|-----------------------------------------------------|
-| [`rsc`](crates/rsc)        | the facade: traits, the HTML renderer, and the derive |
-| [`rsc-macros`](crates/rsc-macros) | the `Component` derive + template resolution |
-| [`rsc-template`](crates/rsc-template) | the `.rsc` parser (shared by macro + LSP) |
-| [`rsc-lsp`](tools/rsc-lsp) | language server (diagnostics + completion)          |
+| [`damask`](crates/damask)        | the facade: traits, the HTML renderer, and the derive |
+| [`damask-macros`](crates/damask-macros) | the `Component` derive + template resolution |
+| [`damask-template`](crates/damask-template) | the `.dmk` parser (shared by macro + LSP) |
+| [`damask-lsp`](tools/damask-lsp) | language server (diagnostics + completion)          |
 | [`editors/zed`](editors/zed) | Zed extension (highlighting + LSP)                |
-| [`skills/rsc`](skills/rsc) | agent skill for authoring components                |
+| [`skills/damask`](skills/damask) | agent skill for authoring components                |
 | [`examples/showcase`](examples/showcase) | runnable example components          |
 | [`examples/dashboard`](examples/dashboard) | a full HTML page from 7 composed components |
 
@@ -218,7 +218,7 @@ See [spec.md](spec.md) for the design and [plan.md](plan.md) for the build plan.
 ```sh
 cargo test --workspace          # runtime, macro, parser, LSP, examples, trybuild
 cargo clippy --workspace --all-targets -- -D warnings
-( cd editors/zed/grammars/tree-sitter-rsc && tree-sitter test )
+( cd editors/zed/grammars/tree-sitter-damask && tree-sitter test )
 ```
 
 ## License

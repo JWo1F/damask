@@ -1,15 +1,15 @@
 //! End-to-end behavior of the example components: escaping, composition,
 //! control flow, and the custom-renderer seam.
 
-use rsc::{Component, DEFAULT_SLOT, Render, Renderer, Slot, Slots, fragment};
-use rsc_showcase::button::Button;
-use rsc_showcase::card::Card;
-use rsc_showcase::custom_renderer::UpcaseRenderer;
-use rsc_showcase::greeting::Greeting;
-use rsc_showcase::layout::Layout;
-use rsc_showcase::list::List;
-use rsc_showcase::menu::Menu;
-use rsc_showcase::panel::Panel;
+use damask::{Component, DEFAULT_SLOT, Render, Renderer, Slot, Slots, fragment};
+use damask_showcase::button::Button;
+use damask_showcase::card::Card;
+use damask_showcase::custom_renderer::UpcaseRenderer;
+use damask_showcase::greeting::Greeting;
+use damask_showcase::layout::Layout;
+use damask_showcase::list::List;
+use damask_showcase::menu::Menu;
+use damask_showcase::panel::Panel;
 
 #[test]
 fn escaped_interpolation() {
@@ -83,7 +83,7 @@ fn snippet_render_prop() {
 
 #[test]
 fn component_element_with_scoped_use_and_slots() {
-    use rsc_showcase::page::Page;
+    use damask_showcase::page::Page;
     let page = Page {
         heading: "Hi".into(),
         body: "World".into(),
@@ -116,7 +116,7 @@ fn children_as_a_component() {
 
 #[test]
 fn unfilled_slot_renders_its_fallback() {
-    use rsc_showcase::frame::Frame;
+    use damask_showcase::frame::Frame;
     // Neither slot is filled: the default slot is empty, the named one falls
     // back to the body of its `<slot>`.
     let frame = Frame {
@@ -130,7 +130,7 @@ fn unfilled_slot_renders_its_fallback() {
 
 #[test]
 fn slots_are_matched_by_name_in_any_order() {
-    use rsc_showcase::frame::Frame;
+    use damask_showcase::frame::Frame;
     let body = fragment(|r: &mut dyn Renderer| r.write_raw("<p>b</p>"));
     let foot = fragment(|r: &mut dyn Renderer| r.write_raw("f"));
     let frame = Frame { title: "T".into() };
@@ -159,7 +159,7 @@ fn slots_forward_through_a_wrapping_component() {
     // levels down. A bare `<slot/>` forwards the default slot; the `<slot
     // name="footer">` fill wraps a placeholder that resolves against *Shell's*
     // caller, not Frame's.
-    use rsc_showcase::shell::Shell;
+    use damask_showcase::shell::Shell;
     let body = fragment(|r: &mut dyn Renderer| r.write_raw("<p>b</p>"));
     let foot = fragment(|r: &mut dyn Renderer| r.write_raw("f"));
     let shell = Shell { title: "S".into() };
@@ -178,7 +178,7 @@ fn forwarded_slot_falls_back_when_the_outer_caller_passes_nothing() {
     // Shell's own `<slot name="footer"/>` is unfilled, so Frame's footer fill
     // renders empty — Frame's fallback does not apply, because Frame's slot *was*
     // filled (with nothing).
-    use rsc_showcase::shell::Shell;
+    use damask_showcase::shell::Shell;
     let shell = Shell { title: "S".into() };
     assert_eq!(
         shell.render(),
@@ -191,7 +191,7 @@ fn forwarded_slot_falls_back_when_the_outer_caller_passes_nothing() {
 /// omits itself when `None`.
 #[test]
 fn conditional_attributes_are_present_or_absent() {
-    use rsc_showcase::control::Control;
+    use damask_showcase::control::Control;
 
     let on = Control {
         disabled: true,
@@ -225,7 +225,7 @@ fn conditional_attributes_are_present_or_absent() {
 /// `class:` directive overrule what the list produced.
 #[test]
 fn class_list_composes_and_directives_win() {
-    use rsc_showcase::control::Control;
+    use damask_showcase::control::Control;
 
     let a = Control {
         disabled: false,
@@ -262,7 +262,7 @@ fn class_list_composes_and_directives_win() {
 /// escapes, so state can go through it safely.
 #[test]
 fn attribute_spread_splices_and_escapes() {
-    use rsc_showcase::control::Control;
+    use damask_showcase::control::Control;
 
     let out = Control {
         disabled: false,
@@ -290,7 +290,7 @@ fn attribute_spread_splices_and_escapes() {
 /// be passed — leaving one out is a compile error, covered by `tests/ui`.
 #[test]
 fn optional_props_may_be_skipped() {
-    use rsc_showcase::notice::Notice;
+    use damask_showcase::notice::Notice;
 
     let bare = Notice {
         title: "T".into(),
@@ -301,7 +301,7 @@ fn optional_props_may_be_skipped() {
     .render();
     assert_eq!(bare, r#"<p class="notice">T</p>"#);
 
-    // What the call site in `board.rsc` builds, naming none of the three.
+    // What the call site in `board.dmk` builds, naming none of the three.
     assert!(
         board().contains(r#"<p class="notice">Deploy finished</p>"#),
         "{}",
@@ -350,7 +350,7 @@ fn defaulted_component_fills_in_the_rest() {
 
 /// The page whose template skips props at every call site in it.
 fn board() -> String {
-    rsc_showcase::board::Board {
+    damask_showcase::board::Board {
         log: "the log".into(),
     }
     .render()

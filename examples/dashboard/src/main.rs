@@ -1,9 +1,9 @@
-//! Renders the dashboard to stdout: `cargo run -p rsc-dashboard > out.html`.
+//! Renders the dashboard to stdout: `cargo run -p damask-dashboard > out.html`.
 
-use rsc::{Component, DEFAULT_SLOT, Slot, Slots};
-use rsc_dashboard::dashboard::Dashboard;
-use rsc_dashboard::demo_fleet;
-use rsc_dashboard::page::Page;
+use damask::{Component, DEFAULT_SLOT, Slot, Slots};
+use damask_dashboard::dashboard::Dashboard;
+use damask_dashboard::demo_fleet;
+use damask_dashboard::page::Page;
 
 fn main() {
     let fleet = demo_fleet();

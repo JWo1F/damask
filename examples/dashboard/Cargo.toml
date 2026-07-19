@@ -1,6 +1,6 @@
 [package]
-name = "rsc-dashboard"
-description = "A full HTML page built from composed RSC components."
+name = "damask-dashboard"
+description = "A full HTML page built from composed Damask components."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -10,7 +10,7 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-rsc.workspace = true
+damask.workspace = true
 
 [lints]
 workspace = true

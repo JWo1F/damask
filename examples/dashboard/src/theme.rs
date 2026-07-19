@@ -4,7 +4,7 @@
 //! no static-file server — [`Page`](crate::page::Page) writes it through
 //! `{@html … }`, which emits it unescaped.
 //!
-//! It cannot live in a `<style>` block in the template: `.rsc` has no raw-text
+//! It cannot live in a `<style>` block in the template: `.dmk` has no raw-text
 //! elements, so a `{` in a rule body would open a tag. Keeping it in its own
 //! `.css` file also means editors treat it as CSS.
 

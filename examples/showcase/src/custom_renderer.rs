@@ -1,7 +1,7 @@
 //! A third-party [`Renderer`] proving the extensibility seam: the same
-//! macro-generated components can be driven by a renderer RSC never knew about.
+//! macro-generated components can be driven by a renderer Damask never knew about.
 
-use rsc::Renderer;
+use damask::Renderer;
 use std::fmt::Display;
 
 /// A renderer that upper-cases everything written to it.

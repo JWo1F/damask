@@ -1,13 +1,13 @@
 //! End-to-end rendering tests for the composed page.
 
-use rsc::{Component, DEFAULT_SLOT, Slot, Slots};
-use rsc_dashboard::dashboard::Dashboard;
-use rsc_dashboard::deploy_feed::DeployFeed;
-use rsc_dashboard::model::{Deploy, Fleet, Service, Status};
-use rsc_dashboard::page::Page;
-use rsc_dashboard::site_header::SiteHeader;
-use rsc_dashboard::status_badge::StatusBadge;
-use rsc_dashboard::{demo_fleet, service_table::ServiceTable};
+use damask::{Component, DEFAULT_SLOT, Slot, Slots};
+use damask_dashboard::dashboard::Dashboard;
+use damask_dashboard::deploy_feed::DeployFeed;
+use damask_dashboard::model::{Deploy, Fleet, Service, Status};
+use damask_dashboard::page::Page;
+use damask_dashboard::site_header::SiteHeader;
+use damask_dashboard::status_badge::StatusBadge;
+use damask_dashboard::{demo_fleet, service_table::ServiceTable};
 
 fn page(fleet: &Fleet) -> String {
     let dashboard = Dashboard {

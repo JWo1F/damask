@@ -1,4 +1,4 @@
-use rsc::Component;
+use damask::Component;
 
 // Snippets + render-props: `{#snippet item(label)}` defines a parameterized
 // fragment, `{@render item(label)}` invokes it per element.
