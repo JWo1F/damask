@@ -34,8 +34,12 @@ editors/zed/
 │   ├── highlights.scm        # delimiter / comment highlighting
 │   ├── indents.scm           # indentation for nested brace groups
 │   └── injections.scm        # Rust into tags, host language into text
-└── grammars/tree-sitter-damask/ # the Tree-sitter grammar (source of truth)
+└── dev-setup.sh              # keeps the installed language server current
 ```
+
+The Tree-sitter grammar is not here: it lives in
+[tree-sitter-damask](https://github.com/JWo1F/tree-sitter-damask), because Zed
+clones a grammar from a repository root. `extension.toml` pins it by revision.
 
 ## Install the language server
 
@@ -62,34 +66,23 @@ For full intelligence `damask-lsp` shells out to downstream servers, also on
 
 ## Installing the extension (dev)
 
-Zed loads a Tree-sitter grammar by **cloning a git repository** at a pinned
-revision — and the grammar must be at that repo's root. Our grammar lives in a
-subdirectory of this monorepo, so it can't be the clone target directly. Run the
-setup script once (and again whenever you change `grammar.js`):
+Zed clones the grammar itself from the pinned revision in `extension.toml`, so
+there is nothing to stage first:
 
-```sh
-bash editors/zed/dev-setup.sh
-```
-
-It regenerates the parser, copies the grammar into a standalone git repo under
-`~/.cache/zed-damask/tree-sitter-damask`, and rewrites `[grammars.dmk]` in
-`extension.toml` to point at it via a `file://` URL. Then:
-
-1. In Zed: `zed: install dev extension` → select this `editors/zed/` directory.
-2. Open any `.dmk` file.
-
-> The script's edit to `extension.toml` is machine-specific — **don't commit
-> it.** The committed `extension.toml` keeps a GitHub placeholder for publishing.
+1. Run `bash editors/zed/dev-setup.sh` to install or refresh `damask-lsp`.
+2. In Zed: `zed: install dev extension` → select this `editors/zed/` directory.
+3. Open any `.dmk` file.
 
 **If Zed says "failed to compile grammar 'damask'"** with `grammar directory …
 already exists, but is not a git clone of …`, delete the stale clone Zed made
 from a previous run: `rm -rf editors/zed/grammars/damask` (or re-run
-`dev-setup.sh`, which now does this for you), then reinstall.
+`dev-setup.sh`, which does this for you), then reinstall.
 
-### Publishing
+### Changing the grammar
 
-Push `grammars/tree-sitter-damask/` (parser `src/` committed) to its own public
-repository and set `repository` / `rev` in `extension.toml` to it.
+Grammar work happens in
+[tree-sitter-damask](https://github.com/JWo1F/tree-sitter-damask). Push there,
+then bump `rev` under `[grammars.damask]` in `extension.toml` to adopt it.
 
 ## `zed_extension_api` version
 
@@ -105,6 +98,9 @@ HTML comment is still treated as a tag.)
 
 ## Grammar tests
 
+The corpus lives with the grammar:
+
 ```sh
-cd grammars/tree-sitter-damask && tree-sitter test
+git clone https://github.com/JWo1F/tree-sitter-damask
+cd tree-sitter-damask && tree-sitter test
 ```

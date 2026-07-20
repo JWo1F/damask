@@ -27,22 +27,6 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
-  grammar:
-    name: Tree-sitter grammar
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-      - name: Install tree-sitter CLI
-        run: npm install -g tree-sitter-cli
-      - name: Regenerate parser and run corpus tests
-        working-directory: editors/zed/grammars/tree-sitter-damask
-        run: |
-          tree-sitter generate
-          tree-sitter test
-
   publish-dry-run:
     name: cargo publish --dry-run
     runs-on: ubuntu-latest

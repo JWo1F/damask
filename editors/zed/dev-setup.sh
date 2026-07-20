@@ -1,30 +1,24 @@
 #!/usr/bin/env bash
 # Prepare the Damask Zed extension for local development.
 #
-# Zed loads a Tree-sitter grammar by cloning a git repository at a pinned
-# revision. Our grammar lives in this monorepo (grammars/tree-sitter-damask), which
-# can't itself be the clone target. This script copies the grammar into a
-# standalone git repo, regenerates the parser, and rewrites `[grammars.damask]` in
-# extension.toml to point at that repo via a `file://` URL — after which
-# "zed: install dev extension" on this directory works.
+# The Tree-sitter grammar is its own repository, which extension.toml pins by
+# revision; Zed clones it directly, so nothing here has to stage it. Grammar
+# changes are made and released there, then adopted by bumping that `rev`.
 #
-# It also reinstalls `damask-lsp` when the copy on PATH is older than its sources:
-# the extension launches that installed binary, not this checkout, so a stale one
-# keeps serving results from old lowering long after the fix is committed.
+# What still needs doing locally is the language server. The extension launches
+# the `damask-lsp` installed on PATH, not this checkout, and that binary compiles
+# the template lowering in — so a stale one keeps serving results from old
+# lowering long after the fix is committed, and restarting the server only
+# restarts the old binary.
 #
-# Re-run it whenever you change grammar.js or anything the language server
-# compiles in (tools/damask-lsp, crates/damask-template, crates/damask).
+# Re-run whenever you change anything the language server is built from
+# (tools/damask-lsp, crates/damask-template, crates/damask).
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 root="$(cd "$here/../.." && pwd)"
-src="$here/grammars/tree-sitter-damask"
-repo="${DAMASK_GRAMMAR_REPO:-$HOME/.cache/zed-damask/tree-sitter-damask}"
 
-command -v tree-sitter >/dev/null || { echo "error: install the tree-sitter CLI first"; exit 1; }
-
-# The language server is a separate binary on PATH; the grammar work below does
-# nothing for it. Reinstall when anything it is built from is newer than it.
+# Reinstall when anything the server is built from is newer than the binary.
 # Set DAMASK_SKIP_LSP=1 to skip (the release build takes ~30s).
 if [ "${DAMASK_SKIP_LSP:-0}" != "1" ]; then
   installed="$(command -v damask-lsp || true)"
@@ -38,34 +32,11 @@ if [ "${DAMASK_SKIP_LSP:-0}" != "1" ]; then
 fi
 
 # Zed clones the grammar into grammars/<name>/ and refuses to reuse a clone of a
-# different repo. Clear any stale one so it re-clones from the current file:// URL.
-rm -rf "$here/grammars/damask"
-
-echo "==> generating parser in $src (ABI 14 for Zed compatibility)"
-( cd "$src" && tree-sitter generate --abi 14 >/dev/null )
-
-echo "==> syncing grammar into standalone repo $repo"
-rm -rf "$repo"
-mkdir -p "$repo"
-cp -R "$src/grammar.js" "$src/package.json" "$src/tree-sitter.json" "$src/src" "$src/test" "$repo/"
-
-echo "==> committing"
-git -C "$repo" init -q
-git -C "$repo" add -A
-git -C "$repo" -c user.email=dev@damask.local -c user.name="Damask dev" commit -qm "tree-sitter-damask grammar"
-rev="$(git -C "$repo" rev-parse HEAD)"
-
-echo "==> pointing extension.toml at file://$repo @ $rev"
-ext="$here/extension.toml"
-python3 - "$ext" "file://$repo" "$rev" <<'PY'
-import re, sys
-path, url, rev = sys.argv[1:4]
-s = open(path).read()
-s = re.sub(r'(\[grammars\.damask\]\nrepository = ")[^"]*(")', lambda m: m.group(1)+url+m.group(2), s)
-s = re.sub(r'(rev = ")[0-9a-f]*(")', lambda m: m.group(1)+rev+m.group(2), s)
-open(path, "w").write(s)
-PY
+# different repository. Clear any stale one so it re-clones from the pinned URL.
+if [ -d "$here/grammars/damask" ]; then
+  echo "==> clearing stale grammar clone"
+  rm -rf "$here/grammars/damask"
+fi
 
 echo
 echo "Done. In Zed run: zed: install dev extension  ->  select $here"
-echo "(extension.toml now references your local grammar; don't commit that change.)"

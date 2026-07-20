@@ -6,12 +6,12 @@ schema_version = 1
 authors = ["Damask contributors"]
 repository = "https://github.com/jwo1f/damask"
 
-# The grammar source lives in `grammars/tree-sitter-damask/`. Zed fetches grammars
-# from git, so publish that directory as its own repository and point `rev` at a
-# commit. See README.md for the local-development alternative.
+# Zed fetches a grammar by cloning a repository at a pinned revision, so the
+# grammar is developed and released as its own repository rather than living
+# here. Bump `rev` to adopt grammar changes.
 [grammars.damask]
-repository = "file:///Users/jwo1f/.cache/zed-damask/tree-sitter-damask"
-rev = "213a546e3ed2c16e736059b2facbd261411d622e"
+repository = "https://github.com/JWo1F/tree-sitter-damask"
+rev = "38c41f4b941e7a424cae918551dd3d1621e1094f"
 
 [language_servers.damask-lsp]
 name = "Damask Language Server"

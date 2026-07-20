@@ -211,15 +211,17 @@ compiled against `&mut dyn Renderer`, so any renderer drives any component.
 | [`examples/showcase`](examples/showcase) | runnable example components          |
 | [`examples/dashboard`](examples/dashboard) | a full HTML page from 7 composed components |
 
-See [spec.md](spec.md) for the design and [plan.md](plan.md) for the build plan.
-
 ## Development
 
 ```sh
 cargo test --workspace          # runtime, macro, parser, LSP, examples, trybuild
 cargo clippy --workspace --all-targets -- -D warnings
-( cd editors/zed/grammars/tree-sitter-damask && tree-sitter test )
 ```
+
+The Tree-sitter grammar lives in its own repository,
+[tree-sitter-damask](https://github.com/JWo1F/tree-sitter-damask), because Zed
+clones a grammar from a repository root. The Zed extension pins it by revision
+in [extension.toml](editors/zed/extension.toml).
 
 ## License
 
