@@ -4,7 +4,7 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.1] - 2026-07-21
 
 ### Changed
 
@@ -119,5 +119,6 @@ All notable changes to Damask are documented here. The format follows
 Damask is HTML-only: there is no per-language host extension, and `{ … }` always
 HTML-escapes.
 
-[Unreleased]: https://github.com/jwo1f/damask/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/jwo1f/damask/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/jwo1f/damask/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/jwo1f/damask/releases/tag/v0.1.0

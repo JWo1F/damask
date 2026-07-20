@@ -50,7 +50,7 @@ checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
 name = "damask"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "damask-macros",
  "trybuild",
@@ -58,14 +58,14 @@ dependencies = [
 
 [[package]]
 name = "damask-dashboard"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "damask",
 ]
 
 [[package]]
 name = "damask-lsp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "damask-template",
  "proc-macro2",
@@ -78,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "damask-macros"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "damask-template",
  "proc-macro2",
@@ -88,7 +88,7 @@ dependencies = [
 
 [[package]]
 name = "damask-showcase"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "damask",
  "trybuild",
@@ -96,7 +96,7 @@ dependencies = [
 
 [[package]]
 name = "damask-template"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "dashmap"
