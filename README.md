@@ -223,4 +223,4 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 ## License
 
-MIT OR Apache-2.0.
+MIT.
