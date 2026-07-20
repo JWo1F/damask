@@ -1,9 +1,9 @@
 # Damask — compile-time components for Rust
 
 React-like, **compile-time** components for Rust. A component is a struct (its
-fields are its props) paired with an HTML template that uses a
-`{ … }` syntax. The `Component` derive turns the template into a `render` method
-at build time, so rendering is plain, allocation-light Rust — no runtime template
+fields are its props) paired with an HTML template that uses a `{ … }` tag
+syntax. The `Component` derive turns the template into a `render` method at
+build time, so rendering is plain, allocation-light Rust — no runtime template
 engine.
 
 ```rust
@@ -47,7 +47,7 @@ and editing it triggers a rebuild — no `build.rs`, no configuration.
 
 ## Template syntax
 
-Templates are HTML with brace-tag tags. A `{ … }` tag holds a **Rust block**:
+Templates are HTML with brace tags. A `{ … }` tag holds a **Rust block**:
 if it's an expression, its value is printed (HTML-escaped); if it's a statement
 or binding, it runs and prints nothing.
 

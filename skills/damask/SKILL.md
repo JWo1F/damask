@@ -13,7 +13,7 @@ description: >-
 
 Damask compiles an HTML template into a `render` method at build time. A component
 is a **Rust struct paired with a template file**. Templates use a
-`{ … }` syntax and are always HTML. Requires Rust ≥ 1.88.
+`{ … }` tag syntax and are always HTML. Requires Rust ≥ 1.88.
 
 ## The two-file rule (most important)
 
