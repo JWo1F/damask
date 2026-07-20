@@ -1,4 +1,4 @@
-//! Built-in [`Renderer`](crate::Renderer) implementations, one per host
+//! Built-in [`Renderer`] implementations, one per host
 //! language, plus [`StringRenderer`] — the shared `String`-backed core they are
 //! built on and the easiest starting point for a custom renderer.
 

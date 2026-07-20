@@ -1,8 +1,8 @@
 //! # Damask — compile-time components for Rust
 //!
 //! React-like, compile-time components for Rust. A component is a struct (its
-//! fields are its props) paired with a `.dmk` template. The [`component!`] macro
-//! compiles the template into a [`Component::render_into`] method, so rendering
+//! fields are its props) paired with a `.dmk` template. The [`Component`] derive
+//! compiles the template into a [`Render::render_into`] method, so rendering
 //! is plain Rust with no runtime template parsing.
 //!
 //! ```ignore

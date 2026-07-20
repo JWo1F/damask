@@ -10,7 +10,7 @@ mod codegen;
 mod props;
 mod resolve;
 
-/// Derive [`damask::Component`] for a struct, generating its `render_into` from the
+/// Derive `damask::Component` for a struct, generating its `render_into` from the
 /// paired `.dmk` template.
 ///
 /// ```ignore

@@ -6,6 +6,21 @@ All notable changes to Damask are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- Each published crate carries its own README. `damask-macros`, `damask-template`
+  and `damask-lsp` previously showed the whole project README on crates.io, which
+  told a reader to depend on something other than the crate they were looking at.
+- `damask-macros` is described by the derive it actually exports. Its published
+  description named a `component!` macro that does not exist.
+
+### Fixed
+
+- Broken intra-doc links: `render_into` is documented on `Render`, which declares
+  it, rather than on `Component`.
+
+## [0.1.0] - 2026-07-21
+
 ### Added
 
 - Props a call site may skip. A prop whose type is `Option<_>` may be left out
@@ -104,4 +119,5 @@ All notable changes to Damask are documented here. The format follows
 Damask is HTML-only: there is no per-language host extension, and `{ … }` always
 HTML-escapes.
 
-[Unreleased]: https://github.com/jwo1f/damask
+[Unreleased]: https://github.com/jwo1f/damask/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/jwo1f/damask/releases/tag/v0.1.0

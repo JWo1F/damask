@@ -42,8 +42,8 @@ editors/zed/
 The extension runs `damask-lsp`, which must be on your `PATH`:
 
 ```sh
-cargo install --path tools/damask-lsp    # from this repo
-# or, once published:  cargo install damask-lsp
+cargo install damask-lsp                 # from crates.io
+# or, from this repo:  cargo install --path tools/damask-lsp
 ```
 
 The extension launches the **installed** binary, not your checkout, and the
