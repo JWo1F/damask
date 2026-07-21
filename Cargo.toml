@@ -12,7 +12,7 @@ members = [
 exclude = ["editors/zed"]
 
 [workspace.package]
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/jwo1f/damask"
@@ -20,9 +20,9 @@ authors = ["Damask contributors"]
 rust-version = "1.88"
 
 [workspace.dependencies]
-damask = { path = "crates/damask", version = "0.1.1" }
-damask-macros = { path = "crates/damask-macros", version = "0.1.1" }
-damask-template = { path = "crates/damask-template", version = "0.1.1" }
+damask = { path = "crates/damask", version = "0.1.2" }
+damask-macros = { path = "crates/damask-macros", version = "0.1.2" }
+damask-template = { path = "crates/damask-template", version = "0.1.2" }
 
 proc-macro2 = "1"
 quote = "1"

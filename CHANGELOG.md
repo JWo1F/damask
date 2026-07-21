@@ -4,7 +4,20 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [0.1.1] - 2026-07-21
+## [0.1.2] - 2026-07-21
+
+### Changed
+
+- Templates are described on their own terms rather than by comparison to
+  another template language, in the README, the crate docs and the agent skill.
+  `damask-template`'s keywords follow.
+- The licence file is `LICENSE`, the `-MIT` suffix having distinguished it only
+  from an Apache copy that no longer exists.
+- The Tree-sitter grammar moved to its own repository,
+  [tree-sitter-damask](https://github.com/JWo1F/tree-sitter-damask), which is
+  what Zed can clone; the Zed extension pins it by revision.
+
+## [0.1.1] - 2026-07-20
 
 ### Changed
 
@@ -19,7 +32,7 @@ All notable changes to Damask are documented here. The format follows
 - Broken intra-doc links: `render_into` is documented on `Render`, which declares
   it, rather than on `Component`.
 
-## [0.1.0] - 2026-07-21
+## [0.1.0] - 2026-07-19
 
 ### Added
 
@@ -119,6 +132,7 @@ All notable changes to Damask are documented here. The format follows
 Damask is HTML-only: there is no per-language host extension, and `{ … }` always
 HTML-escapes.
 
-[Unreleased]: https://github.com/jwo1f/damask/compare/v0.1.1...HEAD
+[Unreleased]: https://github.com/jwo1f/damask/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/jwo1f/damask/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/jwo1f/damask/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/jwo1f/damask/releases/tag/v0.1.0
