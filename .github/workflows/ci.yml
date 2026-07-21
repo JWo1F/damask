@@ -27,15 +27,54 @@ jobs:
       - name: Test
         run: cargo test --workspace
 
-  publish-dry-run:
-    name: cargo publish --dry-run
+  deploy:
+    name: Deploy the website
+    # Only after the tests are green, and only for a real push to the default
+    # branch — a pull request builds nothing deployable, and publishing an
+    # unreviewed branch over the live site is exactly what this guard prevents.
+    needs: rust
+    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest
+    # One Pages deployment at a time — scoped to this job so it does not
+    # serialize the test job across pushes. `cancel-in-progress: false` lets an
+    # in-flight deploy finish rather than leaving the live site half-published.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    permissions:
+      # The token needs write on Pages and an OIDC id-token; the deploy action
+      # exchanges the latter for a short-lived deployment credential.
+      contents: read
+      pages: write
+      id-token: write
     steps:
       - uses: actions/checkout@v4
       - name: Install toolchain
         run: rustup toolchain install stable --profile minimal && rustup default stable
       - uses: Swatinem/rust-cache@v2
-      # Workspace-aware dry-run resolves the three crates against each other via
-      # a temporary registry (cargo >= 1.90), so it works before anything is on
-      # crates.io. The same command without --dry-run publishes them in order.
-      - run: cargo publish --dry-run -p damask-template -p damask-macros -p damask
+
+      - name: Configure Pages
+        id: pages
+        uses: actions/configure-pages@v5
+
+      # A project page is served from https://<owner>.github.io/<repo>/, so the
+      # whole site lives under /<repo> and every absolute link and asset has to
+      # carry that prefix. `configure-pages` computes it from the Pages settings
+      # — an empty string for a user page or a custom domain — which is exactly
+      # what `--base` expects. See site/src/urls.rs.
+      - name: Build the site
+        run: ./tools/build-site.sh
+        env:
+          BASE: ${{ steps.pages.outputs.base_path }}
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site/dist
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
