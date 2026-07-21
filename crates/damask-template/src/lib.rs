@@ -268,7 +268,10 @@ impl AttrValue {
     /// A quoted value with no interpolation — the common case, and the one
     /// worth a constructor because it is otherwise a one-element `Vec`.
     pub fn text(s: impl Into<String>) -> Self {
-        AttrValue::Literal(vec![AttrPart::Text(Spanned::new(s.into(), Span::new(0, 0)))])
+        AttrValue::Literal(vec![AttrPart::Text(Spanned::new(
+            s.into(),
+            Span::new(0, 0),
+        ))])
     }
 
     /// The value as one static string, when it is one — `None` for anything

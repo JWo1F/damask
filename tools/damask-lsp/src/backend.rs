@@ -173,12 +173,17 @@ impl Backend {
     }
 
     /// Completion via rust-analyzer for code inside a `{ … }` tag.
-    async fn proxy_completion(&self, damask_uri: &Url, pos: Position) -> Option<Vec<CompletionItem>> {
+    async fn proxy_completion(
+        &self,
+        damask_uri: &Url,
+        pos: Position,
+    ) -> Option<Vec<CompletionItem>> {
         let damask_text = self.text_of(damask_uri)?;
         let h = self.ensure_overlay(damask_uri, &damask_text, None).await?;
         // Completion fires with the cursor at a fragment boundary (after `.`),
         // so use the boundary-aware mapping.
-        let ov_off = h.vf.source_to_overlay_boundary(offset_at(&damask_text, pos))?;
+        let ov_off =
+            h.vf.source_to_overlay_boundary(offset_at(&damask_text, pos))?;
         let ov = position_at(&h.vf.text, ov_off);
         let raw = h
             .client
@@ -275,7 +280,10 @@ impl Backend {
     /// result (including its range) is already in `.dmk` coordinates.
     async fn proxy_html_hover(&self, damask_uri: &Url, pos: Position) -> Option<Hover> {
         let client = self.html_handle(damask_uri, pos).await?;
-        let raw = client.hover(damask_uri, pos.line, pos.character).await.ok()?;
+        let raw = client
+            .hover(damask_uri, pos.line, pos.character)
+            .await
+            .ok()?;
         serde_json::from_value(raw).ok()
     }
 
@@ -587,7 +595,9 @@ async fn publish_ra_diagnostics(
         diag.source = Some("rust-analyzer".to_string());
         diagnostics.push(diag);
     }
-    editor.publish_diagnostics(damask_uri, diagnostics, None).await;
+    editor
+        .publish_diagnostics(damask_uri, diagnostics, None)
+        .await;
 }
 
 /// Parse `text` and return its parse-error diagnostics (empty when it parses).

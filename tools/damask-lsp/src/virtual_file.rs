@@ -67,7 +67,9 @@ impl VirtualFile {
         text.push_str(struct_name);
         text.push_str("\n{\n    fn ");
         text.push_str(CHECK_FN);
-        text.push_str("(&self, __damask: &mut dyn ::damask::Renderer, __damask_slots: ::damask::Slots<'_>) ");
+        text.push_str(
+            "(&self, __damask: &mut dyn ::damask::Renderer, __damask_slots: ::damask::Slots<'_>) ",
+        );
         let body_base = text.len();
         text.push_str(&body);
         text.push_str("\n}\n");

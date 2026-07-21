@@ -1,7 +1,7 @@
 use crate::resolve::resolve;
+use damask_template::to_snake_case;
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
-use damask_template::to_snake_case;
 use std::path::PathBuf;
 use syn::{Attribute, DeriveInput, LitStr};
 

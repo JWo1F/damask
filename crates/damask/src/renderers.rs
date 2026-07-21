@@ -245,7 +245,8 @@ impl Renderer for StringRenderer {
         if self.whitespace != Whitespace::Pretty || self.verbatim > 0 || !self.line_open {
             return;
         }
-        self.buf.truncate(self.buf.trim_end_matches([' ', '\t']).len());
+        self.buf
+            .truncate(self.buf.trim_end_matches([' ', '\t']).len());
         for _ in 0..(self.indent + depth) * INDENT_WIDTH {
             self.buf.push(' ');
         }
@@ -432,7 +433,9 @@ mod tests {
 
     #[test]
     fn minified_replaces_each_newline_run_with_the_space_it_renders_as() {
-        let out = render(Whitespace::Minified, |r| r.write_text("<a>\n\n    <b/>\n</a>"));
+        let out = render(Whitespace::Minified, |r| {
+            r.write_text("<a>\n\n    <b/>\n</a>")
+        });
         assert_eq!(out, "<a> <b/> </a>");
     }
 
@@ -448,7 +451,11 @@ mod tests {
     /// layout, whichever policy is running.
     #[test]
     fn a_space_within_a_line_survives_every_policy() {
-        for ws in [Whitespace::AsWritten, Whitespace::Pretty, Whitespace::Minified] {
+        for ws in [
+            Whitespace::AsWritten,
+            Whitespace::Pretty,
+            Whitespace::Minified,
+        ] {
             let out = render(ws, |r| r.write_text("<b>6 Mbps</b> up"));
             assert_eq!(out, "<b>6 Mbps</b> up", "{ws:?}");
         }
@@ -494,7 +501,9 @@ mod tests {
     /// `{@html …}` splices a value whole, so it is not.
     #[test]
     fn raw_display_output_is_not_laid_out() {
-        let out = render(Whitespace::Minified, |r| r.write_display_raw(&"<i>a</i>\n  <i>b</i>"));
+        let out = render(Whitespace::Minified, |r| {
+            r.write_display_raw(&"<i>a</i>\n  <i>b</i>")
+        });
         assert_eq!(out, "<i>a</i>\n  <i>b</i>");
     }
 
@@ -575,7 +584,9 @@ mod tests {
 
     #[test]
     fn minified_leaves_an_attribute_value_alone() {
-        let out = render(Whitespace::Minified, |r| r.write_raw("<p title=\"one\n  two\">"));
+        let out = render(Whitespace::Minified, |r| {
+            r.write_raw("<p title=\"one\n  two\">")
+        });
         assert_eq!(out, "<p title=\"one\n  two\">");
     }
 }

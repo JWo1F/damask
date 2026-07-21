@@ -992,7 +992,9 @@ mod tests {
         assert!(!is_statement("self.name"));
         assert!(!is_statement("letter")); // not the `let` keyword
         assert!(body("{let x = 5}").contains("let x = 5;"));
-        assert!(body("{2 + 3; 10}").contains("write_escaped(::damask::as_display(&({ 2 + 3; 10 })))"));
+        assert!(
+            body("{2 + 3; 10}").contains("write_escaped(::damask::as_display(&({ 2 + 3; 10 })))")
+        );
     }
 
     #[test]
@@ -1146,7 +1148,8 @@ mod tests {
     fn slot_placeholder_resolves_against_the_caller_slots() {
         assert!(body("<slot/>").contains(r#"__damask_slots.render("", &mut *__damask"#));
         assert!(
-            body(r#"<slot name="foot"/>"#).contains(r#"__damask_slots.render("foot", &mut *__damask"#)
+            body(r#"<slot name="foot"/>"#)
+                .contains(r#"__damask_slots.render("foot", &mut *__damask"#)
         );
     }
 
@@ -1163,7 +1166,9 @@ mod tests {
         // Not a fill directive: it lowers as content *inside* the default fill,
         // so it forwards this component's own default slot.
         let b = body("<Card><slot/></Card>");
-        let fill = b.find("::damask::Slot::new(::damask::DEFAULT_SLOT").unwrap();
+        let fill = b
+            .find("::damask::Slot::new(::damask::DEFAULT_SLOT")
+            .unwrap();
         let forward = b.find(r#"__damask_slots.render("""#).unwrap();
         assert!(
             fill < forward,

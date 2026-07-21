@@ -421,7 +421,8 @@ mod tests {
 
         // Cursor at the end of `self.n` — a fragment boundary, as in the editor.
         let damask = "Hello {self.n}!";
-        let vf = VirtualFile::build(rs, "Greeting", &damask_template::parse(damask).unwrap()).unwrap();
+        let vf =
+            VirtualFile::build(rs, "Greeting", &damask_template::parse(damask).unwrap()).unwrap();
         let cursor = damask.find("self.n").unwrap() + "self.n".len();
         let ov = vf.source_to_overlay_boundary(cursor).unwrap();
         let (line, ch) = LineIndex::new(&vf.text).line_col(&vf.text, ov);

@@ -1,6 +1,6 @@
 use crate::{
-    Attr, AttrPart, AttrValue, ClassTerm, EachNode, Element, ElementKind, IfNode, Node, SnippetNode, Span,
-    Spanned, Template,
+    Attr, AttrPart, AttrValue, ClassTerm, EachNode, Element, ElementKind, IfNode, Node,
+    SnippetNode, Span, Spanned, Template,
 };
 use std::fmt;
 
@@ -188,7 +188,9 @@ impl<'a> Parser<'a> {
                     flush!();
                     let open = self.pos;
                     let Some(end) = self.src[self.pos + 2..].find("#}") else {
-                        return Err(self.err_at(open, "unterminated `{#` comment: missing `#}`".into()));
+                        return Err(
+                            self.err_at(open, "unterminated `{#` comment: missing `#}`".into())
+                        );
                     };
                     self.pos += 2 + end + 2;
                     text_start = self.pos;
@@ -964,7 +966,10 @@ fn parse_class_pairs(body: &Spanned) -> Result<Vec<ClassTerm>, ParseError> {
         }
         let Some(at) = top_level_colon(pair.s) else {
             return Err(ParseError {
-                message: format!("expected `name: condition` in a class map, found `{}`", pair.s),
+                message: format!(
+                    "expected `name: condition` in a class map, found `{}`",
+                    pair.s
+                ),
                 span: Span::new(pair.start, pair.start + pair.s.len()),
             });
         };
@@ -1275,7 +1280,10 @@ mod tests {
     #[test]
     fn comments_reach_no_output() {
         let t = parse("a{# not rendered #}b").unwrap();
-        assert_eq!(t.nodes, vec![Node::Text("a".into()), Node::Text("b".into())]);
+        assert_eq!(
+            t.nodes,
+            vec![Node::Text("a".into()), Node::Text("b".into())]
+        );
         // A block keyword cannot begin with whitespace, so `{#if}` is untouched.
         assert!(matches!(
             parse("{#if x}y{/if}").unwrap().nodes.as_slice(),
