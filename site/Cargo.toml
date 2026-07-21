@@ -1,0 +1,20 @@
+[package]
+name = "damask-site"
+description = "The Damask website: a static generator over a markdown database."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+comrak = { version = "0.54", default-features = false }
+damask = { workspace = true, features = ["pretty"] }
+serde = { version = "1.0.229", features = ["derive"] }
+syntect = { version = "5", default-features = false, features = ["default-syntaxes", "parsing", "regex-fancy", "html", "yaml-load"] }
+toml = "1"
+
+[lints]
+workspace = true

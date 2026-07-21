@@ -1,0 +1,55 @@
+{use crate::view::layouts::Shell}
+{use crate::view::ui::{Pager, Sidebar, Toc}}
+<Shell chrome={self.chrome.clone()} wide={false}>
+  {#
+    Three columns at the widest: collection nav, the document, its contents. The
+    contents column drops first (`xl`) because it is a convenience, the sidebar
+    second (`lg`) because it is navigation — and below that the sidebar becomes a
+    disclosure above the prose rather than disappearing, so a phone reader is
+    never stranded on a page with no way out of it.
+  #}
+  <div class="grid gap-x-10 pt-10 lg:grid-cols-[15rem_minmax(0,1fr)] xl:grid-cols-[15rem_minmax(0,1fr)_13rem]">
+
+    <div class="lg:pt-4">
+      <details class="mb-8 rounded-xl border border-rule bg-surface/60 lg:hidden">
+        <summary class="cursor-pointer list-none px-4 py-3 font-ui text-[0.82rem] font-medium text-ink-soft">
+          {self.collection_title}
+        </summary>
+        <div class="border-t border-rule px-2 py-3">
+          <Sidebar sections={self.sections.clone()} current={self.page.slug.clone()}
+                   numbered={self.numbered()}/>
+        </div>
+      </details>
+      <div class="hidden lg:block">
+        <a href={self.collection_href.clone()}
+           class="mb-5 inline-flex items-center gap-1.5 font-ui text-[0.72rem] font-semibold
+                  uppercase tracking-[0.13em] text-ink-faint transition-colors hover:text-madder">
+          {self.collection_title}
+        </a>
+        <Sidebar sections={self.sections.clone()} current={self.page.slug.clone()}
+                 numbered={self.numbered()}/>
+      </div>
+    </div>
+
+    <article class="min-w-0 pb-4">
+      <h1 class="font-display text-[clamp(2rem,4.2vw,2.85rem)] font-normal leading-[1.1]
+                 tracking-[-0.028em] text-ink">{self.page.title}</h1>
+      {#if !self.page.summary.is_empty()}
+        <p class="mt-3.5 max-w-[62ch] font-serif text-[1.1rem] leading-[1.6] text-ink-soft">
+          {@html self.page.summary_html}
+        </p>
+      {/if}
+      <hr class="mt-8 border-rule">
+
+      <div class="prose mt-8">{@html self.page.body}</div>
+
+      {#if self.paged()}
+        <Pager previous={self.previous.clone()} next={self.next.clone()}/>
+      {/if}
+    </article>
+
+    {#if let Some(headings) = self.toc()}
+      <aside class="pt-4"><Toc headings={headings}/></aside>
+    {/if}
+  </div>
+</Shell>

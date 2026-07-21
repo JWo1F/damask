@@ -1,0 +1,32 @@
+<nav class="lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:pr-4"
+     aria-label="In this collection">
+  {#each &self.sections as section}
+    <div class="mb-7 last:mb-0">
+      {#if !section.label.is_empty()}
+        <p class="mb-2.5 font-ui text-[0.68rem] font-semibold uppercase tracking-[0.13em] text-ink-faint">
+          {section.label}
+        </p>
+      {/if}
+      <ul class="space-y-px">
+        {# The index restarts per section, which is correct only because the one
+           collection that numbers itself — the book — has a single unlabelled
+           section. `numbered` and a grouped sidebar are mutually exclusive by
+           construction; see `Collection::sections`. #}
+        {#each &section.pages as page, position}
+          <li>
+            <a href={page.href}
+               aria-current={if page.slug == self.current { Some("page") } else { None }}
+               class=["group flex items-baseline gap-2.5 rounded-md px-2.5 py-[7px] text-[0.84rem] leading-snug transition-colors",
+                      { "bg-madder/[0.09] font-medium text-madder": page.slug == self.current,
+                        "text-ink-soft hover:bg-ink/[0.04] hover:text-ink": page.slug != self.current }]>
+              {#if self.numbered}
+                <span class="font-mono text-[0.7rem] tabular-nums text-ink-faint">{position + 1}</span>
+              {/if}
+              <span class="min-w-0">{page.title}</span>
+            </a>
+          </li>
+        {/each}
+      </ul>
+    </div>
+  {/each}
+</nav>

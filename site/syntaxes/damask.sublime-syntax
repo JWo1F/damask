@@ -1,0 +1,190 @@
+%YAML 1.2
+---
+# Damask templates, for Syntect.
+#
+# HTML with brace tags. The Rust inside a brace tag is highlighted by the
+# `rust` context below rather than by embedding `source.rust`: an embedded
+# syntax ends at the first `}` it meets, which would cut a class map
+# (`class={ "on": cond }`) or a closure in half. Tracking brace depth with a
+# pushed context costs a few lines and gets nesting right.
+#
+# This is a highlighting approximation, not the parser — `crates/damask-template`
+# is the authority on what a template means.
+name: Damask
+file_extensions: [dmk]
+scope: text.html.damask
+
+variables:
+  block_keyword: 'if|each|snippet|else'
+
+contexts:
+  main:
+    - include: brace-comment
+    - include: block-tag
+    - include: at-tag
+    - include: use-tag
+    - include: expression
+    - include: html-comment
+    - include: doctype
+    - include: component-tag
+    - include: element-tag
+
+  # `{# … #}` — a template comment. Distinguished from `{#if}`/`{#each}` by what
+  # follows the hash, which is why this has to be tried before block-tag.
+  brace-comment:
+    - match: '\{#(?!({{block_keyword}})\b)'
+      scope: punctuation.definition.comment.begin.damask
+      push:
+        - meta_scope: comment.block.damask
+        - match: '#\}'
+          scope: punctuation.definition.comment.end.damask
+          pop: true
+
+  # `{#if …}`, `{:else}`, `{/each}` — control flow.
+  block-tag:
+    - match: '(\{)([#:/])({{block_keyword}})\b'
+      captures:
+        1: punctuation.section.embedded.begin.damask
+        2: keyword.control.damask
+        3: keyword.control.damask
+      push: brace-body
+
+  # `{@html …}`, `{@render …}`.
+  at-tag:
+    - match: '(\{)(@(?:html|render))\b'
+      captures:
+        1: punctuation.section.embedded.begin.damask
+        2: keyword.control.import.damask
+      push: brace-body
+
+  use-tag:
+    - match: '(\{)(use)\b'
+      captures:
+        1: punctuation.section.embedded.begin.damask
+        2: keyword.control.import.damask
+      push: brace-body
+
+  expression:
+    - match: '\{'
+      scope: punctuation.section.embedded.begin.damask
+      push: brace-body
+
+  # The body of any brace tag. Pushes itself on a nested `{`, so the tag ends at
+  # its own `}` and not at one belonging to a map, block, or closure inside it.
+  brace-body:
+    - meta_scope: meta.embedded.damask
+    - match: '\}'
+      scope: punctuation.section.embedded.end.damask
+      pop: true
+    - match: '\{'
+      scope: punctuation.section.braces.damask
+      push: brace-body
+    - include: rust
+
+  rust:
+    - match: '//'
+      scope: punctuation.definition.comment.damask
+      push:
+        - meta_scope: comment.line.damask
+        - match: $
+          pop: true
+    - match: '"'
+      scope: punctuation.definition.string.begin.damask
+      push:
+        - meta_scope: string.quoted.double.damask
+        - match: '\\.'
+          scope: constant.character.escape.damask
+        - match: '"'
+          scope: punctuation.definition.string.end.damask
+          pop: true
+    - match: 'r#*"'
+      scope: punctuation.definition.string.begin.damask
+      push:
+        - meta_scope: string.quoted.other.raw.damask
+        - match: '"#*'
+          scope: punctuation.definition.string.end.damask
+          pop: true
+    - match: \b(let|mut|move|match|if|else|for|in|while|loop|as|impl|fn|return|ref|const|static|use|crate|super|where)\b
+      scope: keyword.control.damask
+    - match: \b(self|Self)\b
+      scope: variable.language.damask
+    - match: \b(true|false|None|Some|Ok|Err)\b
+      scope: constant.language.damask
+    - match: \b\d[\d_]*(\.\d+)?([iuf](8|16|32|64|size))?\b
+      scope: constant.numeric.damask
+    # A path segment starting a capital is a type or a variant, and in a template
+    # it is usually a component or an enum being matched on — worth its own colour.
+    - match: \b([A-Z][A-Za-z0-9_]*)\b
+      scope: entity.name.type.damask
+    - match: '\b([a-z_][a-z0-9_]*)\s*(?=\()'
+      scope: variable.function.damask
+    - match: '(::|->|=>|\.\.|[&|!+*/%<>=-])'
+      scope: keyword.operator.damask
+
+  html-comment:
+    - match: '<!--'
+      scope: punctuation.definition.comment.begin.html
+      push:
+        - meta_scope: comment.block.html
+        - match: '-->'
+          scope: punctuation.definition.comment.end.html
+          pop: true
+
+  doctype:
+    - match: '(<!)(DOCTYPE)([^>]*)(>)'
+      scope: meta.tag.sgml.doctype.html
+      captures:
+        2: keyword.declaration.doctype.html
+
+  # A capitalised tag is a component, and `<slot>` is the one lowercase name the
+  # engine treats specially — both are the template language rather than HTML,
+  # so they take the type colour instead of the tag colour.
+  component-tag:
+    - match: '(</?)((?:[A-Z][A-Za-z0-9_]*|slot)\b)'
+      captures:
+        1: punctuation.definition.tag.begin.damask
+        2: entity.name.type.damask
+      push: tag-attributes
+
+  element-tag:
+    - match: '(</?)([a-zA-Z][-a-zA-Z0-9:]*)'
+      captures:
+        1: punctuation.definition.tag.begin.html
+        2: entity.name.tag.html
+      push: tag-attributes
+
+  tag-attributes:
+    - meta_scope: meta.tag.damask
+    - match: '/?>'
+      scope: punctuation.definition.tag.end.html
+      pop: true
+    - include: brace-comment
+    # `{...expr}` — an attribute spread.
+    - match: '(\{)(\.\.\.)'
+      captures:
+        1: punctuation.section.embedded.begin.damask
+        2: keyword.operator.damask
+      push: brace-body
+    - include: expression
+    # `class:name={…}` — a class directive; the class name lives in the
+    # attribute name, which is the whole point of the form.
+    - match: '\b(class)(:)([-A-Za-z0-9_/\[\].%]+)'
+      captures:
+        1: entity.other.attribute-name.html
+        2: punctuation.separator.damask
+        3: string.unquoted.damask
+    - match: '\b([-a-zA-Z0-9_:@]+)(?=\s*=)'
+      scope: entity.other.attribute-name.html
+    - match: '='
+      scope: punctuation.separator.key-value.html
+    # A quoted attribute value interpolates, so brace tags stay live inside it.
+    - match: '"'
+      scope: punctuation.definition.string.begin.html
+      push:
+        - meta_scope: string.quoted.double.html
+        - match: '"'
+          scope: punctuation.definition.string.end.html
+          pop: true
+        - include: expression
+    - match: '\b[-a-zA-Z0-9_:@]+\b'
+      scope: entity.other.attribute-name.html

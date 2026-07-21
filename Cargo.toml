@@ -7,6 +7,7 @@ members = [
     "tools/damask-lsp",
     "examples/showcase",
     "examples/dashboard",
+    "site",
 ]
 # The Zed extension is a separate wasm crate with its own toolchain target.
 exclude = ["editors/zed"]

@@ -1,0 +1,79 @@
+{use crate::view::layouts::Shell}
+{use crate::view::ui::{Action, Mark, Panel}}
+<Shell chrome={self.chrome.clone()} wide={true}>
+
+  <section class="relative pt-16 pb-4 sm:pt-24">
+    {# The motif, enormous and nearly invisible behind the hero. It is the one
+       place the mark is allowed to be decoration rather than identification. #}
+    <Mark class="pointer-events-none absolute -top-6 -right-10 hidden h-[26rem] w-[26rem]
+                 text-madder/[0.055] lg:block"/>
+
+    <p class="font-mono text-[0.75rem] uppercase tracking-[0.2em] text-madder">{self.content.eyebrow}</p>
+
+    <h1 class="mt-5 max-w-[19ch] font-display text-[clamp(2.6rem,6.2vw,4.4rem)] font-normal
+               leading-[1.04] tracking-[-0.032em] text-ink">{self.content.title}</h1>
+
+    <p class="mt-6 max-w-[58ch] font-serif text-[clamp(1.06rem,1.7vw,1.25rem)] leading-[1.62] text-ink-soft">
+      {@html self.content.lede_html}
+    </p>
+
+    <div class="mt-9 flex flex-wrap gap-3">
+      {#each &self.content.actions as action}
+        <Action href={action.href.clone()} primary={action.primary} class="">{action.label}</Action>
+      {/each}
+    </div>
+  </section>
+
+  {#
+    The weave. Two files on the left, the compiled output on the right, and the
+    grid is the argument: the site's whole claim is that those two files *are*
+    the third one, produced at build time rather than at request time.
+
+    It stacks below `lg` rather than scrolling sideways — three columns of code
+    on a phone is three columns of nothing legible.
+  #}
+  <section class="mt-16 sm:mt-20" aria-label="What a component is">
+    <div class="grid items-stretch gap-4 lg:grid-cols-[1fr_auto_1fr]">
+      <div class="grid min-w-0 gap-4">
+        <Panel name={self.content.weave.rs_name.clone()} code={self.rs.clone()} derived={false} class=""/>
+        <Panel name={self.content.weave.dmk_name.clone()} code={self.dmk.clone()} derived={false} class=""/>
+      </div>
+
+      <div class="flex items-center justify-center lg:flex-col">
+        <span class="h-px w-10 bg-rule lg:h-16 lg:w-px" aria-hidden="true"></span>
+        <span class="mx-3 shrink-0 rounded-full border border-rule bg-surface px-3 py-1
+                     font-mono text-[0.68rem] uppercase tracking-[0.14em] text-ink-faint lg:mx-0 lg:my-3">
+          compiles to
+        </span>
+        <span class="h-px w-10 bg-rule lg:h-16 lg:w-px" aria-hidden="true"></span>
+      </div>
+
+      <Panel name={self.content.weave.out_name.clone()} code={self.out.clone()} derived={true} class="min-w-0"/>
+    </div>
+  </section>
+
+  <section class="mt-24 sm:mt-32" aria-label="Why">
+    <div class="grid gap-x-10 gap-y-12 sm:grid-cols-2">
+      {#each &self.features as feature}
+        <article class="min-w-0">
+          <h2 class="font-display text-[1.35rem] font-medium tracking-[-0.015em] text-ink">{feature.title}</h2>
+          <p class="mt-2.5 font-serif text-[1rem] leading-[1.66] text-ink-soft">{@html feature.body_html}</p>
+          {#if let Some(code) = &feature.code}
+            <div class="mt-4 overflow-x-auto rounded-lg border border-rule bg-surface">{@html code}</div>
+          {/if}
+        </article>
+      {/each}
+    </div>
+  </section>
+
+  <section class="mt-24 sm:mt-32">
+    <h2 class="font-display text-[clamp(1.8rem,3.4vw,2.5rem)] font-normal tracking-[-0.025em] text-ink">
+      {self.content.closing_title}
+    </h2>
+    <div class="prose mt-6 max-w-[68ch]">{@html self.content.closing}</div>
+    <div class="mt-8 flex flex-wrap gap-3">
+      <Action href={self.book_href.clone()} primary={true} class="">Read the book</Action>
+      <Action href={self.docs_href.clone()} primary={false} class="">Browse the reference</Action>
+    </div>
+  </section>
+</Shell>

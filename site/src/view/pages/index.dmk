@@ -1,0 +1,35 @@
+{use crate::view::layouts::Shell}
+{use crate::view::ui::PageCard}
+<Shell chrome={self.chrome.clone()} wide={false}>
+  <header class="max-w-[62ch] pt-14 sm:pt-20">
+    <h1 class="font-display text-[clamp(2.2rem,4.6vw,3.2rem)] font-normal leading-[1.08]
+               tracking-[-0.028em] text-ink">{self.collection.title}</h1>
+    <p class="mt-4 font-serif text-[1.13rem] leading-[1.62] text-ink-soft">{@html self.collection.lede_html}</p>
+  </header>
+
+  {#if !self.collection.intro.trim().is_empty()}
+    <div class="prose mt-10 max-w-[68ch]">{@html self.collection.intro}</div>
+  {/if}
+
+  {# Grouped, so the reference's sections show here exactly as they do in the
+     sidebar — the index and the sidebar are two views of one ordering, and a
+     flat list here would be a third. #}
+  <div class="mt-12 space-y-11">
+    {#each &self.collection.sections() as section}
+      <section>
+        {#if !section.label.is_empty()}
+          <h2 class="mb-4 font-ui text-[0.72rem] font-semibold uppercase tracking-[0.14em] text-ink-faint">
+            {section.label}
+          </h2>
+        {/if}
+        <div class="grid gap-2.5">
+          {#each &section.pages as page, position}
+            <PageCard href={page.href.clone()} title={page.title.clone()}
+                      summary={page.summary_html.clone()}
+                      position={if self.numbered() { Some(position + 1) } else { None }}/>
+          {/each}
+        </div>
+      </section>
+    {/each}
+  </div>
+</Shell>

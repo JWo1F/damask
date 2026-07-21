@@ -1,0 +1,17 @@
+<a href={self.href}
+   class="group flex gap-4 rounded-xl border border-rule bg-surface/60 px-5 py-4 transition-colors
+          hover:border-madder/45 hover:bg-surface">
+  {#if let Some(position) = self.position}
+    <span class="mt-[3px] font-mono text-[0.78rem] tabular-nums text-ink-faint
+                 transition-colors group-hover:text-madder">
+      {format!("{position:02}")}
+    </span>
+  {/if}
+  <span class="min-w-0">
+    <span class="block font-display text-[1.08rem] font-medium tracking-[-0.01em] text-ink
+                 transition-colors group-hover:text-madder">{self.title}</span>
+    {#if !self.summary.is_empty()}
+      <span class="mt-1 block font-serif text-[0.95rem] leading-relaxed text-ink-soft">{@html self.summary}</span>
+    {/if}
+  </span>
+</a>

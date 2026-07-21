@@ -1,0 +1,5 @@
+<a href={self.href}
+   class=["inline-flex items-center gap-2 rounded-lg border px-4 py-2.5 text-[0.86rem] font-medium",
+          "transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2",
+          "focus-visible:ring-madder focus-visible:ring-offset-2 focus-visible:ring-offset-paper",
+          self.skin(), self.class]><slot/></a>

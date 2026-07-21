@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{self.chrome.document_title()}</title>
+  <meta name="description" content={self.chrome.description.clone()}>
+  <meta name="color-scheme" content="light dark">
+
+  {@html Self::THEME_BOOT}
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href={Self::fonts()}>
+  <link rel="stylesheet" href={self.chrome.asset("/assets/site.css")}>
+  <link rel="icon" type="image/svg+xml" href={self.chrome.asset("/assets/favicon.svg")}>
+
+  <meta property="og:type" content="website">
+  <meta property="og:title" content={self.chrome.document_title()}>
+  <meta property="og:description" content={self.chrome.description.clone()}>
+
+  <script src={self.chrome.asset("/assets/site.js")} defer></script>
+</head>
+<body class="min-h-screen bg-paper text-ink font-ui antialiased selection:bg-madder/15">
+  {# The woven ground. Fixed rather than scrolling with the page: it is the
+     cloth the site is printed on, and a texture that slides under the text
+     reads as a graphic instead of as paper. #}
+  <div class="pointer-events-none fixed inset-0 -z-10 bg-damask opacity-[0.055] dark:opacity-[0.045]"
+       aria-hidden="true"></div>
+  <slot/>
+</body>
+</html>

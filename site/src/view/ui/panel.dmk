@@ -1,0 +1,7 @@
+<figure class=["flex min-w-0 flex-col overflow-hidden rounded-xl border border-rule bg-surface", self.class]>
+  <figcaption class="flex items-center gap-2 border-b border-rule bg-ink/[0.025] px-3.5 py-2">
+    <span class=["h-1.5 w-1.5 rounded-full", self.dot()] aria-hidden="true"></span>
+    <span class=["font-mono text-[0.72rem] tracking-[0.02em]", self.name_skin()]>{self.name}</span>
+  </figcaption>
+  <div class="min-w-0 flex-1 overflow-x-auto">{@html self.code}</div>
+</figure>

@@ -1,0 +1,24 @@
+<nav class="mt-16 grid grid-cols-1 gap-3 border-t border-rule pt-8 sm:grid-cols-2"
+     aria-label="Chapter">
+  {#if let Some(previous) = &self.previous}
+    <a href={previous.href.clone()}
+       class="group rounded-xl border border-rule px-4 py-3.5 transition-colors hover:border-ink-faint hover:bg-ink/[0.02]">
+      <span class="block text-[0.7rem] font-semibold uppercase tracking-[0.13em] text-ink-faint">Previous</span>
+      <span class="mt-1 block font-display text-[1.02rem] text-ink transition-colors group-hover:text-madder">
+        {previous.title}
+      </span>
+    </a>
+  {:else}
+    <span></span>
+  {/if}
+
+  {#if let Some(next) = &self.next}
+    <a href={next.href.clone()}
+       class="group rounded-xl border border-rule px-4 py-3.5 text-right transition-colors hover:border-ink-faint hover:bg-ink/[0.02] sm:col-start-2">
+      <span class="block text-[0.7rem] font-semibold uppercase tracking-[0.13em] text-ink-faint">Next</span>
+      <span class="mt-1 block font-display text-[1.02rem] text-ink transition-colors group-hover:text-madder">
+        {next.title}
+      </span>
+    </a>
+  {/if}
+</nav>

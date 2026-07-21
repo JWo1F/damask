@@ -1,0 +1,16 @@
+<nav class="sticky top-24 hidden max-h-[calc(100vh-8rem)] overflow-y-auto xl:block"
+     aria-label="On this page" data-toc>
+  <p class="mb-3 font-ui text-[0.68rem] font-semibold uppercase tracking-[0.13em] text-ink-faint">
+    On this page
+  </p>
+  <ul class="space-y-1 border-l border-rule">
+    {#each &self.headings as heading}
+      <li>
+        <a href="#{heading.anchor}" data-toc-link={heading.anchor.clone()}
+           class=["-ml-px block border-l border-transparent py-1 pl-3 text-[0.79rem] leading-snug",
+                  "text-ink-soft transition-colors hover:border-ink-faint hover:text-ink",
+                  Self::indent(heading)]>{heading.text}</a>
+      </li>
+    {/each}
+  </ul>
+</nav>

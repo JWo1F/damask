@@ -1,0 +1,462 @@
+/* The Damask site's stylesheet.
+ *
+ * Compiled by the standalone Tailwind CLI into `assets/site.css`, which is what
+ * the generator copies into `dist/`. See `tools/build-site.sh`.
+ *
+ * `source(none)` turns automatic detection off, so the `@source` below is the
+ * whole list rather than an addition to it. Without it Tailwind also scans the
+ * project root, and every class-shaped string anywhere in the repository — prose
+ * in a README, an example in a doc comment, a fixture — becomes CSS in the
+ * bundle. It also honours .gitignore, which would make the output depend on
+ * which untracked files happen to be lying around: a stylesheet that differs
+ * between two checkouts of the same commit. */
+@import "tailwindcss" source(none);
+
+/* The only class source. Both halves of a component live here — the `.dmk` and
+   the `.rs` that maps a variant to its classes — so a skin written in Rust is
+   scanned exactly like one written in markup. */
+@source "../src/view";
+
+/* The toggle sets `data-theme` on <html>, and the boot script in `Base` sets it
+   before the first paint. Keyed off the attribute rather than off `prefers-
+   color-scheme` because a reader's explicit choice has to be able to disagree
+   with their system. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+/* Damask is a woven silk with a reversible pattern — the same cloth read two
+ * ways. So: paper and ink, one madder-red accent, and the pattern itself as a
+ * ground you notice only if you look for it.
+ *
+ * `@theme inline` emits the utilities as `var(--paper)` rather than baking the
+ * value in, which is what lets the dark ramp below be a single override block
+ * instead of a `dark:` variant on every element that has a colour. */
+@theme inline {
+  --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --font-serif: "Newsreader", Georgia, "Times New Roman", serif;
+  --font-ui: "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Spline Sans Mono", ui-monospace, "SF Mono", monospace;
+
+  --color-paper: var(--paper);
+  --color-surface: var(--surface);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-rule: var(--rule);
+  --color-madder: var(--madder);
+  --color-madder-deep: var(--madder-deep);
+
+  --background-image-damask: var(--damask-weave);
+}
+
+:root {
+  /* Warm neutrals, not grey. The difference is only visible beside a true grey,
+     which is the point — the page should read as stock rather than as screen. */
+  --paper: #f7f4ee;
+  --surface: #fffdf8;
+  --ink: #1a1613;
+  --ink-soft: #5f5548;
+  --ink-faint: #8e8377;
+  --rule: #e3dccf;
+  --madder: #a3372a;
+  --madder-deep: #7d281d;
+
+  /* Syntax. Desaturated enough to sit inside body copy without vibrating, and
+     ordered so that structure (keywords, tags) reads before detail (numbers). */
+  --tok-comment: #9a9083;
+  --tok-keyword: #8a3a6b;
+  --tok-string: #4a6b33;
+  --tok-number: #a4562a;
+  --tok-type: #2f5d78;
+  --tok-function: #6b4b9e;
+  --tok-tag: #a3372a;
+  --tok-attr: #8a5a2b;
+  --tok-punct: #877c6f;
+}
+
+[data-theme="dark"] {
+  --paper: #14120f;
+  --surface: #1c1917;
+  --ink: #ece5da;
+  --ink-soft: #a49a8c;
+  --ink-faint: #7b7265;
+  --rule: #322d26;
+  /* Lifted well off the source hue: #a3372a on this ground fails contrast at
+     body sizes, and the accent is used for links. */
+  --madder: #e08373;
+  --madder-deep: #f0a294;
+
+  --tok-comment: #6f675c;
+  --tok-keyword: #d98fbd;
+  --tok-string: #9dc07a;
+  --tok-number: #e3a072;
+  --tok-type: #83b8d6;
+  --tok-function: #b79ce8;
+  --tok-tag: #e08373;
+  --tok-attr: #d8ab72;
+  --tok-punct: #8a8074;
+}
+
+/* The ground: an ogee lattice with a leaf in each cell, the reduction of a
+   damask repeat to what survives at 5% opacity. Inline as a data URI so the
+   page has no second request to make for something this faint — and so the
+   motif and the mark that draws it stay one idea in one file. */
+:root {
+  --damask-weave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='168' viewBox='0 0 120 168'%3E%3Cg fill='none' stroke='%231a1613' stroke-width='1.1' stroke-linecap='round'%3E%3Cpath d='M60 4c22 21 38 32 38 48s-16 27-38 48c-22-21-38-32-38-48s16-27 38-48z'/%3E%3Cpath d='M60 28c9 11 13 18 13 24s-4 13-13 24c-9-11-13-18-13-24s4-13 13-24z'/%3E%3Cpath d='M0 88c22 21 38 32 38 48s-16 27-38 48M120 88c-22 21-38 32-38 48s16 27 38 48'/%3E%3Cpath d='M22 52C10 60 4 66 0 68M98 52c12 8 18 14 22 16'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+[data-theme="dark"] {
+  --damask-weave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='168' viewBox='0 0 120 168'%3E%3Cg fill='none' stroke='%23ece5da' stroke-width='1.1' stroke-linecap='round'%3E%3Cpath d='M60 4c22 21 38 32 38 48s-16 27-38 48c-22-21-38-32-38-48s16-27 38-48z'/%3E%3Cpath d='M60 28c9 11 13 18 13 24s-4 13-13 24c-9-11-13-18-13-24s4-13 13-24z'/%3E%3Cpath d='M0 88c22 21 38 32 38 48s-16 27-38 48M120 88c-22 21-38 32-38 48s16 27 38 48'/%3E%3Cpath d='M22 52C10 60 4 66 0 68M98 52c12 8 18 14 22 16'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    /* Anchored headings otherwise land under the sticky header. */
+    scroll-padding-top: 5.5rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html { scroll-behavior: auto; }
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
+  /* Fraunces has an optical-size axis; letting it track the rendered size is
+     most of what makes the display face look drawn rather than scaled. */
+  .font-display {
+    font-optical-sizing: auto;
+    font-variation-settings: "SOFT" 20, "WONK" 1;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Prose
+   ---------------------------------------------------------------------------
+   Rendered markdown, which arrives as one opaque HTML string — so it is styled
+   by element here rather than by class in a template. Hand-written instead of
+   the typography plugin: this is the site's typography, not a starting point
+   for it, and every rule below is a decision rather than an override. */
+@layer components {
+  .prose {
+    font-family: var(--font-serif);
+    font-size: 1.0625rem;
+    line-height: 1.72;
+    color: var(--ink);
+    /* A comfortable measure. Prose is the one column that should not grow with
+       the viewport — 90 characters of Newsreader is a line a reader loses. */
+    max-width: 70ch;
+  }
+
+  .prose > * + * { margin-top: 1.15em; }
+
+  .prose h2,
+  .prose h3,
+  .prose h4 {
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+    font-variation-settings: "SOFT" 20, "WONK" 1;
+    font-weight: 500;
+    letter-spacing: -0.018em;
+    color: var(--ink);
+    scroll-margin-top: 5.5rem;
+  }
+
+  .prose h2 {
+    margin-top: 2.6em;
+    margin-bottom: 0.15em;
+    font-size: 1.6rem;
+    line-height: 1.2;
+  }
+
+  /* A hairline under every h2 is the one piece of furniture the page gets: it
+     is what makes a long reference page scannable without a box around each
+     section. */
+  .prose h2::after {
+    content: "";
+    display: block;
+    margin-top: 0.4em;
+    border-top: 1px solid var(--rule);
+  }
+
+  .prose h3 {
+    margin-top: 2em;
+    margin-bottom: 0.1em;
+    font-size: 1.24rem;
+    line-height: 1.3;
+  }
+
+  .prose h4 {
+    margin-top: 1.7em;
+    font-size: 1.06rem;
+  }
+
+  /* Comrak writes an anchor link after each heading's text. Hidden until the
+     heading is hovered or the link itself is focused, so a keyboard reader can
+     still reach it. */
+  .prose .anchor {
+    display: inline-block;
+    width: 1em;
+    margin-left: 0.3em;
+    color: var(--ink-faint);
+    opacity: 0;
+    transition: opacity 150ms ease, color 150ms ease;
+  }
+  .prose .anchor::before { content: "#"; }
+  .prose :is(h2, h3, h4):hover .anchor,
+  .prose .anchor:focus-visible { opacity: 1; }
+  .prose .anchor:hover { color: var(--madder); }
+
+  .prose a {
+    color: var(--madder);
+    text-decoration: underline;
+    text-decoration-thickness: 1px;
+    text-underline-offset: 0.18em;
+    text-decoration-color: color-mix(in oklab, var(--madder) 35%, transparent);
+    transition: text-decoration-color 150ms ease;
+  }
+  .prose a:hover { text-decoration-color: var(--madder); }
+
+  .prose strong { font-weight: 600; color: var(--ink); }
+  .prose em { font-style: italic; }
+
+  .prose ul, .prose ol { padding-left: 1.4em; }
+  .prose ul { list-style: none; }
+  .prose ul > li { position: relative; }
+  /* A madder lozenge rather than a disc — small, but it is the mark of the
+     site appearing at the smallest scale it can. */
+  .prose ul > li::before {
+    content: "";
+    position: absolute;
+    left: -1em;
+    top: 0.72em;
+    width: 5px;
+    height: 5px;
+    background: var(--madder);
+    opacity: 0.55;
+    transform: rotate(45deg);
+  }
+  .prose ol { list-style: decimal; }
+  .prose ol > li::marker {
+    font-family: var(--font-mono);
+    font-size: 0.82em;
+    color: var(--ink-faint);
+  }
+  .prose li + li { margin-top: 0.35em; }
+  .prose li > ul, .prose li > ol { margin-top: 0.35em; }
+
+  /* Description lists carry the "term, then what it means" shape that a table
+     would otherwise be pressed into for two columns of unequal weight. */
+  .prose dt {
+    margin-top: 1.2em;
+    font-family: var(--font-mono);
+    font-size: 0.88rem;
+    color: var(--ink);
+  }
+  .prose dd { margin-top: 0.2em; padding-left: 1.2em; color: var(--ink-soft); }
+
+  .prose blockquote {
+    padding-left: 1.1em;
+    border-left: 2px solid var(--rule);
+    color: var(--ink-soft);
+    font-style: italic;
+  }
+
+  .prose hr {
+    margin-block: 2.4em;
+    border: 0;
+    border-top: 1px solid var(--rule);
+  }
+
+  .prose img { max-width: 100%; height: auto; border-radius: 0.5rem; }
+
+  /* Inline code. `word-break` rather than a scrollbar: an inline run is short,
+     and a long path in a narrow column should wrap rather than widen the page. */
+  .prose :not(pre) > code {
+    font-family: var(--font-mono);
+    font-size: 0.855em;
+    padding: 0.12em 0.34em;
+    border-radius: 0.28rem;
+    background: color-mix(in oklab, var(--ink) 6%, transparent);
+    color: var(--ink);
+    overflow-wrap: break-word;
+  }
+
+  .prose table {
+    display: block;
+    width: 100%;
+    overflow-x: auto;
+    border-collapse: collapse;
+    font-family: var(--font-ui);
+    font-size: 0.885rem;
+  }
+  .prose thead { border-bottom: 1px solid var(--rule); }
+  .prose th {
+    padding: 0.55em 0.9em 0.55em 0;
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.09em;
+    color: var(--ink-faint);
+    white-space: nowrap;
+  }
+  .prose td {
+    padding: 0.6em 0.9em 0.6em 0;
+    border-bottom: 1px solid color-mix(in oklab, var(--rule) 60%, transparent);
+    vertical-align: top;
+    color: var(--ink-soft);
+  }
+  .prose td:first-child { color: var(--ink); }
+  .prose tbody tr:last-child td { border-bottom: 0; }
+
+  /* GitHub-style alerts. One shape, four accents — a callout that changes
+     layout with its severity is a callout a reader has to re-learn. */
+  .prose .markdown-alert {
+    margin-top: 1.6em;
+    padding: 0.9em 1.1em;
+    border-left: 3px solid var(--accent, var(--rule));
+    border-radius: 0 0.5rem 0.5rem 0;
+    background: color-mix(in oklab, var(--accent, var(--ink)) 7%, transparent);
+    font-size: 0.98rem;
+  }
+  .prose .markdown-alert > * + * { margin-top: 0.6em; }
+  .prose .markdown-alert-title {
+    display: flex;
+    align-items: center;
+    gap: 0.4em;
+    font-family: var(--font-ui);
+    font-size: 0.7rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--accent, var(--ink-soft));
+  }
+  .prose .markdown-alert-note { --accent: #3b6ea5; }
+  .prose .markdown-alert-tip { --accent: #4a7d3a; }
+  .prose .markdown-alert-important { --accent: #7a52a8; }
+  .prose .markdown-alert-warning { --accent: #9a6a1e; }
+  .prose .markdown-alert-caution { --accent: var(--madder); }
+
+  [data-theme="dark"] .prose .markdown-alert-note { --accent: #7aa7d4; }
+  [data-theme="dark"] .prose .markdown-alert-tip { --accent: #8fbc7a; }
+  [data-theme="dark"] .prose .markdown-alert-important { --accent: #b295dd; }
+  [data-theme="dark"] .prose .markdown-alert-warning { --accent: #d5a55c; }
+
+  .prose .footnotes {
+    margin-top: 3em;
+    padding-top: 1.4em;
+    border-top: 1px solid var(--rule);
+    font-size: 0.92rem;
+    color: var(--ink-soft);
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Code blocks
+   ---------------------------------------------------------------------------
+   Emitted by `Highlighter::block`, in prose and in the home page's panels
+   alike — so the rules are global rather than scoped to `.prose`. */
+@layer components {
+  pre.code {
+    position: relative;
+    overflow-x: auto;
+    padding: 1rem 1.1rem;
+    font-family: var(--font-mono);
+    font-size: 0.822rem;
+    line-height: 1.68;
+    color: var(--ink);
+    tab-size: 2;
+  }
+
+  .prose pre.code {
+    margin-top: 1.3em;
+    border: 1px solid var(--rule);
+    border-radius: 0.6rem;
+    background: var(--surface);
+  }
+
+  pre.code code {
+    display: block;
+    min-width: max-content;
+    font: inherit;
+    background: none;
+    padding: 0;
+  }
+
+  /* The language, set into the top-right corner of the block. Absolute, so it
+     does not take a line from the code; `select-none` because it is a label and
+     copying a block should not pick it up. */
+  .prose pre.code[data-lang]::before {
+    content: attr(data-lang);
+    position: absolute;
+    top: 0.45rem;
+    right: 0.7rem;
+    font-size: 0.62rem;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    user-select: none;
+    pointer-events: none;
+  }
+
+  /* Syntect emits every scope atom as a class, so these are the ones worth
+     naming and everything else inherits the body colour. Ordered
+     least-to-most specific: a later rule wins where a token carries two. */
+  .tok-comment { color: var(--tok-comment); font-style: italic; }
+  .tok-punctuation { color: var(--tok-punct); }
+  .tok-keyword, .tok-storage { color: var(--tok-keyword); }
+  .tok-string { color: var(--tok-string); }
+  .tok-numeric, .tok-constant { color: var(--tok-number); }
+  .tok-type, .tok-class, .tok-support { color: var(--tok-type); }
+  .tok-function { color: var(--tok-function); }
+  .tok-variable { color: var(--ink); }
+
+  /* Markup wins over the generic scopes above: an HTML attribute name is
+     `entity other attribute-name`, which would otherwise take the type colour
+     from `.tok-entity`'s neighbours. */
+  .tok-tag { color: var(--tok-tag); }
+  .tok-attribute-name { color: var(--tok-attr); }
+
+  /* Damask's own brace tags: the embedded region is tinted so a template reads
+     as markup with Rust set into it, which is what it is. */
+  .tok-damask.tok-embedded { color: var(--tok-keyword); }
+  .tok-language { color: var(--tok-function); font-style: italic; }
+
+  /* The copy button, attached by site.js. Hidden until the block is hovered or
+     the button is focused — a control on every code block at rest is noise on a
+     page that is mostly code blocks. */
+  .code-copy {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.4rem;
+    padding: 0.28rem 0.55rem;
+    font-family: var(--font-ui);
+    font-size: 0.66rem;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 0.35rem;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 150ms ease, color 150ms ease, border-color 150ms ease;
+  }
+  .code-block:hover .code-copy,
+  .code-copy:focus-visible { opacity: 1; }
+  .code-copy:hover { color: var(--ink); border-color: var(--ink-faint); }
+  .code-copy[data-copied] { color: var(--madder); border-color: var(--madder); }
+
+  /* A block with a copy button is wrapped, and the wrapper is what positions
+     it — `pre` itself scrolls, so a button inside would scroll with the code. */
+  .code-block { position: relative; }
+  .code-block > pre.code[data-lang]::before { right: 4.6rem; }
+
+  /* The on-page contents marks the section currently in view. */
+  [data-toc-link][data-active] {
+    border-left-color: var(--madder);
+    color: var(--madder);
+  }
+}
