@@ -199,6 +199,42 @@
 }
 
 /* ---------------------------------------------------------------------------
+   The ground
+   ---------------------------------------------------------------------------
+   Damask is a figured weave, so the site is printed on one. The tile is a
+   Truchet weave drawn by `site.js` from the minute of the day and redrawn every
+   minute — this only places it and decides how loudly it speaks.
+
+   It sits on a negative layer. That reaches the canvas rather than disappearing
+   under it because `<body>`'s background propagates to the root, so no element
+   in the way actually paints it. */
+@layer components {
+  /* Absolute inside the body, which is the whole document rather than the
+     window — so the weave is printed on the page and travels with it, instead of
+     sitting still behind text that slides over it. */
+  .ground {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    /* Spelled out because `inset` alone does not stretch an SVG: a replaced
+       element with no width falls back to its intrinsic 300×150 and paints a
+       stamp in the corner instead of a ground. */
+    width: 100%;
+    height: 100%;
+    /* Never a drop target and never a scroll region: it is stock, not content. */
+    pointer-events: none;
+    color: var(--ink);
+    opacity: 0.055;
+  }
+
+  /* Quieter than the light ramp rather than louder, despite near-white being the
+     fainter ink of the two: a dark ground is what a reader turns to in order to
+     be left alone, and a weave they can pick out on it is one more thing in the
+     room. */
+  [data-theme="dark"] .ground { opacity: 0.045; }
+}
+
+/* ---------------------------------------------------------------------------
    Prose
    ---------------------------------------------------------------------------
    Rendered markdown, which arrives as one opaque HTML string — so it is styled
@@ -211,9 +247,6 @@
     font-size: 1.0625rem;
     line-height: 1.72;
     color: var(--ink);
-    /* A comfortable measure. Prose is the one column that should not grow with
-       the viewport — 90 characters of Newsreader is a line a reader loses. */
-    max-width: 70ch;
   }
 
   .prose > * + * { margin-top: 1.15em; }

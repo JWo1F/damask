@@ -1,4 +1,5 @@
 mod action;
+mod ground;
 mod mark;
 mod page_card;
 mod pager;
@@ -8,6 +9,7 @@ mod templates;
 mod toc;
 
 pub use action::Action;
+pub use ground::Ground;
 pub use mark::Mark;
 pub use page_card::PageCard;
 pub use pager::{Pager, Step};

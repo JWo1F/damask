@@ -27,7 +27,9 @@
 {# The page's identity, for the "recently viewed" list the search dialog keeps
    in localStorage. Read rather than derived from `document.title`, which
    carries the site name too. #}
-<body class="min-h-screen bg-paper text-ink font-ui antialiased selection:bg-madder/15"
+{# `relative` is what gives the ground a containing block the height of the whole
+   document rather than the height of the window. #}
+<body class="relative min-h-screen bg-paper text-ink font-ui antialiased selection:bg-madder/15"
       data-page-title={self.chrome.title.clone()}
       data-page-kind={self.chrome.kind_label()}
       data-page-summary={self.chrome.description.clone()}>

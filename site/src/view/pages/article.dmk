@@ -1,6 +1,6 @@
-{use crate::view::layouts::Shell}
+{use crate::view::layouts::{Shell, Width}}
 {use crate::view::ui::{Pager, Sidebar, Toc}}
-<Shell chrome={self.chrome.clone()} wide={false}>
+<Shell chrome={self.chrome.clone()} width={Width::Full}>
   {#
     Three columns at the widest: collection nav, the document, its contents. The
     contents column drops first (`xl`) because it is a convenience, the sidebar
@@ -42,7 +42,15 @@
       </div>
     </div>
 
-    <article class="min-w-0 pb-4">
+    {# The page runs the full width of the screen, and so does the text — the cap
+       here is a ceiling rather than a measure. 95rem is a hundred and sixty
+       characters of the prose face, which no viewport reaches until it is wider
+       than a monitor, so on everything short of a wall the column simply fills
+       the space between the rails.
+
+       Capped here rather than on `.prose`, so the title, the rule and the pager
+       share the column's edge instead of standing wider than the body copy. #}
+    <article class="mx-auto w-full min-w-0 max-w-[95rem] pb-4">
       <h1 class="font-display text-[clamp(2rem,4.2vw,2.85rem)] font-normal leading-[1.1]
                  tracking-[-0.028em] text-ink">{self.page.title}</h1>
       {#if !self.page.summary.is_empty()}

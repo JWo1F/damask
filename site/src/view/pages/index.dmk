@@ -1,6 +1,6 @@
-{use crate::view::layouts::Shell}
+{use crate::view::layouts::{Shell, Width}}
 {use crate::view::ui::PageCard}
-<Shell chrome={self.chrome.clone()} wide={false}>
+<Shell chrome={self.chrome.clone()} width={Width::Text}>
   <header class="max-w-[62ch] pt-14 sm:pt-20">
     <h1 class="font-display text-[clamp(2.2rem,4.6vw,3.2rem)] font-normal leading-[1.08]
                tracking-[-0.028em] text-ink">{self.collection.title}</h1>

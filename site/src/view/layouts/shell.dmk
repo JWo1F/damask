@@ -1,7 +1,9 @@
 {use crate::view::layouts::Base}
 {use crate::view::chrome::Chrome}
-{use crate::view::ui::Mark}
+{use crate::view::ui::{Ground, Mark}}
 <Base chrome={self.chrome.clone()}>
+
+  <Ground/>
 
   <a href="#content"
      class="sr-only focus:not-sr-only focus:fixed focus:top-3 focus:left-3 focus:z-50

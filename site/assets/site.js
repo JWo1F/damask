@@ -518,8 +518,138 @@
     trigger.addEventListener("pointerenter", load, { once: true });
   }
 
+  // --- The ground ------------------------------------------------------------
+  // A Truchet weave. The tile is a grid of square cells, each carrying two
+  // quarter arcs that meet the cell's edges at their midpoints — so whichever
+  // way a cell is turned, its arcs still meet its neighbours', and *every*
+  // arrangement of them tiles seamlessly. What comes out is a field of
+  // interlacing strands: a weave, drawn by a rule rather than by hand.
+  //
+  // The minute of the day is a Gray code, and a Gray code changes exactly one
+  // bit between consecutive values. One bit is one cell, so the cloth reties a
+  // single knot a minute and is a different weave by the afternoon — which is
+  // the whole trick, and the reason the pattern is built out of a grid of
+  // independent decisions rather than out of one curve.
+
+  const SVG = "http://www.w3.org/2000/svg";
+
+  // Four by four is the smallest grid whose repeat does not read as a repeat,
+  // because the arcs run between cells and the eye follows the strand rather
+  // than the block.
+  const CELLS = 4;
+
+  // Which cell each bit of the Gray code turns, scattered so that a day's worth
+  // of changes is spread over the tile rather than worked along one edge. The
+  // day is 1440 minutes, so 11 bits are all that are ever set — the five cells
+  // not named here keep the arrangement they start with, and are what holds the
+  // weave together while the rest of it moves.
+  const TURNS = [5, 10, 0, 15, 3, 9, 6, 12, 1, 14, 7];
+
+  // The arrangement the turning starts from. A literal, not a hash: this is the
+  // one aesthetic judgement in the file — enough diagonal runs to read as a
+  // twill, not so many that it stripes.
+  const REST = [0, 1, 1, 0, 1, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 0];
+
+  const round = (n) => Math.round(n * 100) / 100;
+
+  function node(name, attributes) {
+    const el = document.createElementNS(SVG, name);
+    for (const key in attributes) el.setAttribute(key, attributes[key]);
+    return el;
+  }
+
+  // One cell's pair of quarter arcs, cornered at two opposite corners of the
+  // cell. `turned` swaps which pair of corners, which is the only choice a
+  // Truchet tile offers and the only one the clock makes.
+  function cell(x, y, size, turned) {
+    const r = size / 2;
+    const [a, b] = [round(x), round(y)];
+    const [mid, end] = [round(r), round(size)];
+
+    return turned
+      ? `M${a} ${b + mid}a${mid} ${mid} 0 0 0 ${mid} ${mid}` +
+          `M${a + mid} ${b}a${mid} ${mid} 0 0 0 ${mid} ${mid}`
+      : `M${a} ${b + mid}a${mid} ${mid} 0 0 1 ${mid} ${-mid}` +
+          `M${a + mid} ${b + end}a${mid} ${mid} 0 0 0 ${mid} ${-mid}`;
+  }
+
+  // The day as an angle, so that everything read off it is continuous: each
+  // quantity drifts by a hair a minute, and midnight is a lap rather than a seam.
+  function weave(seed) {
+    const day = (seed / 1440) * Math.PI * 2;
+    const wave = (turns, phase) => Math.sin(day * turns + phase);
+    const gray = seed ^ (seed >> 1);
+
+    const turned = REST.slice();
+    TURNS.forEach((at, bit) => {
+      turned[at] ^= (gray >> bit) & 1;
+    });
+
+    return {
+      turned,
+      // The whole cloth breathes across the day: a hand's width of repeat at
+      // dawn is a little wider by dusk.
+      size: 23 + 5 * wave(1, 2.4),
+      stroke: 1.15 + 0.25 * wave(3, 1.7),
+      drift: seed / 1440,
+    };
+  }
+
+  function drawGround(host, seed) {
+    const tile = host.querySelector("[data-ground-tile]");
+    if (!tile) return;
+
+    const p = weave(seed);
+    const span = CELLS * p.size;
+
+    let d = "";
+    for (let i = 0; i < CELLS * CELLS; i++) {
+      const x = (i % CELLS) * p.size;
+      const y = Math.floor(i / CELLS) * p.size;
+      d += cell(x, y, p.size, p.turned[i]);
+    }
+
+    tile.setAttribute("viewBox", `0 0 ${round(span)} ${round(span)}`);
+    tile.setAttribute("width", round(span));
+    tile.setAttribute("height", round(span));
+    // The cloth slides by one full repeat over the course of a day. It is not
+    // visible from one minute to the next; it is what makes a page left open all
+    // afternoon not be the page that was opened.
+    tile.setAttribute("patternTransform", `translate(${round(p.drift * span)} 0)`);
+    tile.replaceChildren(
+      node("path", {
+        d,
+        fill: "none",
+        stroke: "currentColor",
+        "stroke-width": round(p.stroke),
+        // Butt caps, not round: a cap that overshoots the cell edge overshoots
+        // the tile edge too, and the overshoot doubles at the seam of a repeat.
+        "stroke-linecap": "butt",
+      }),
+    );
+  }
+
+  function installGround() {
+    const hosts = document.querySelectorAll("[data-ground]");
+    if (!hosts.length) return;
+
+    const paint = () => {
+      const now = new Date();
+      const seed = now.getHours() * 60 + now.getMinutes();
+      hosts.forEach((host) => drawGround(host, seed));
+
+      // Re-armed to the next minute boundary rather than every 60s from load, so
+      // the redraw lands when the seed actually changes — an interval started
+      // mid-minute would spend the rest of the day drawing each state late.
+      setTimeout(paint, 60000 - (now.getSeconds() * 1000 + now.getMilliseconds()));
+    };
+
+    paint();
+  }
+
   rememberPage();
   addCopyButtons();
   trackHeadings();
   installSearch();
+  installGround();
 })();

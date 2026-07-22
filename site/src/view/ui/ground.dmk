@@ -1,0 +1,18 @@
+{# The tile is a `<pattern>` rather than a repeated background image because the
+   script rewrites its geometry in place — one element to edit, and the `<rect>`
+   that references it never has to know that anything changed.
+
+   The fallback below is a single Truchet cell: two quarter arcs meeting the
+   cell's edges at their midpoints. Repeated on its own it makes the plain twill
+   the weave is a variation on, which is exactly what a reader with scripting off
+   should get — the same cloth, with none of the knots retied. #}
+<svg class="ground" aria-hidden="true" data-ground xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <pattern id="ground-weave" data-ground-tile patternUnits="userSpaceOnUse"
+             viewBox="0 0 23 23" width="23" height="23">
+      <path d="M0 11.5a11.5 11.5 0 0 1 11.5-11.5M11.5 23a11.5 11.5 0 0 0 11.5-11.5"
+            fill="none" stroke="currentColor" stroke-width="1.15" stroke-linecap="butt"/>
+    </pattern>
+  </defs>
+  <rect width="100%" height="100%" fill="url(#ground-weave)"/>
+</svg>

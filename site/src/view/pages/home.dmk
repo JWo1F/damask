@@ -1,6 +1,6 @@
-{use crate::view::layouts::Shell}
+{use crate::view::layouts::{Shell, Width}}
 {use crate::view::ui::{Action, Panel}}
-<Shell chrome={self.chrome.clone()} wide={true}>
+<Shell chrome={self.chrome.clone()} width={Width::Wide}>
 
   <section class="pt-16 pb-4 text-center sm:pt-24">
     <p class="font-mono text-[0.75rem] uppercase tracking-[0.2em] text-madder">{self.content.eyebrow}</p>
