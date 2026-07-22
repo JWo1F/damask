@@ -151,6 +151,18 @@
 .code-copy[data-state="copied"] [data-glyph="idle"] { display: none; }
 .code-copy[data-state="copied"] [data-glyph="done"] { display: inline-block; }
 
+/* The contents entry for the section currently in view.
+   Unlayered for the same reason as the rules above, and it is worth spelling
+   out because the failure is silent: the entry carries `text-ink-soft` and
+   `border-transparent`, which are Tailwind *utilities*. Utilities sort after
+   components, so a rule written into `@layer components` loses to them however
+   specific it is — `[data-active]` would toggle on the element and change
+   nothing on the screen. */
+[data-toc-link][data-active] {
+  border-left-color: var(--madder);
+  color: var(--madder);
+}
+
 @layer base {
   /* One focus ring for the whole site.
      `:focus-visible` rather than `:focus`, so a mouse click on a link does not
@@ -701,9 +713,6 @@
     color: var(--ink-faint);
   }
 
-  /* The on-page contents marks the section currently in view. */
-  [data-toc-link][data-active] {
-    border-left-color: var(--madder);
-    color: var(--madder);
-  }
+  /* The contents entry for the section in view is marked in the unlayered block
+     below `Icons`, not here — see the note there. */
 }
