@@ -1,1 +1,1 @@
-<div>{use crate::frame::Frame}<Frame title={self.heading.clone()}><p>{self.body}</p><slot name="footer">© {self.year}</slot></Frame></div>
+<div>{use crate::frame::Frame}<Frame title={self.heading.clone()}><p>{self.body}</p><span slot="footer">© {self.year}</span><a slot="footer" href="/about">About</a></Frame></div>

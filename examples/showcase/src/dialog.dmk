@@ -1,0 +1,1 @@
+<div class="dialog"><h2>{self.title}</h2>{#if slots.has_default()}<p class="body"><slot/></p>{/if}{#if slots.has("actions")}<footer>{@render slots.get("actions")}</footer>{/if}</div>

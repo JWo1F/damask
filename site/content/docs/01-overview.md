@@ -43,6 +43,7 @@ A literal brace is an expression: `{"{"}`.
 | `<div>` | HTML element |
 | `<Card/>` | component — capitalised tags are components |
 | `<slot/>`, `<slot name="x">…</slot>` | slot placement, with the body as fallback |
+| `slot="x"` on a component's child | route that element into the `x` slot |
 | `attr={expr}` | value asks its type how to appear (`Attr`) |
 | `attr="text {expr}"` | interpolating string |
 | `attr` | boolean attribute, always on |

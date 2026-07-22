@@ -110,6 +110,12 @@ pub fn lower_mapped(template: &Template) -> Result<(String, SourceMap), String> 
     // Bring `Component`/`Render` into scope (unnamed) so `child.render()` and
     // `{@render …}`-style calls resolve without the author importing the traits.
     e.raw("{\n#[allow(unused_imports)] use ::damask::{Component as _, Render as _};\n");
+    // The caller's fills, under a name a template may actually write. `<slot>`
+    // resolves against them implicitly; this is what lets a template *ask* —
+    // whether a slot was filled, and where to put the answer. Shadowable on
+    // purpose: it is an ordinary binding, so a template that wants the name for
+    // something else may take it.
+    e.raw("#[allow(unused_variables)] let slots = __damask_slots;\n");
     emit_nodes(&template.nodes, Layout::ROOT, &mut e)?;
     e.raw("}\n");
     Ok((e.out, e.map))
@@ -609,7 +615,7 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
     Ok(())
 }
 
-/// `<slot/>` / `<slot name="x">fallback</slot>` in a component template — render
+/// `<slot/>` / `<slot name="x">fallback</slot>` — always a placeholder: render
 /// what the caller passed for that slot, or the `<slot>`'s own body if unfilled.
 fn emit_slot_placeholder(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), String> {
     let name = slot_name(el)?;
@@ -759,32 +765,57 @@ fn slot_name(el: &Element) -> Result<String, String> {
     }
 }
 
+/// The slot a direct child of a component element fills — its `slot="…"`
+/// attribute — or `None` for content that belongs to the default slot.
+///
+/// The attribute is consumed here: it is a routing instruction for the enclosing
+/// component, so it reaches neither the rendered markup nor the child's props.
+/// Anywhere else it is an ordinary attribute, which is what lets a template emit
+/// a real `slot=` for a browser-side custom element.
+fn fill_name(el: &Element) -> Result<Option<String>, String> {
+    let Some(attr) = el.attrs.iter().find(|a| a.name == "slot") else {
+        return Ok(None);
+    };
+    // Resolved at compile time, for the same reason `<slot name>` is: an
+    // interpolated value would fill a different slot per render.
+    match &attr.value {
+        AttrValue::Literal(parts) => match parts.as_slice() {
+            [AttrPart::Text(name)] if name.text.is_empty() => Err(
+                "`slot` must not be empty; content with no `slot` fills the default slot".into(),
+            ),
+            [AttrPart::Text(name)] => Ok(Some(name.text.clone())),
+            _ => Err("`slot` must be a plain string literal".into()),
+        },
+        _ => Err("`slot` must be a string literal".into()),
+    }
+}
+
 /// `<Comp attr={e}>…</Comp>` — build `Comp { attr: e }` and render it with the
 /// element's content as its slot fills.
 fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), String> {
-    // Partition children into named-slot fills and default-slot content. A
-    // *named* `<slot>` directly inside the element names the slot it fills; a
-    // bare `<slot/>` names nothing, so it stays ordinary default-slot content —
-    // a placeholder that forwards this component's own default slot, and one
-    // that can sit alongside other markup in the same fill.
+    // Partition children into named-slot fills and default-slot content, as the
+    // DOM does: a direct child carrying `slot="x"` fills `x` — the element
+    // itself, not just its content — and several children may name the same
+    // slot, in which case they land there in document order. Everything else,
+    // including a bare `<slot/>` placeholder that forwards this component's own
+    // default slot, is default-slot content.
     let mut default: Vec<&Node> = Vec::new();
-    let mut named: Vec<(String, &[Node])> = Vec::new();
+    let mut named: Vec<(String, Vec<Node>)> = Vec::new();
     for child in &el.children {
-        let fill = match child {
-            Node::Element(slot) if slot.kind == ElementKind::Slot => {
-                let name = slot_name(slot)?;
-                (!name.is_empty()).then_some((name, slot.children.as_slice()))
-            }
-            _ => None,
+        let Node::Element(child_el) = child else {
+            default.push(child);
+            continue;
         };
-        match fill {
-            Some((name, body)) => {
-                if named.iter().any(|(seen, _)| *seen == name) {
-                    return Err(format!("slot `{name}` is filled twice"));
-                }
-                named.push((name, body));
-            }
-            None => default.push(child),
+        let Some(name) = fill_name(child_el)? else {
+            default.push(child);
+            continue;
+        };
+        let mut routed = child_el.clone();
+        routed.attrs.retain(|a| a.name != "slot");
+        let routed = Node::Element(routed);
+        match named.iter_mut().find(|(seen, _)| *seen == name) {
+            Some((_, body)) => body.push(routed),
+            None => named.push((name, vec![routed])),
         }
     }
 
@@ -1126,7 +1157,7 @@ mod tests {
 
     #[test]
     fn component_element_construction() {
-        let b = body(r#"<Card title={2 + 8} tag="h1">body<slot name="foot">f</slot></Card>"#);
+        let b = body(r#"<Card title={2 + 8} tag="h1">body<p slot="foot">f</p></Card>"#);
         assert!(b.contains("::damask::Render::render_slots(&(Card::__damask_props()"));
         assert!(b.contains(".title((2 + 8))"));
         assert!(b.contains(r#".tag(::damask::props::literal("h1"))"#));
@@ -1162,9 +1193,46 @@ mod tests {
     }
 
     #[test]
+    fn a_fill_carries_the_element_that_named_it() {
+        // Web-component semantics: the whole `<p>` lands in the slot, and the
+        // `slot` attribute that routed it there is not part of the markup.
+        let b = body(r#"<Card><p slot="foot">f</p></Card>"#);
+        let fill = b.find(r#"::damask::Slot::new("foot""#).unwrap();
+        let open = b.find(r#"write_raw("<p>")"#).unwrap();
+        assert!(fill < open, "the element belongs to the fill: {b}");
+        assert!(!b.contains("slot=\\\""), "`slot` leaked into markup: {b}");
+    }
+
+    #[test]
+    fn several_children_can_name_the_same_slot() {
+        let b = body(r#"<Card><p slot="foot">1</p><i>x</i><p slot="foot">2</p></Card>"#);
+        assert_eq!(
+            b.matches(r#"::damask::Slot::new("foot""#).count(),
+            1,
+            "one fill, not two: {b}"
+        );
+        let fill = b.find(r#"::damask::Slot::new("foot""#).unwrap();
+        let first = b.find(r#"write_text("1")"#).unwrap();
+        let second = b.find(r#"write_text("2")"#).unwrap();
+        let default = b.find(r#"write_text("x")"#).unwrap();
+        assert!(fill < first && first < second, "not in order: {b}");
+        assert!(default < fill, "unslotted content is not the fill: {b}");
+    }
+
+    #[test]
+    fn a_slot_placeholder_can_be_routed_into_a_fill() {
+        // `<slot name="foot" slot="foot"/>` forwards: the placeholder resolves
+        // against *this* component's caller, and lands in the child's `foot`.
+        let b = body(r#"<Card><slot name="foot" slot="foot"/></Card>"#);
+        let fill = b.find(r#"::damask::Slot::new("foot""#).unwrap();
+        let forward = b.find(r#"__damask_slots.render("foot""#).unwrap();
+        assert!(fill < forward, "placeholder sits inside the fill: {b}");
+    }
+
+    #[test]
     fn bare_slot_in_a_component_forwards_the_default_slot() {
-        // Not a fill directive: it lowers as content *inside* the default fill,
-        // so it forwards this component's own default slot.
+        // No `slot` attribute, so it is ordinary default-slot content — and
+        // being a placeholder, it forwards this component's own default slot.
         let b = body("<Card><slot/></Card>");
         let fill = b
             .find("::damask::Slot::new(::damask::DEFAULT_SLOT")
@@ -1185,17 +1253,39 @@ mod tests {
         assert!(before < forward && forward < after, "order not preserved");
     }
 
+    /// The caller's fills are reachable from any `{ … }` tag, so a template can
+    /// guard on one — which `<slot>` alone cannot do, a fallback standing in for
+    /// the content rather than the markup around it.
     #[test]
-    fn filling_a_slot_twice_is_an_error() {
-        let src = r#"<Card><slot name="a">1</slot><slot name="a">2</slot></Card>"#;
-        let err = lower(&crate::parse(src).unwrap()).unwrap_err();
-        assert!(err.contains("filled twice"), "unexpected: {err}");
+    fn slots_are_bound_for_template_expressions() {
+        let b = body(r#"{#if slots.has("foot")}<footer>{@render slots.get("foot")}</footer>{/if}"#);
+        assert!(b.contains("let slots = __damask_slots;"), "unbound: {b}");
+        assert!(b.contains(r#"if slots.has("foot")"#), "unexpected: {b}");
+        assert!(
+            b.contains(r#"::damask::Render::render_into(&(slots.get("foot"))"#),
+            "unexpected: {b}"
+        );
     }
 
     #[test]
     fn empty_slot_name_is_an_error() {
         let err = lower(&crate::parse(r#"<slot name=""/>"#).unwrap()).unwrap_err();
         assert!(err.contains("must not be empty"), "unexpected: {err}");
+    }
+
+    #[test]
+    fn empty_fill_name_is_an_error() {
+        let err = lower(&crate::parse(r#"<Card><p slot="">x</p></Card>"#).unwrap()).unwrap_err();
+        assert!(err.contains("must not be empty"), "unexpected: {err}");
+    }
+
+    /// `slot` only routes content inside a component element. Everywhere else it
+    /// is an ordinary attribute, so a template can address a browser-side
+    /// custom element's shadow slots.
+    #[test]
+    fn slot_outside_a_component_stays_an_attribute() {
+        let b = body(r#"<my-card><p slot="foot">f</p></my-card>"#);
+        assert!(b.contains(r#"<p slot=\"foot\">"#), "unexpected: {b}");
     }
 
     #[test]

@@ -35,7 +35,9 @@
 //!
 //! A struct's fields are its props. Its template's `<slot>`s are *not* fields:
 //! they are content the caller supplies, and they travel as a [`Slots`] argument
-//! to [`Render::render_slots`]. See [`Slots`] for what that buys and costs.
+//! to [`Render::render_slots`]. See [`Slots`] for what that buys and costs — and
+//! for the methods a template reaches through its `slots` binding, which is that
+//! same argument under a name templates may write.
 //!
 //! A prop must be passed unless its type says what leaving it out means:
 //! `Option<_>` is `None`. `#[component(default)]` on the struct extends that to
@@ -150,7 +152,8 @@ pub trait Renderer {
     fn finish(self: Box<Self>) -> String;
 }
 
-/// The name of the slot `<slot/>` fills — the one with no `name="…"`.
+/// The name of the slot `<slot/>` marks — the one with no `name="…"`, filled by
+/// a caller's content that carries no `slot="…"`.
 ///
 /// Slot names are ordinary strings and the default slot's is empty, so
 /// `<slot name="…"/>` can never collide with it.
@@ -173,8 +176,9 @@ impl<'a> Slot<'a> {
 
 /// The slot content a caller passes to one component render.
 ///
-/// Slots are *not* props: they are content the caller supplies positionally in
-/// the template, so they travel as an argument to
+/// Slots are *not* props: they are content the caller supplies as markup in the
+/// template — `slot="x"` on a child, or nothing for the default slot — so they
+/// travel as an argument to
 /// [`render_slots`](Render::render_slots) rather than as struct fields. That
 /// keeps a component's struct free of `Render` type parameters however many
 /// slots its template has, and lets a template add or drop a `<slot>` without
@@ -206,6 +210,27 @@ impl<'a> Slots<'a> {
             .iter()
             .find(|s| s.name == name)
             .map(|s| s.content)
+    }
+
+    /// Whether the caller filled `name`.
+    ///
+    /// This is what lets a template render a wrapper only when there is
+    /// something to wrap — the check a `<slot>`'s fallback cannot express,
+    /// because a fallback stands in for the content, not for the markup around
+    /// it.
+    pub fn has(&self, name: &str) -> bool {
+        self.get(name).is_some()
+    }
+
+    /// The content filling the default slot — [`get`](Slots::get) with
+    /// [`DEFAULT_SLOT`], spelled so a call site need not name the empty string.
+    pub fn get_default(&self) -> Option<&'a dyn Render> {
+        self.get(DEFAULT_SLOT)
+    }
+
+    /// Whether the caller filled the default slot.
+    pub fn has_default(&self) -> bool {
+        self.has(DEFAULT_SLOT)
     }
 
     /// Render the content filling `name`, falling back to `fallback` — the
@@ -265,6 +290,37 @@ impl<T: Render + ?Sized> Render for Box<T> {
 
     fn render_slots(&self, r: &mut dyn Renderer, slots: Slots<'_>) {
         (**self).render_slots(r, slots);
+    }
+}
+
+/// A reference renders what it points at — which is what makes the borrowed
+/// `&dyn Render` a [`Slots`] hands back renderable by `{@render …}`.
+impl<T: Render + ?Sized> Render for &T {
+    fn render_into(&self, r: &mut dyn Renderer) {
+        (**self).render_into(r);
+    }
+
+    fn render_slots(&self, r: &mut dyn Renderer, slots: Slots<'_>) {
+        (**self).render_slots(r, slots);
+    }
+}
+
+/// `None` renders nothing — the same rule [`Attr`] follows, so absent content
+/// declines to appear rather than appearing empty.
+///
+/// This is what lets `{@render slots.get("footer")}` stand on its own: the
+/// unfilled case needs no branch around it.
+impl<T: Render> Render for Option<T> {
+    fn render_into(&self, r: &mut dyn Renderer) {
+        if let Some(content) = self {
+            content.render_into(r);
+        }
+    }
+
+    fn render_slots(&self, r: &mut dyn Renderer, slots: Slots<'_>) {
+        if let Some(content) = self {
+            content.render_slots(r, slots);
+        }
     }
 }
 
@@ -420,5 +476,34 @@ mod tests {
         ];
         let out: String = items.iter().map(|c| c.render()).collect();
         assert_eq!(out, "Hello a!Hello b!");
+    }
+
+    fn rendered(content: impl Render) -> String {
+        let mut r: Box<dyn Renderer> = Box::new(HtmlRenderer::new());
+        content.render_into(r.as_mut());
+        r.finish()
+    }
+
+    /// What `{@render slots.get(…)}` leans on: the borrowed content a `Slots`
+    /// hands back is renderable, and an unfilled slot renders nothing rather
+    /// than forcing a branch at every use.
+    #[test]
+    fn a_slot_lookup_is_renderable_either_way() {
+        let g = Greeting { name: "Ada".into() };
+        let entries = [Slot::new("body", &g)];
+        let slots = Slots::new(&entries);
+        assert_eq!(rendered(slots.get("body")), "Hello Ada!");
+        assert_eq!(rendered(slots.get("absent")), "");
+    }
+
+    #[test]
+    fn slots_report_what_the_caller_filled() {
+        let g = Greeting { name: "Ada".into() };
+        let entries = [Slot::new(DEFAULT_SLOT, &g)];
+        let slots = Slots::new(&entries);
+        assert!(slots.has_default() && slots.has(DEFAULT_SLOT));
+        assert!(!slots.has("body"));
+        assert_eq!(rendered(slots.get_default()), "Hello Ada!");
+        assert!(!Slots::EMPTY.has_default());
     }
 }

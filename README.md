@@ -129,15 +129,21 @@ lifetime is what keeps a request-derived value out) and for `[(K, V)]` /
 <div>
   {use crate::widgets::Frame}        <!-- import, scoped to this <div> -->
   <Frame title={self.heading.clone()}>
-    <p>{self.body}</p>                <!-- fills the default slot -->
-    <slot name="footer">© {self.year}</slot>
+    <p>{self.body}</p>                          <!-- fills the default slot -->
+    <span slot="footer">© {self.year}</span>
+    <a slot="footer" href="/about">About</a>
   </Frame>
 </div>
 ```
 
-A component places its slots with `<slot/>`. Slots are not fields — a template
-declares as many as it likes without the struct changing, and a `<slot>`'s body
-is the fallback rendered when the caller leaves it unfilled:
+A component places its slots with `<slot/>`, and a caller routes content into a
+named one with `slot="…"` on a direct child — the web-component pair. The whole
+element goes in, several children may name the same slot (they land in the order
+written), and the `slot` attribute itself is consumed rather than rendered.
+
+Slots are not fields — a template declares as many as it likes without the struct
+changing, and a `<slot>`'s body is the fallback rendered when the caller leaves
+it unfilled:
 
 ```rust
 use damask::Component;
@@ -155,17 +161,38 @@ pub struct Frame {
 Slots are matched by name at render time, so a misspelled `name` fails silently
 rather than at compile time — the price of keeping them off the struct.
 
-A `<slot>` placed directly inside a component element fills that component's
-slot of the same name. A bare `<slot/>` there is still a placeholder, so it
-**forwards** — this passes the caller's content straight through to `Frame`:
+`<slot>` is only ever a placeholder, so putting one where a fill goes
+**forwards** — it resolves against this component's caller and `slot=` hands the
+result to the child:
 
 ```html
 <!-- shell.dmk -->
 <Frame title={self.title.clone()}>
-  <slot/>                                        <!-- forward the default slot -->
-  <slot name="footer"><slot name="footer"/></slot>  <!-- fill wrapping a placeholder -->
+  <slot/>                                   <!-- forward the default slot -->
+  <slot name="footer" slot="footer"/>       <!-- forward "footer" -->
 </Frame>
 ```
+
+Outside a component element `slot` is an ordinary attribute, so a template can
+still address a browser-side custom element's shadow slots.
+
+A template can also **ask** about its slots: the caller's fills are in scope as
+`slots`, which answers what a fallback cannot — whether the markup *around* the
+content should exist at all.
+
+```html
+<!-- dialog.dmk -->
+<div class="dialog">
+  <h2>{self.title}</h2>
+  {#if slots.has_default()}<p class="body"><slot/></p>{/if}
+  {#if slots.has("actions")}<footer>{@render slots.get("actions")}</footer>{/if}
+</div>
+```
+
+`slots.get(name)` is renderable as it comes — an unfilled slot renders nothing —
+so `{@render}` needs no guard of its own; the `{#if}`s above are guarding the
+wrappers. `has_default()` / `get_default()` are the same pair for the default
+slot.
 
 `{use}` is an ordinary Rust `use` — import components, functions, or anything
 else — and it is scoped to the HTML element that encloses it.

@@ -1183,7 +1183,7 @@ mod tests {
 
     #[test]
     fn component_with_slots() {
-        let n = nodes(r#"<Card title={2 + 8}>default<slot name="foot">f</slot></Card>"#);
+        let n = nodes(r#"<Card title={2 + 8}>default<p slot="foot">f</p></Card>"#);
         match &n[0] {
             Node::Element(el) => {
                 assert_eq!(el.kind, ElementKind::Component);
@@ -1194,15 +1194,15 @@ mod tests {
                         value: AttrValue::Expr("2 + 8".into())
                     }
                 );
-                // children: text "default", then a <slot name="foot"> element
+                // children: text "default", then a <p slot="foot"> fill
                 assert_eq!(el.children.len(), 2);
                 match &el.children[1] {
-                    Node::Element(slot) => {
-                        assert_eq!(slot.kind, ElementKind::Slot);
+                    Node::Element(fill) => {
+                        assert_eq!(fill.kind, ElementKind::Html);
                         assert_eq!(
-                            slot.attrs[0],
+                            fill.attrs[0],
                             Attr {
-                                name: "name".into(),
+                                name: "slot".into(),
                                 value: AttrValue::text("foot")
                             }
                         );

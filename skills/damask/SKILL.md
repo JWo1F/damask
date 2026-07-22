@@ -191,15 +191,23 @@ component takes named props.
 <div>
   {use crate::widgets::Frame}
   <Frame title={self.heading.clone()}>
-    <p>{self.body}</p>                 <!-- default slot -->
-    <slot name="footer">© {self.year}</slot>
+    <p>{self.body}</p>                          <!-- default slot -->
+    <span slot="footer">© {self.year}</span>
+    <a slot="footer" href="/about">About</a>
   </Frame>
 </div>
 ```
 
-A component places its slots with `<slot>`. Slots are **not fields** — the
-struct carries only props, however many slots the template has. A `<slot>`'s
-body is the fallback used when the caller leaves it unfilled:
+A component places its slots with `<slot>`, and a caller fills a named one with
+`slot="…"` on a **direct child** of the component element — the web-component
+pair. The element itself is part of the fill, several children may name the same
+slot (they land in the order written), and `slot` is consumed rather than
+rendered. Content with no `slot` fills the default slot. Outside a component
+element `slot` stays an ordinary attribute.
+
+`<slot>` is **only ever a placeholder**; it never supplies content. Slots are
+**not fields** — the struct carries only props, however many slots the template
+has. A `<slot>`'s body is the fallback used when the caller leaves it unfilled:
 
 ```rust
 use damask::Component;
@@ -214,17 +222,35 @@ pub struct Frame {
 <section><h2>{self.title}</h2><slot/><footer><slot name="footer">© anon</slot></footer></section>
 ```
 
-A `<slot>` placed directly inside a component element fills that component's
-slot of the same name. A bare `<slot/>` there is still a placeholder, so it
-**forwards** — this passes the caller's content straight through to `Frame`:
+A placeholder that carries `slot=` **forwards**: `name` resolves against this
+component's caller, and `slot` hands the result to the child. A bare `<slot/>`
+needs no `slot=` — it is default-slot content already.
 
 ```html
 <!-- shell.dmk -->
 <Frame title={self.title.clone()}>
-  <slot/>                                        <!-- forward the default slot -->
-  <slot name="footer"><slot name="footer"/></slot>  <!-- fill wrapping a placeholder -->
+  <slot/>                                   <!-- forward the default slot -->
+  <slot name="footer" slot="footer"/>       <!-- forward "footer" -->
 </Frame>
 ```
+
+The caller's fills are in scope as **`slots`** for any `{ … }` tag, which is how
+a template guards the markup *around* a slot — the thing a fallback cannot do,
+since a fallback replaces the content, not its wrapper:
+
+```html
+<!-- dialog.dmk -->
+<div class="dialog">
+  <h2>{self.title}</h2>
+  {#if slots.has_default()}<p class="body"><slot/></p>{/if}
+  {#if slots.has("actions")}<footer>{@render slots.get("actions")}</footer>{/if}
+</div>
+```
+
+`slots.has(name)` / `has_default()` ask; `slots.get(name)` / `get_default()`
+return the content, renderable as it comes — `{@render}` on an unfilled slot
+writes nothing, so it needs no guard of its own. `slots` is an ordinary binding
+and may be shadowed.
 
 From Rust, fill slots with `render_with`:
 
@@ -287,7 +313,12 @@ let out = r.finish();
   coercing to a `&[T]` prop.
 - **Slots are matched by name at render time, not compile time.** A misspelled
   `<slot name="…">` renders the fallback (or nothing) instead of failing to
-  compile. Filling a slot the template does not declare is silently ignored.
+  compile, and a misspelled `slot="…"` fills a slot the template does not
+  declare, which is silently ignored.
+- **A named fill always carries an element.** `slot=` lives on the element that
+  goes into the slot, so there is no way to drop bare text into a named one —
+  wrap it in the element the content wants anyway. Only the default slot takes
+  loose children.
 - **`{use}` is scoped** to its enclosing element — an import inside `<div>…</div>`
   is not visible after `</div>`.
 - **Snippets must be defined before they are used** (they are `let` bindings).

@@ -91,7 +91,7 @@ fn component_element_with_scoped_use_and_slots() {
     };
     assert_eq!(
         page.render(),
-        r#"<div><section class="frame"><h2>Hi</h2><p>World</p><footer>© 2026</footer></section></div>"#
+        r#"<div><section class="frame"><h2>Hi</h2><p>World</p><footer><span>© 2026</span><a href="/about">About</a></footer></section></div>"#
     );
 }
 
@@ -128,6 +128,49 @@ fn unfilled_slot_renders_its_fallback() {
     );
 }
 
+/// The check a fallback cannot make: with nothing filled, `Dialog` drops the
+/// wrapping `<p>` and `<footer>` entirely rather than rendering them empty.
+#[test]
+fn a_template_can_ask_whether_a_slot_was_filled() {
+    use damask_showcase::dialog::Dialog;
+    let dialog = Dialog {
+        title: "Bare".into(),
+    };
+    assert_eq!(
+        dialog.render(),
+        r#"<div class="dialog"><h2>Bare</h2></div>"#
+    );
+}
+
+#[test]
+fn asked_for_slots_render_inside_their_wrappers() {
+    use damask_showcase::dialog::Dialog;
+    let body = fragment(|r: &mut dyn Renderer| r.write_raw("hi"));
+    let actions = fragment(|r: &mut dyn Renderer| r.write_raw("<button>OK</button>"));
+    let dialog = Dialog { title: "T".into() };
+    let out = dialog.render_with(Slots::new(&[
+        Slot::new(DEFAULT_SLOT, &body),
+        Slot::new("actions", &actions),
+    ]));
+    assert_eq!(
+        out,
+        r#"<div class="dialog"><h2>T</h2><p class="body">hi</p><footer><button>OK</button></footer></div>"#
+    );
+}
+
+/// Each guard is independent: filling one slot brings only its own wrapper.
+#[test]
+fn one_filled_slot_does_not_bring_the_others_wrapper() {
+    use damask_showcase::dialog::Dialog;
+    let actions = fragment(|r: &mut dyn Renderer| r.write_raw("<button>OK</button>"));
+    let dialog = Dialog { title: "T".into() };
+    let out = dialog.render_with(Slots::new(&[Slot::new("actions", &actions)]));
+    assert_eq!(
+        out,
+        r#"<div class="dialog"><h2>T</h2><footer><button>OK</button></footer></div>"#
+    );
+}
+
 #[test]
 fn slots_are_matched_by_name_in_any_order() {
     use damask_showcase::frame::Frame;
@@ -156,9 +199,9 @@ fn custom_renderer_drives_a_stock_component() {
 #[test]
 fn slots_forward_through_a_wrapping_component() {
     // Shell fills Frame's slots with its own, so the caller's content lands two
-    // levels down. A bare `<slot/>` forwards the default slot; the `<slot
-    // name="footer">` fill wraps a placeholder that resolves against *Shell's*
-    // caller, not Frame's.
+    // levels down. A bare `<slot/>` forwards the default slot; `<slot
+    // name="footer" slot="footer"/>` routes a placeholder into Frame's footer,
+    // and that placeholder resolves against *Shell's* caller, not Frame's.
     use damask_showcase::shell::Shell;
     let body = fragment(|r: &mut dyn Renderer| r.write_raw("<p>b</p>"));
     let foot = fragment(|r: &mut dyn Renderer| r.write_raw("f"));

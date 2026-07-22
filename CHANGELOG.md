@@ -4,6 +4,36 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- A template can ask about its own slots. The caller's fills are in scope for
+  every `{ … }` tag as `slots`, so `{#if slots.has("actions")}<footer>…</footer>{/if}`
+  drops a wrapper the caller gave nothing to render inside — the case a `<slot>`
+  fallback cannot express, standing in as it does for the content rather than the
+  markup around it. `Slots` gains `has`, `has_default` and `get_default` to go
+  with `get`, and `{@render slots.get("actions")}` places a fill by name.
+- `Render` is implemented for `&T` and for `Option<T>`, the latter rendering
+  nothing when `None` — the rule `Attr` already follows, and what lets
+  `{@render slots.get(…)}` stand without a guard around it.
+
+### Changed
+
+- **Breaking.** Slots are filled the way web components fill them: a direct child
+  of a component element carrying `slot="x"` goes into the `x` slot, the element
+  included, and several children may name the same slot — they land there in the
+  order written. `<slot>` is now *only* a placeholder; a named `<slot>` inside a
+  component element no longer fills anything. Rewrite
+  `<Frame><slot name="footer">© 2026</slot></Frame>` as
+  `<Frame><span slot="footer">© 2026</span></Frame>`, and forwarding —
+  `<slot name="footer"><slot name="footer"/></slot>` — as
+  `<slot name="footer" slot="footer"/>`. A bare `<slot/>` inside a component
+  element still forwards the default slot, unchanged. The `slot` attribute is
+  consumed rather than rendered, and outside a component element it stays an
+  ordinary attribute, so a template can address a browser-side custom element's
+  shadow slots.
+
 ## [0.1.2] - 2026-07-21
 
 ### Changed

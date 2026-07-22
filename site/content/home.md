@@ -89,13 +89,14 @@ code = '''
 title = "Slots, without the struct knowing"
 body = """
 A template declares as many slots as it likes and the struct never changes. \
-A slot's body is its fallback, and content passed from a caller stays on the \
-caller's stack — borrowed, not boxed.\
+`<slot>` marks the place, `slot="…"` fills it — as web components do — and \
+content passed from a caller stays on the caller's stack, borrowed, not boxed.\
 """
 code = '''
 <Frame title={self.heading.clone()}>
   <p>{self.body}</p>
-  <slot name="footer">© {self.year}</slot>
+  <span slot="footer">© {self.year}</span>
+  <a slot="footer" href="/about">About</a>
 </Frame>
 '''
 

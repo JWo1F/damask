@@ -1,1 +1,1 @@
-{use crate::frame::Frame}<Frame title={self.title.clone()}><slot/><slot name="footer"><slot name="footer"/></slot></Frame>
+{use crate::frame::Frame}<Frame title={self.title.clone()}><slot/><slot name="footer" slot="footer"/></Frame>

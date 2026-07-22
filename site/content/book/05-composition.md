@@ -93,18 +93,26 @@ pub struct Frame {
 **Slots are not fields.** A template declares as many as it likes and the struct
 never changes — which is exactly why they cannot be checked at compile time.
 
-A `<slot>`'s body is its **fallback**, rendered when the caller leaves it
-unfilled. Filling it from a call site looks like this:
+`<slot>` is only ever a **placeholder**: it says where content lands, never what
+the content is. A `<slot>`'s body is its **fallback**, rendered when the caller
+leaves it unfilled.
+
+The other half is the caller's, and it is the web-component one: a direct child
+of the component element carrying `slot="name"` goes into that slot, the element
+included.
 
 ```dmk
 {use crate::ui::Frame}
 <Frame title={self.heading.clone()}>
-  <p>{self.body}</p>                  <!-- fills the default slot -->
-  <slot name="footer">© {self.year}</slot>
+  <p>{self.body}</p>                          <!-- fills the default slot -->
+  <span slot="footer">© {self.year}</span>
+  <a slot="footer" href="/about">About</a>
 </Frame>
 ```
 
-Content that is not inside a named `<slot>` fills the default one.
+Content with no `slot` fills the default one. Several children may name the same
+slot — the footer above gets both of them, in the order written — and the `slot`
+attribute itself is consumed rather than rendered.
 
 > [!IMPORTANT]
 > Slots are matched **by name at render time**. A misspelled `name` renders the
@@ -112,24 +120,49 @@ Content that is not inside a named `<slot>` fills the default one.
 > declare is silently ignored. This is the one place Damask trades a compile-time
 > check away, and it buys slots that do not appear on the struct.
 
+## Asking about slots
+
+A fallback covers the case where content is missing. It cannot cover the case
+where the *markup around* the content should be missing too — an empty `<footer>`
+is still a `<footer>`. For that, a template can ask: the caller's fills are in
+scope as `slots`, in any `{ … }` tag.
+
+```dmk
+<!-- dialog.dmk -->
+<div class="dialog">
+  <h2>{self.title}</h2>
+  {#if slots.has_default()}<p class="body"><slot/></p>{/if}
+  {#if slots.has("actions")}<footer>{@render slots.get("actions")}</footer>{/if}
+</div>
+```
+
+With nothing filled that is just `<div class="dialog"><h2>…</h2></div>`.
+
+The last line places a fill two ways at once. `slots.get("actions")` is the
+content by name, and `{@render}` takes it as it comes — `None` renders nothing,
+the same rule an `Option` attribute follows — so the `{#if}` is guarding the
+`<footer>`, not the fill. Where no wrapper is at stake, `<slot/>` says it shorter.
+
+`slots` is an ordinary binding, so a template may shadow it.
+
 ## Forwarding
 
-A `<slot>` placed directly inside a component element fills that component's slot
-of the same name. A **bare** `<slot/>` there is still a placeholder — so it
-forwards the caller's content straight through:
+The two halves compose: a placeholder that carries a `slot` attribute forwards.
 
 ```dmk
 <!-- shell.dmk -->
 {use crate::ui::Frame}
 <Frame title={self.title.clone()}>
-  <slot/>                                             <!-- forward the default slot -->
-  <slot name="footer"><slot name="footer"/></slot>    <!-- fill, wrapping a placeholder -->
+  <slot/>                                   <!-- forward the default slot -->
+  <slot name="footer" slot="footer"/>       <!-- forward "footer" -->
 </Frame>
 ```
 
-The second line is the pattern worth reading twice: the outer `<slot name="footer">`
-*fills* `Frame`'s footer, and the inner one is a placeholder for whatever this
-component's own caller passed as `footer`.
+The second line is the one worth reading twice: `name="footer"` resolves against
+*this* component's caller, and `slot="footer"` hands whatever came back to
+`Frame`. The first needs no `slot=` — with no name to route it to, a bare
+`<slot/>` is ordinary default-slot content, so it forwards on its own and can sit
+alongside other markup in the same fill.
 
 ## Layouts
 

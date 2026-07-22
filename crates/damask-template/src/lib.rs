@@ -24,11 +24,17 @@
 //! - `<div>…</div>` — an HTML element (lowercase). Its content is a scope.
 //! - `<Component attr={expr}>…</Component>` — a component (capitalized): built
 //!   and rendered; attributes become fields, content fills slots.
-//! - `<slot/>` / `<slot name="x">fallback</slot>` — a slot: renders what the
-//!   caller passed for that name, or the `<slot>`'s own body if unfilled. A
-//!   *named* `<slot>` directly inside a `<Component>` instead fills that name;
-//!   a bare `<slot/>` there is still a placeholder, so it forwards this
-//!   component's default slot into the child's.
+//! - `<slot/>` / `<slot name="x">fallback</slot>` — a slot placeholder: renders
+//!   what the caller passed for that name, or the `<slot>`'s own body if
+//!   unfilled.
+//! - `slot="x"` on a direct child of a `<Component>` — routes that child, the
+//!   element included, into the component's `x` slot; several children may name
+//!   the same slot. Content with no `slot` fills the default slot. Anywhere
+//!   else `slot` is an ordinary attribute.
+//!
+//! The caller's fills are in scope for every `{ … }` tag as `slots`, a
+//! `damask::Slots`, so a template can ask whether one was filled
+//! (`slots.has("x")`) and place it by name (`{@render slots.get("x")}`).
 
 mod line_index;
 mod lower;
@@ -191,7 +197,7 @@ pub enum ElementKind {
     Html,
     /// Capitalized tag, e.g. `<Card>` — a component to build and render.
     Component,
-    /// `<slot>` — a slot placeholder / fill.
+    /// `<slot>` — a slot placeholder.
     Slot,
 }
 
