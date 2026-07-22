@@ -9,7 +9,7 @@ a linter, an editor plugin.
 
 ```toml
 [dependencies]
-damask-template = "0.1"
+damask-template = "0.2"
 ```
 
 ## What it does

@@ -7,7 +7,7 @@ Damask needs Rust 1.88 or newer and no build script.
 
 ```toml
 [dependencies]
-damask = "0.1"
+damask = "0.2"
 ```
 
 ## The two-file rule

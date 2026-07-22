@@ -36,7 +36,7 @@ everything else.
 features change that:
 
 ```toml
-damask = { version = "0.1", features = ["pretty"] }
+damask = { version = "0.2", features = ["pretty"] }
 ```
 
 `pretty`

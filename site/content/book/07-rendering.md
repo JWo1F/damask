@@ -72,7 +72,7 @@ features change that, and neither alters the *rendered document* — only its
 source:
 
 ```toml
-damask = { version = "0.1", features = ["pretty"] }
+damask = { version = "0.2", features = ["pretty"] }
 ```
 
 - **`pretty`** re-indents the output, so a page you are debugging in "view

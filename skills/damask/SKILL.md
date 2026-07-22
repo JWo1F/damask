@@ -332,7 +332,7 @@ let out = r.finish();
 
 ```toml
 [dependencies]
-damask = "0.1"
+damask = "0.2"
 ```
 
 Import the derive (and trait) with `use damask::Component;` (or `use

@@ -33,7 +33,7 @@ assert_eq!(Greeting { name: "<b>".into() }.render(), "Hello &lt;b&gt;!");
 
    ```toml
    [dependencies]
-   damask = "0.1"
+   damask = "0.2"
    ```
 
 2. Create a component as **two files that share a basename**, in the same

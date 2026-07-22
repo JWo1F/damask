@@ -10,7 +10,7 @@ else, so the `Component` derive cannot sit alongside the trait it implements.
 
 ```toml
 [dependencies]
-damask = "0.1"        # re-exports the derive; depend on this
+damask = "0.2"        # re-exports the derive; depend on this
 ```
 
 ## What it provides
