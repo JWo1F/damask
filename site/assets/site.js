@@ -94,28 +94,52 @@
       .filter(Boolean);
     if (!headings.length) return;
 
-    let visible = new Set();
+    let current = null;
 
     const mark = () => {
-      // The topmost visible heading wins, so a section whose whole body is on
-      // screen does not lose to the next one appearing at the bottom.
-      const current = headings.find((heading) => visible.has(heading.id));
+      // The last heading at or above a line a quarter of the way down the
+      // viewport. That heading stays current for the whole of its section,
+      // however long it runs.
+      //
+      // An intersection test cannot do this. It can only report a heading while
+      // it is inside a band, so every section taller than the band leaves
+      // nothing marked — the highlight blinks on as a heading crosses and off
+      // again for the rest of the section.
+      const line = window.innerHeight * 0.25;
+      let found = headings[0];
+      for (const heading of headings) {
+        if (heading.getBoundingClientRect().top > line) break;
+        found = heading;
+      }
+
+      // The last section is often too short to reach the line, so nothing below
+      // it could ever become current. At the bottom of the page it is.
+      const bottom = window.scrollY + window.innerHeight;
+      if (bottom >= document.documentElement.scrollHeight - 2) {
+        found = headings[headings.length - 1];
+      }
+
+      if (found === current) return;
+      current = found;
       links.forEach((link) => delete link.dataset.active);
-      if (current) byId.get(current.id).dataset.active = "";
+      byId.get(found.id).dataset.active = "";
     };
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (entry.isIntersecting) visible.add(entry.target.id);
-          else visible.delete(entry.target.id);
-        });
+    // Reading a bounding box forces layout, so the work is done once per frame
+    // rather than once per scroll event.
+    let queued = false;
+    const onScroll = () => {
+      if (queued) return;
+      queued = true;
+      requestAnimationFrame(() => {
+        queued = false;
         mark();
-      },
-      { rootMargin: "-20% 0px -70% 0px" }
-    );
+      });
+    };
 
-    headings.forEach((heading) => observer.observe(heading));
+    addEventListener("scroll", onScroll, { passive: true });
+    addEventListener("resize", onScroll, { passive: true });
+    mark();
   }
 
   // --- Search -----------------------------------------------------------------

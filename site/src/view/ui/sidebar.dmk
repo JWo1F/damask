@@ -1,5 +1,6 @@
-<nav class="lg:sticky lg:top-24 lg:max-h-[calc(100vh-8rem)] lg:overflow-y-auto lg:pr-4"
-     aria-label="In this collection">
+{# Positioning belongs to the call site: this same list is a sticky rail beside
+   the prose on a wide screen and the body of a disclosure on a narrow one. #}
+<nav aria-label="In this collection">
   {#each &self.sections as section}
     <div class="mb-7 last:mb-0">
       {#if !section.label.is_empty()}

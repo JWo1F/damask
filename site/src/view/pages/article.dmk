@@ -25,7 +25,13 @@
                    numbered={self.numbered()}/>
         </div>
       </details>
-      <div class="hidden lg:block">
+      {# The sticky lives here rather than on the `<nav>` inside `Sidebar`,
+         because a sticky element can only travel within its containing block —
+         and the nav's own wrapper is only as tall as the list, so it would come
+         unstuck the moment the list scrolled past. This div's parent is the
+         grid item, which stretches to the height of the whole row. #}
+      <div class="hidden lg:sticky lg:top-24 lg:block lg:max-h-[calc(100vh-8rem)]
+                  lg:overflow-y-auto lg:pr-4">
         <a href={self.collection_href.clone()}
            class="mb-5 inline-flex items-center gap-1.5 font-ui text-[0.72rem] font-semibold
                   uppercase tracking-[0.13em] text-ink-faint transition-colors hover:text-madder">

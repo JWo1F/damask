@@ -2,26 +2,29 @@
 {use crate::view::ui::{Action, Panel}}
 <Shell chrome={self.chrome.clone()} wide={true}>
 
-  <section class="pt-16 pb-4 sm:pt-24">
+  <section class="pt-16 pb-4 text-center sm:pt-24">
     <p class="font-mono text-[0.75rem] uppercase tracking-[0.2em] text-madder">{self.content.eyebrow}</p>
 
-    <h1 class="mt-5 max-w-[19ch] font-display text-[clamp(2.6rem,6.2vw,4.4rem)] font-normal
+    <h1 class="mx-auto mt-5 max-w-[19ch] font-display text-[clamp(2.6rem,6.2vw,4.4rem)] font-normal
                leading-[1.04] tracking-[-0.032em] text-ink">{self.content.title}</h1>
 
-    <p class="mt-6 max-w-[58ch] font-serif text-[clamp(1.06rem,1.7vw,1.25rem)] leading-[1.62] text-ink-soft">
+    <p class="mx-auto mt-6 max-w-[58ch] font-serif text-[clamp(1.06rem,1.7vw,1.25rem)] leading-[1.62] text-ink-soft">
       {@html self.content.lede_html}
     </p>
 
-    <div class="mt-9 flex flex-wrap gap-3">
+    <div class="mt-9 flex flex-wrap justify-center gap-3">
       {#each &self.content.actions as action}
         <Action href={action.href.clone()} primary={action.primary} class="">{action.label}</Action>
       {/each}
     </div>
 
     {# The dependency line, in the first screen. A reader who is convinced by the
-       hero should be able to start from it rather than go looking. #}
-    <div class="mt-10 max-w-[24rem]">
-      {@html self.install}
+       hero should be able to start from it rather than go looking.
+
+       The block is centred; the code inside it is not. Centred code is unreadable
+       — the eye needs a common left edge to return to. #}
+    <div class="mx-auto mt-10 max-w-[24rem]">
+      <div class="text-left">{@html self.install}</div>
       <p class="mt-2.5 font-ui text-[0.78rem] text-ink-soft">{self.content.install.note}</p>
     </div>
   </section>
