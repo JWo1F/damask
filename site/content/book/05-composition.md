@@ -159,7 +159,7 @@ impl SiteHeader<'_> {
       <div class="brand">helm <span>/ fleet status</span></div>
       <nav>
         {#each &self.nav as entry}
-          <a href={self.href(entry)} class=[{ "active": *entry == self.current }]>{entry}</a>
+          <a href={self.href(entry)} class={ "active": *entry == self.current }>{entry}</a>
         {/each}
       </nav>
     </div>

@@ -1,6 +1,6 @@
 +++
 title = "The service table"
-summary = "Class lists that assemble themselves, and attributes that know they are HTML."
+summary = "Classes that assemble themselves from conditions, and attributes that know they are HTML."
 +++
 
 The centre of the page is a table of services — one row each, striped, with rows
@@ -85,21 +85,31 @@ Half of that method is about the space between the names, and when both
 conditions are false it returns `""` — which, dropped into `class={…}`, renders
 `class=""`: an attribute that says nothing, on every second row.
 
-## The fix: a class list
+## The fix: a class map
 
-`class` — and only `class` — takes a **list**:
+`class` — and only `class` — takes a **map of name to condition**, as many pairs
+as the element needs:
 
 ```dmk
-<tr class=[{ "alt": i % 2 == 1 }, { "breach": svc.breaches_slo(self.slo_target) }]>
+<tr class={ "alt": i % 2 == 1, "breach": svc.breaches_slo(self.slo_target) }>
 ```
 
-Entries may be strings, `Option`s of strings, or `{ "name": cond }` maps. Names
-are joined with the space you did not have to write, deduplicated, kept in
-first-mention order — and when the list comes out empty the attribute is omitted
-entirely. Delete `row_class`; nothing else needs it.
+Each name appears when its condition holds. They are joined with the space you
+did not have to write, and when nothing holds the attribute is omitted
+entirely — not emitted empty. Delete `row_class`; nothing else needs it.
 
-That last property is why a list beats a helper returning a `String`. The helper
-cannot decline to be an attribute; the list can.
+That last property is why this beats a helper returning a `String`. The helper
+cannot decline to be an attribute; the map can.
+
+Where some names are unconditional, `class` takes a **list** instead, whose
+entries may be strings, `Option`s of strings, or a map. The badge at the end of
+this chapter is one:
+
+```dmk
+<span class=["badge", self.status.slug()]>
+```
+
+Names across a list are deduplicated and keep their first-mention order.
 
 ## The table
 
@@ -124,7 +134,7 @@ pub struct ServiceTable<'a> {
   </thead>
   <tbody>
     {#each self.services as svc, i}
-      <tr class=[{ "alt": i % 2 == 1 }, { "breach": svc.breaches_slo(self.slo_target) }]>
+      <tr class={ "alt": i % 2 == 1, "breach": svc.breaches_slo(self.slo_target) }>
         <td><div class="svc">{svc.name}</div><div class="owner">{svc.owner}</div></td>
         <td>{svc.status}</td>
         <td>{svc.uptime()}</td>
@@ -181,11 +191,12 @@ policy as `{ … }`:
 Reach for the quoted form when you are building a string, and for `{ … }` when
 you are passing a value.
 
-## The other two forms of `class`
+## Directives
 
 A **directive**, `class:name={cond}`, adds or removes one name and takes
-precedence over whatever the list produced. A bare `class:name` is always on.
-`Control`, in the repository's `examples/showcase`, puts every form in one tag:
+precedence over whatever the map or list produced. A bare `class:name` is always
+on. `Control`, in the repository's `examples/showcase`, puts every form in one
+tag:
 
 ```dmk
 <input disabled={self.disabled}
