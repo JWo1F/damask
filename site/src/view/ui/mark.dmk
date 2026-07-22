@@ -1,6 +1,24 @@
+{# The Damask mark: a quatrefoil of four ogee-flanked petals.
+
+   Four-fold rotational, rather than the single vertical axis the mark used to
+   have — that is the whole reason for the shape. The ogee flank is the curve a
+   damask repeat is drawn with, which is what ties the mark to the ground
+   behind every page.
+
+   The petal is repeated by `rotate` rather than written out four times so the
+   symmetry is a fact of the source and not something a later edit can quietly
+   break on one of the four. #}
 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.35"
      stroke-linecap="round" stroke-linejoin="round" class={self.class} aria-hidden="true">
-  <path d="M12 1.4c4.8 4.6 8.6 7 8.6 10.6S16.8 18 12 22.6C7.2 18 3.4 15.6 3.4 12S7.2 6 12 1.4Z"/>
-  <path d="M12 6.6c2 2.5 3 4 3 5.4s-1 2.9-3 5.4c-2-2.5-3-4-3-5.4s1-2.9 3-5.4Z"/>
-  <circle cx="12" cy="12" r="1.05" fill="currentColor" stroke="none"/>
+  <path d="M12 2.4C15.2 6 16.1 8.6 14.6 10.3 13.7 11.3 12.6 11.3 12 12
+           11.4 11.3 10.3 11.3 9.4 10.3 7.9 8.6 8.8 6 12 2.4Z"/>
+  <path d="M12 2.4C15.2 6 16.1 8.6 14.6 10.3 13.7 11.3 12.6 11.3 12 12
+           11.4 11.3 10.3 11.3 9.4 10.3 7.9 8.6 8.8 6 12 2.4Z"
+        transform="rotate(90 12 12)"/>
+  <path d="M12 2.4C15.2 6 16.1 8.6 14.6 10.3 13.7 11.3 12.6 11.3 12 12
+           11.4 11.3 10.3 11.3 9.4 10.3 7.9 8.6 8.8 6 12 2.4Z"
+        transform="rotate(180 12 12)"/>
+  <path d="M12 2.4C15.2 6 16.1 8.6 14.6 10.3 13.7 11.3 12.6 11.3 12 12
+           11.4 11.3 10.3 11.3 9.4 10.3 7.9 8.6 8.8 6 12 2.4Z"
+        transform="rotate(270 12 12)"/>
 </svg>

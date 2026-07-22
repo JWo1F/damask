@@ -45,7 +45,6 @@
   --color-madder: var(--madder);
   --color-madder-deep: var(--madder-deep);
 
-  --background-image-damask: var(--damask-weave);
 }
 
 :root {
@@ -55,7 +54,11 @@
   --surface: #fffdf8;
   --ink: #1a1613;
   --ink-soft: #5f5548;
-  --ink-faint: #8e8377;
+  /* Carries every micro-label on the site — code-block languages, sidebar
+     section headings, table headers — all of it below 12px, so it is held to
+     the 4.5:1 body-text ratio rather than the 3:1 large-text one. 4.56 on
+     paper, 4.92 on surface. */
+  --ink-faint: #776e64;
   --rule: #e3dccf;
   --madder: #a3372a;
   --madder-deep: #7d281d;
@@ -71,6 +74,11 @@
   --tok-tag: #a3372a;
   --tok-attr: #8a5a2b;
   --tok-punct: #877c6f;
+
+  /* The shadow at a scrolling code block's edge. A token rather than a mix off
+     `--ink`, because `--ink` inverts with the theme and a "shadow" made of the
+     dark ramp's near-white ink is a glow. */
+  --code-edge: color-mix(in oklab, #1a1613 15%, transparent);
 }
 
 [data-theme="dark"] {
@@ -78,7 +86,9 @@
   --surface: #1c1917;
   --ink: #ece5da;
   --ink-soft: #a49a8c;
-  --ink-faint: #7b7265;
+  /* 5.02 on paper, 4.69 on the surface the code rails sit on — the darker of
+     the two grounds is the one that has to clear AA. */
+  --ink-faint: #8d8375;
   --rule: #322d26;
   /* Lifted well off the source hue: #a3372a on this ground fails contrast at
      body sizes, and the accent is used for links. */
@@ -94,21 +104,66 @@
   --tok-tag: #e08373;
   --tok-attr: #d8ab72;
   --tok-punct: #8a8074;
+
+  /* Deeper than the light ramp's: the same wash reads as almost nothing
+     against a ground this dark. */
+  --code-edge: rgb(0 0 0 / 0.5);
 }
 
-/* The ground: an ogee lattice with a leaf in each cell, the reduction of a
-   damask repeat to what survives at 5% opacity. Inline as a data URI so the
-   page has no second request to make for something this faint — and so the
-   motif and the mark that draws it stay one idea in one file. */
-:root {
-  --damask-weave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='168' viewBox='0 0 120 168'%3E%3Cg fill='none' stroke='%231a1613' stroke-width='1.1' stroke-linecap='round'%3E%3Cpath d='M60 4c22 21 38 32 38 48s-16 27-38 48c-22-21-38-32-38-48s16-27 38-48z'/%3E%3Cpath d='M60 28c9 11 13 18 13 24s-4 13-13 24c-9-11-13-18-13-24s4-13 13-24z'/%3E%3Cpath d='M0 88c22 21 38 32 38 48s-16 27-38 48M120 88c-22 21-38 32-38 48s16 27 38 48'/%3E%3Cpath d='M22 52C10 60 4 66 0 68M98 52c12 8 18 14 22 16'/%3E%3C/g%3E%3C/svg%3E");
+/* ---------------------------------------------------------------------------
+   Icons
+   ---------------------------------------------------------------------------
+   Hugeicons' stroke-rounded set, loaded as a font in `Base`. One icon is
+   `<i class="hgi-stroke hgi-NAME icon">` — both Hugeicons classes are required,
+   since the glyph is a codepoint on `::before` and the family comes from
+   `.hgi-stroke`. Stroke rather than solid: the rest of the site's line work is
+   hairline, and a filled icon beside it reads as a different set.
+
+   These rules sit *outside* `@layer` deliberately. The icon font's stylesheet
+   is unlayered, and an unlayered declaration beats every layered one whatever
+   its specificity — so a `display` written into `@layer components`, or a
+   Tailwind `hidden` utility, would lose to `.hgi-stroke`'s own
+   `display: inline-block` and every icon meant to be hidden would show. */
+.icon {
+  font-size: 1.05rem;
+  /* Never squeezed by the flex rows these sit in. */
+  flex: none;
 }
 
-[data-theme="dark"] {
-  --damask-weave: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='168' viewBox='0 0 120 168'%3E%3Cg fill='none' stroke='%23ece5da' stroke-width='1.1' stroke-linecap='round'%3E%3Cpath d='M60 4c22 21 38 32 38 48s-16 27-38 48c-22-21-38-32-38-48s16-27 38-48z'/%3E%3Cpath d='M60 28c9 11 13 18 13 24s-4 13-13 24c-9-11-13-18-13-24s4-13 13-24z'/%3E%3Cpath d='M0 88c22 21 38 32 38 48s-16 27-38 48M120 88c-22 21-38 32-38 48s16 27 38 48'/%3E%3Cpath d='M22 52C10 60 4 66 0 68M98 52c12 8 18 14 22 16'/%3E%3C/g%3E%3C/svg%3E");
+/* A control that carries one glyph per theme shows the one for the theme in
+   force. Done in CSS rather than by the script so it is right on the first
+   paint — the boot script sets `data-theme` before any of this is laid out. */
+[data-theme="light"] [data-icon-when="dark"],
+[data-theme="dark"] [data-icon-when="light"] { display: none; }
+
+/* A disclosure's chevron turns to point at the panel it has opened. Unlayered
+   for the same reason as the rules below — `transform` is safe in a layer, but
+   keeping the icon rules together is worth more than the distinction. */
+.disclosure {
+  font-size: 0.9rem;
+  color: var(--ink-faint);
+  transition: transform 200ms ease;
 }
+[open] > summary .disclosure { transform: rotate(180deg); }
+
+/* The copy button's idle and copied glyphs, the same way. */
+.code-copy [data-glyph="done"] { display: none; }
+.code-copy[data-state="copied"] [data-glyph="idle"] { display: none; }
+.code-copy[data-state="copied"] [data-glyph="done"] { display: inline-block; }
 
 @layer base {
+  /* One focus ring for the whole site.
+     `:focus-visible` rather than `:focus`, so a mouse click on a link does not
+     leave a ring behind — the ring is for the reader who cannot see the cursor.
+     Madder rather than the browser default: on warm paper the default blue is
+     both off-palette and, against `--surface`, low enough in contrast to be
+     easy to lose. */
+  :focus-visible {
+    outline: 2px solid var(--madder);
+    outline-offset: 2px;
+    border-radius: 0.25rem;
+  }
+
   html {
     scroll-behavior: smooth;
     /* Anchored headings otherwise land under the sticky header. */
@@ -271,11 +326,15 @@
 
   .prose img { max-width: 100%; height: auto; border-radius: 0.5rem; }
 
-  /* Inline code. `word-break` rather than a scrollbar: an inline run is short,
-     and a long path in a narrow column should wrap rather than widen the page. */
+  /* Inline code. Inherits its size rather than setting one, so a run of code in
+     a heading is heading-sized and one in body copy is body-sized — a fixed
+     `em` here was a second opinion about a size the context had already decided.
+
+     `word-break` rather than a scrollbar: an inline run is short, and a long
+     path in a narrow column should wrap rather than widen the page. */
   .prose :not(pre) > code {
     font-family: var(--font-mono);
-    font-size: 0.855em;
+    font-size: inherit;
     padding: 0.12em 0.34em;
     border-radius: 0.28rem;
     background: color-mix(in oklab, var(--ink) 6%, transparent);
@@ -359,10 +418,13 @@
    Emitted by `Highlighter::block`, in prose and in the home page's panels
    alike — so the rules are global rather than scoped to `.prose`. */
 @layer components {
+  /* `width: max-content` rather than a scrollbar of its own: the scroll region
+     is `.code-scroll`, one level up, and a `pre` that also scrolled would take
+     the trailing padding out of reach at the far right of a long line. */
   pre.code {
-    position: relative;
-    overflow-x: auto;
-    padding: 1rem 1.1rem;
+    width: max-content;
+    min-width: 100%;
+    padding: 0.95rem 1.15rem;
     font-family: var(--font-mono);
     font-size: 0.822rem;
     line-height: 1.68;
@@ -370,36 +432,85 @@
     tab-size: 2;
   }
 
-  .prose pre.code {
-    margin-top: 1.3em;
-    border: 1px solid var(--rule);
-    border-radius: 0.6rem;
-    background: var(--surface);
-  }
-
   pre.code code {
     display: block;
-    min-width: max-content;
     font: inherit;
     background: none;
     padding: 0;
   }
 
-  /* The language, set into the top-right corner of the block. Absolute, so it
-     does not take a line from the code; `select-none` because it is a label and
-     copying a block should not pick it up. */
-  .prose pre.code[data-lang]::before {
-    content: attr(data-lang);
-    position: absolute;
-    top: 0.45rem;
-    right: 0.7rem;
-    font-size: 0.62rem;
-    letter-spacing: 0.12em;
+  /* The frame. `overflow: hidden` is what clips the scroll region to the
+     corner radius — without it a long line runs out past the rounded edge. */
+  .code-block {
+    border: 1px solid var(--rule);
+    border-radius: 0.6rem;
+    background: var(--surface);
+    overflow: hidden;
+  }
+
+  .prose .code-block { margin-top: 1.4em; }
+
+  /* The rail: the language on the left, the copy button on the right. A row of
+     its own rather than an overlay in the corner — set over the code, a label
+     is something a reader has to look past to read the first line, and the
+     button has nowhere to sit that is not on top of something. */
+  .code-rail {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    /* Asymmetric: the label is text and wants its margin, the button carries
+       its own padding and would otherwise sit too far off the edge. */
+    padding: 0.25rem 0.4rem 0.25rem 1.15rem;
+    /* Reserves the button's height, so a block keeps the same rail whether or
+       not scripting is on. */
+    min-height: 2.1rem;
+    border-bottom: 1px solid var(--rule);
+    background: color-mix(in oklab, var(--ink) 2.5%, transparent);
+  }
+
+  .code-lang {
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--ink-faint);
+    /* A label, not content: copying a block should not pick it up. */
     user-select: none;
-    pointer-events: none;
   }
+
+  /* The scroll region, and the cue that it is one.
+     ---------------------------------------------------------------------
+     Four background layers, in two pairs. The `local` pair scrolls with the
+     content and is painted in the block's own ground; the `scroll` pair is
+     fixed to the element and is the shadow. At rest the covers sit exactly
+     over the shadows and hide them — scroll, and the cover on that side
+     travels away and uncovers the shadow beneath.
+
+     That is what makes the cue *conditional*: a block with nothing off-screen
+     cannot scroll, so neither cover ever moves and neither shadow is ever
+     seen. No measuring, no resize observer, no JavaScript. */
+  .code-scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    background:
+      linear-gradient(to right, var(--surface) 60%, transparent) 0 0 / 2rem 100% no-repeat local,
+      linear-gradient(to left, var(--surface) 60%, transparent) 100% 0 / 2rem 100% no-repeat local,
+      linear-gradient(to right, var(--code-edge), transparent) 0 0 / 1.1rem 100% no-repeat scroll,
+      linear-gradient(to left, var(--code-edge), transparent) 100% 0 / 1.1rem 100% no-repeat scroll;
+    scrollbar-width: thin;
+    scrollbar-color: var(--rule) transparent;
+  }
+
+  /* Firefox has `scrollbar-width` above; these are for the WebKit/Blink side,
+     where the default bar is tall enough to read as a second border. */
+  .code-scroll::-webkit-scrollbar { height: 0.45rem; }
+  .code-scroll::-webkit-scrollbar-track { background: transparent; }
+  .code-scroll::-webkit-scrollbar-thumb {
+    background: var(--rule);
+    border-radius: 999px;
+  }
+  .code-scroll:hover::-webkit-scrollbar-thumb { background: var(--ink-faint); }
 
   /* Syntect emits every scope atom as a class, so these are the ones worth
      naming and everything else inherits the body colour. Ordered
@@ -424,35 +535,171 @@
   .tok-damask.tok-embedded { color: var(--tok-keyword); }
   .tok-language { color: var(--tok-function); font-style: italic; }
 
-  /* The copy button, attached by site.js. Hidden until the block is hovered or
-     the button is focused — a control on every code block at rest is noise on a
-     page that is mostly code blocks. */
+  /* The copy button, attached to the rail by site.js. Always visible, rather
+     than revealed on hover: the affordance is the point, and a control that
+     only exists once you have already guessed it is there is not one. It earns
+     the room by staying quiet — no border and no ground until it is reached
+     for, so at rest it reads as one more micro-label on the rail. */
   .code-copy {
-    position: absolute;
-    top: 0.4rem;
-    right: 0.4rem;
-    padding: 0.28rem 0.55rem;
-    font-family: var(--font-ui);
-    font-size: 0.66rem;
-    letter-spacing: 0.06em;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    /* Sized for the wider of the two labels, so "Copied" does not shove the
+       button leftward the instant it is pressed. */
+    min-width: 5.3rem;
+    padding: 0.3rem 0.55rem;
+    font-family: var(--font-mono);
+    font-size: 0.64rem;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
     color: var(--ink-faint);
-    background: var(--surface);
-    border: 1px solid var(--rule);
+    background: transparent;
+    border: 1px solid transparent;
     border-radius: 0.35rem;
     cursor: pointer;
-    opacity: 0;
-    transition: opacity 150ms ease, color 150ms ease, border-color 150ms ease;
+    transition:
+      color 160ms ease,
+      background-color 160ms ease,
+      border-color 160ms ease;
   }
-  .code-block:hover .code-copy,
-  .code-copy:focus-visible { opacity: 1; }
-  .code-copy:hover { color: var(--ink); border-color: var(--ink-faint); }
-  .code-copy[data-copied] { color: var(--madder); border-color: var(--madder); }
+  .code-copy:hover {
+    color: var(--ink);
+    background: color-mix(in oklab, var(--ink) 5%, transparent);
+    border-color: var(--rule);
+  }
+  .code-copy:focus-visible {
+    outline: 2px solid var(--madder);
+    outline-offset: 1px;
+  }
+  .code-copy[data-state="copied"] { color: var(--madder); }
+  .code-copy[data-state="failed"] { color: var(--ink-soft); }
 
-  /* A block with a copy button is wrapped, and the wrapper is what positions
-     it — `pre` itself scrolls, so a button inside would scroll with the code. */
-  .code-block { position: relative; }
-  .code-block > pre.code[data-lang]::before { right: 4.6rem; }
+  /* The two glyphs are swapped in the unlayered `Icons` section above — see the
+     note there for why `display` cannot be set from in here. */
+
+  /* The search dialog, built by site.js on first open.
+     A native `<dialog>`, so the top layer, the backdrop, focus trapping and
+     Escape are the browser's job rather than this file's. */
+  .search {
+    width: min(38rem, calc(100vw - 2rem));
+    max-height: min(30rem, calc(100vh - 8rem));
+    margin: 12vh auto auto;
+    padding: 0;
+    border: 1px solid var(--rule);
+    border-radius: 0.85rem;
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: 0 1.5rem 3rem color-mix(in oklab, #1a1613 22%, transparent);
+    overflow: hidden;
+  }
+  .search::backdrop {
+    background: color-mix(in oklab, #1a1613 45%, transparent);
+    backdrop-filter: blur(2px);
+  }
+
+  .search-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.7rem;
+    padding: 0.85rem 1rem;
+    border-bottom: 1px solid var(--rule);
+    color: var(--ink-faint);
+  }
+  .search-bar input {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    background: none;
+    color: var(--ink);
+    font-family: var(--font-ui);
+    font-size: 1rem;
+    outline: none;
+  }
+  /* WebKit draws its own clear button on `type=search`, in its own grey. */
+  .search-bar input::-webkit-search-decoration,
+  .search-bar input::-webkit-search-cancel-button { appearance: none; }
+  .search-bar kbd {
+    flex: none;
+    padding: 0.15rem 0.4rem;
+    border: 1px solid var(--rule);
+    border-radius: 0.3rem;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    color: var(--ink-faint);
+  }
+
+  /* The scroll lives on the body rather than on a list, because the idle state
+     is two lists and a pair of headings and has to scroll as one thing. */
+  .search-body {
+    max-height: calc(min(30rem, 100vh - 8rem) - 3.6rem);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .search-idle > section + section { margin-top: 0.2rem; }
+
+  .search-group {
+    margin: 0;
+    padding: 0.75rem 1.1rem 0.35rem;
+    font-family: var(--font-mono);
+    font-size: 0.62rem;
+    font-weight: 400;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+
+  .search-results {
+    margin: 0;
+    padding: 0.4rem;
+    list-style: none;
+  }
+  .search-results a {
+    display: grid;
+    gap: 0.15rem;
+    padding: 0.6rem 0.7rem;
+    border-radius: 0.5rem;
+    text-decoration: none;
+    color: inherit;
+  }
+  /* Selection follows the arrow keys, so it is `aria-selected` that is styled
+     rather than `:hover` — the keyboard is the primary way through this list. */
+  .search-results a[aria-selected="true"] {
+    background: color-mix(in oklab, var(--madder) 10%, transparent);
+  }
+  .search-kind {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--madder);
+  }
+  .search-where {
+    font-family: var(--font-ui);
+    font-size: 0.92rem;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  .search-preview {
+    font-family: var(--font-serif);
+    font-size: 0.86rem;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    /* Two lines is enough to recognise the passage and short enough that eight
+       results still fit without scrolling. */
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+  }
+  .search-empty {
+    padding: 1.4rem 0.7rem;
+    text-align: center;
+    font-family: var(--font-ui);
+    font-size: 0.88rem;
+    color: var(--ink-faint);
+  }
 
   /* The on-page contents marks the section currently in view. */
   [data-toc-link][data-active] {

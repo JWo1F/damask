@@ -1,11 +1,13 @@
 +++
-title = "Building a real page"
-summary = "How the pieces settle into a project: a kit, layouts, page structs, and the conventions that keep them honest."
+title = "Beyond helm"
+summary = "What changes when seven components become forty: project shape, a chrome value, tones, previews."
 +++
 
-Everything so far has been one component at a time. This chapter is about what a
-codebase full of them looks like — drawn from the two real ones the project
-maintains: `examples/dashboard` in the repository, and the site you are reading.
+helm is seven components in one directory, and at that size nothing about the
+arrangement matters. This chapter is the second application: the conventions that
+keep a view layer honest once there are forty, drawn from the two real ones the
+project maintains — `examples/dashboard` in the repository, and the site you are
+reading.
 
 ## A shape that works
 
@@ -16,50 +18,71 @@ src/view/
   pages/       one component per route
 ```
 
-**Pages are the contract.** A page struct's fields are exactly what that route
-must produce — no intermediate map of "template-visible keys". That means a
-handler that stops supplying a field breaks the build, and a static render
-harness built from those same structs cannot drift from the pages it previews.
+helm's `Page` is a layout, its `StatusBadge` is kit, and its `Dashboard` is a
+page — the split was there from chapter five, it just had nowhere to live.
 
-**The kit takes a `class` prop.** A component owns its own appearance and the
-call site owns its placement:
+**Pages are the contract.** A page struct's fields are exactly what that route
+must produce; there is no intermediate map of "template-visible keys". A handler
+that stops supplying a field breaks the build.
+
+**The kit takes a `class` prop.** A component owns its appearance and the call
+site owns its placement:
 
 ```dmk
 <Card tone={Tone::Danger} class="mt-6">…</Card>
 ```
 
+which lands in the component's own class list, where an unset `Option` costs
+nothing:
+
+```dmk
+<div class=["card", self.tone.skin(), self.class]>
+```
+
+## Derived values belong on the model
+
+You have been doing this since chapter two. `Status::label`, `Fleet::worst`,
+`Deploy::when` — every one of them keeps a `match` or a fold out of the markup
+and puts it somewhere a unit test can reach. The rule is worth stating outright:
+a template reads fields and calls methods; anything more than a field access or a
+comparison goes on the type it describes.
+
+The same applies to formatting. A `Display` impl on `Status` is what lets
+`{svc.status}` print a label without the template knowing there is a match
+behind it.
+
 ## One value for the chrome
 
-Every page needs the same things around it — the title, the navigation, the
-signed-in user. Passing those as a dozen props on every page struct is how they
-stop matching.
+helm's `Page` took five props, and only one of them — the content — was about the
+page. The other four are what every page needs around it, and passing them
+individually on every page struct is how they stop matching.
 
 ```rust
 /// What every page needs around its own content.
 #[derive(Debug, Clone)]
-pub struct Shell {
-    pub page: &'static str,
+pub struct Chrome {
     pub title: String,
+    pub current: &'static str,
     pub nav: Vec<NavEntry>,
     pub user: User,
 }
 
 #[derive(Component)]
-pub struct Dashboard {
-    pub shell: Shell,
-    pub metrics: Vec<Metric>,
+pub struct Dashboard<'a> {
+    pub chrome: Chrome,
+    pub fleet: &'a Fleet,
 }
 ```
 
 It is assembled once per request and passed through untouched, so a page
 rendering a table has no reason to name the fields of the header.
 
-Damask has **no ambient context** — no thread-local, no implicit request object.
-Anything a deep component needs travels down as a prop. In practice that pushes
-you towards a shell value like this one, which is a good outcome: what a page
-depends on is visible in its type.
+That shape is not a style preference — it is forced. Damask has **no ambient
+context**: no thread-local, no implicit request object. Anything a deep component
+needs travels down as a prop. The cost is real, and the compensation is that what
+a page depends on is visible in its type.
 
-## Tone, not colour
+## Tone, not color
 
 An enum for semantic state, mapped to a skin by each component that renders it:
 
@@ -81,7 +104,7 @@ impl Badge {
 }
 ```
 
-A badge needs a background and a text colour where a dot needs only a fill, so
+A badge needs a background and a text color where a dot needs only a fill, so
 each maps the same word to its own thing. Passing class strings around instead is
 how two badges end up a shade apart.
 
@@ -102,46 +125,40 @@ Both halves of a component are equally visible to the scanner: a skin written in
 the `.dmk` and a skin written in the `impl` beside it are scanned alike, which is
 what lets a component hold its class strings in whichever place reads better.
 
-Two rules earn their keep:
+Two rules earn their keep. **No `@apply`** — a component's full appearance should
+be readable at its definition, and `@apply` scatters it back into CSS and gives
+up dead-class elimination. **Colors come from tokens** — `bg-surface`,
+`text-muted`, not `bg-[#2563eb]` — so a palette change is one edit.
 
-- **No `@apply`.** A component's full appearance should be readable at its
-  definition. `@apply` scatters it back into CSS and gives up dead-class
-  elimination.
-- **Colours come from tokens** — `bg-surface`, `text-muted` — not `bg-[#2563eb]`.
-  A palette change should be one edit.
-
-And remember the scanner caveat from the attributes chapter: `class:name={cond}`
-hides the name in an attribute *name*, where Tailwind will not find it. Use the
-map form for anything that must survive the build.
-
-## Testing a component
-
-Render it and assert on the markup. The interesting assertions are usually about
-what is **absent**:
-
-```rust
-#[test]
-fn a_plain_button_carries_no_action_attributes() {
-    let out = Button { disabled: false, name: None }.render();
-    // Inspect the attributes before `class`: the class list itself
-    // legitimately contains `disabled:opacity-50`.
-    let attrs = out.split_once(" class=").unwrap().0;
-    assert!(!attrs.contains("disabled"), "{out}");
-    assert!(!attrs.contains("name="), "{out}");
-}
-```
-
-For a component whose content is a slot, build the children with `fragment` and
-call `render_with` — see [Snippets and fragments](/book/snippets/).
+And remember the scanner caveat from
+[The service table](/book/attributes/): `class:name={cond}` hides the name
+in an attribute *name*, where Tailwind will not find it. Use the map form for
+anything that must survive the build.
 
 ## Static previews
 
-Because a page struct is the whole contract, a binary that builds a fixture for
-each page and writes the HTML to disk gives you every page of the application in
-a browser without running the application. When a page's props change, that
-harness stops compiling — which is the harness working. A preview that still
-built while the page it previews had moved on would be showing you software that
-no longer exists.
+helm wrote its page to a file with one fixture in `main`. Scale that up and it is
+the most useful tool in the project: a binary that builds a fixture for each page
+and writes the HTML to disk gives you every page of the application in a browser
+without running the application, without a database, and without a login.
+
+Because a page struct is the whole contract, that harness stops compiling when a
+page's props change — which is the harness working. A preview that still built
+while the page it previews had moved on would be showing you software that no
+longer exists.
 
 This site is that idea taken one step further: the fixtures come from markdown on
 disk instead of from Rust, and the output *is* the deliverable.
+
+## What the book did not cover
+
+helm never needed generic components, `#[component(default)]`, attribute
+spreading, or a renderer of its own beyond the built-in one. Those exist, they
+are small, and they are documented where they belong: [Props](/docs/props/),
+[Attributes](/docs/attributes/), [Slots](/docs/slots/) and
+[Renderers](/docs/renderers/). The [reference](/docs/) has every rule in lookup
+order, and `examples/` in the repository has all of it as code that compiles —
+including `examples/dashboard`, which is helm with more services in it.
+
+The next page you build is your own. Start where this book started: a value worth
+rendering, a struct beside a template, and one `cargo run` to prove it.

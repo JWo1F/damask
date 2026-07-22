@@ -1,3 +1,4 @@
+{use crate::view::ui::Templates}
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
@@ -11,7 +12,9 @@
 
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preconnect" href="https://use.hugeicons.com" crossorigin>
   <link rel="stylesheet" href={Self::fonts()}>
+  <link rel="stylesheet" href={Self::icons()}>
   <link rel="stylesheet" href={self.chrome.asset("/assets/site.css")}>
   <link rel="icon" type="image/svg+xml" href={self.chrome.asset("/assets/favicon.svg")}>
 
@@ -21,12 +24,14 @@
 
   <script src={self.chrome.asset("/assets/site.js")} defer></script>
 </head>
-<body class="min-h-screen bg-paper text-ink font-ui antialiased selection:bg-madder/15">
-  {# The woven ground. Fixed rather than scrolling with the page: it is the
-     cloth the site is printed on, and a texture that slides under the text
-     reads as a graphic instead of as paper. #}
-  <div class="pointer-events-none fixed inset-0 -z-10 bg-damask opacity-[0.055] dark:opacity-[0.045]"
-       aria-hidden="true"></div>
+{# The page's identity, for the "recently viewed" list the search dialog keeps
+   in localStorage. Read rather than derived from `document.title`, which
+   carries the site name too. #}
+<body class="min-h-screen bg-paper text-ink font-ui antialiased selection:bg-madder/15"
+      data-page-title={self.chrome.title.clone()}
+      data-page-kind={self.chrome.kind_label()}
+      data-page-summary={self.chrome.description.clone()}>
   <slot/>
+  <Templates chrome={self.chrome.clone()}/>
 </body>
 </html>

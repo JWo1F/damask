@@ -1,0 +1,78 @@
+{# Inert until cloned. `<template>` content is parsed but not rendered, so these
+   cost their bytes and nothing else — no layout, no requests, no scripts. #}
+
+{# The search dialog. A native `<dialog>`, so the top layer, the backdrop, focus
+   trapping and Escape are the browser's rather than this site's.
+
+   The body is left empty and filled with one of the fragments below, because an
+   open dialog is never blank: with nothing typed it offers somewhere to go. #}
+<template data-template="search">
+  <dialog class="search">
+    <form method="dialog" class="search-bar">
+      <i class="hgi-stroke hgi-search-01 icon" aria-hidden="true"></i>
+      <input type="search" aria-label="Search" autocomplete="off" spellcheck="false"
+             placeholder="Search the book and reference">
+      <kbd>Esc</kbd>
+    </form>
+
+    {# The idle state ships inside the dialog, already populated. The script
+       keeps a reference to it, swaps results in while there is a query, and
+       puts this node back when the box is cleared — so the default state is
+       markup that exists from the first paint rather than something rebuilt on
+       every keystroke.
+
+       "Start here" is rendered from the real pages, so a retitled chapter says
+       its new name here and a removed one fails the build's link check. #}
+    <div class="search-body">
+      <div class="search-idle">
+        <section data-group="recent" hidden>
+          <h2 class="search-group">Recently viewed</h2>
+          <ul class="search-results" role="listbox"></ul>
+        </section>
+        <section data-group="suggested">
+          <h2 class="search-group">Start here</h2>
+          <ul class="search-results" role="listbox">
+            {#each &self.chrome.suggestions as page}
+              <li>
+                <a href={page.href.clone()} role="option">
+                  <span class="search-kind">{page.kind}</span>
+                  <span class="search-where">{page.title}</span>
+                  <span class="search-preview">{page.summary}</span>
+                </a>
+              </li>
+            {/each}
+          </ul>
+        </section>
+      </div>
+    </div>
+  </dialog>
+</template>
+
+<template data-template="search-list">
+  <ul class="search-results" role="listbox"></ul>
+</template>
+
+{# One result. The script sets the href and fills the three spans as text. #}
+<template data-template="search-result">
+  <li>
+    <a role="option">
+      <span class="search-kind"></span>
+      <span class="search-where"></span>
+      <span class="search-preview"></span>
+    </a>
+  </li>
+</template>
+
+<template data-template="search-note">
+  <li class="search-empty"></li>
+</template>
+
+{# The copy button. Both glyphs ship in the clone and CSS shows one, so the swap
+   on a press costs no layout and no second font lookup. #}
+<template data-template="copy">
+  <button type="button" class="code-copy" aria-label="Copy code to clipboard">
+    <i class="hgi-stroke hgi-copy-01 icon" data-glyph="idle" aria-hidden="true"></i>
+    <i class="hgi-stroke hgi-tick-02 icon" data-glyph="done" aria-hidden="true"></i>
+    <span class="code-copy-label" aria-live="polite">Copy</span>
+  </button>
+</template>

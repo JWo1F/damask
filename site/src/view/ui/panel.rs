@@ -2,11 +2,12 @@ use damask::Component;
 
 /// A code panel with a filename tab.
 ///
-/// `code` arrives already highlighted — the markdown pipeline and the home
-/// page's front matter both hand over finished `<pre>` markup — so it is emitted
-/// with `{@html}`. Everything that reaches this field went through
-/// [`Highlighter::block`](crate::highlight::Highlighter::block), which escapes
-/// the code it was given; nothing user-submitted has a path here.
+/// `code` arrives already highlighted, as the bare `<pre>` from
+/// [`Highlighter::pre`](crate::highlight::Highlighter::pre) — the caption below
+/// is this component's own, so the framed form would caption the same code
+/// twice. It is emitted with `{@html}`; everything that reaches this field went
+/// through the highlighter, which escapes the code it was given, and nothing
+/// user-submitted has a path here.
 #[derive(Component)]
 pub struct Panel {
     pub name: String,

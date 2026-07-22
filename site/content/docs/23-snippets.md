@@ -12,7 +12,9 @@ section = "Components"
 ```
 
 Defined with `{#snippet name(params)}…{/snippet}`, rendered with `{@render}`.
-Parameters make a snippet a render-prop.
+Parameters make a snippet a render-prop. The name is everything before the first
+`(` and the parameters everything up to the last `)`, so a parameter may carry a
+type annotation: `{#snippet cell(value: u8)}`.
 
 Snippets lower to `let` bindings, which has two consequences:
 
@@ -20,8 +22,22 @@ Snippets lower to `let` bindings, which has two consequences:
 - It follows ordinary Rust scoping, so a snippet defined inside an element is not
   visible after that element closes.
 
-`{@render}` renders snippets and fragments. A component is called with its tag —
-`<Chip label="…"/>` — not with `{@render}`.
+| Form | Lowers to |
+|---|---|
+| `{#snippet n()}…{/snippet}` | `let n = fragment(\|r\| { … });` |
+| `{#snippet n(p)}…{/snippet}` | `let n = \|p\| fragment(move \|r\| { … });` |
+
+A snippet with no parameters is therefore a `Fragment` value, and one with
+parameters is a closure that builds a fresh `Fragment` per call — which is why
+the parameters are in scope inside the body and why the same snippet may be
+rendered many times.
+
+A snippet's body is laid out from its own root, like a component's, and the depth
+of the `{@render}` site is added when it runs.
+
+`{@render}` renders anything that implements `Render`: a snippet, a fragment, a
+slot lookup, an `Option` of one, a `Box<dyn Render>`, or a component value. A
+component is normally written as a tag instead — `<Chip label="…"/>`.
 
 ## Fragments
 
@@ -40,16 +56,26 @@ assert_eq!(buf.finish(), "<p>hi</p>");
 explicit wrapper because a blanket `impl<F: Fn(..)> Render for F` would conflict
 under coherence with the per-component `impl Render`.
 
+`Fragment` uses `Render`'s default `render_slots`, which ignores the slots and
+forwards to `render_into` — a fragment has no `<slot>`s of its own.
+
 Fragments are what slot content desugars to, and how you pass children from Rust
 — see [Slots](/docs/slots/#filling-from-rust).
 
 ## `as_display`
 
-`damask::as_display` widens a reference to `&dyn Display`. Generated code routes
-every `{ … }` and `{@html … }` value through it rather than unsizing at the call
-site, which keeps inference working for snippet parameters whose type is not yet
-known.
+```rust
+pub fn as_display<'a, T: Display + 'a>(value: &'a T) -> &'a dyn Display
+```
+
+Widens a reference to `&dyn Display`. Generated code routes every `{ … }` and
+`{@html … }` value through it rather than unsizing at the call site: passing
+`&(expr)` straight to a `&dyn Display` parameter unsizes whatever type inference
+has reached so far, and for a snippet parameter — still an inference variable —
+rust-analyzer would resolve that variable to `dyn Display` and then report every
+argument at the call site as a mismatch. A generic function makes it a plain
+`T: Display` bound, inferred from the call site as usual.
 
 You will not normally call it, with one exception worth knowing: `T` is `Sized`,
-so an already-unsized value needs a reference of its own — write `{&*boxed}`
-rather than `{*boxed}`.
+which unsizing requires, so an already-unsized value needs a reference of its own
+— write `{&*boxed}` rather than `{*boxed}`.

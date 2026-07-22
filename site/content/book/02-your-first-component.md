@@ -1,117 +1,147 @@
 +++
 title = "Your first component"
-summary = "Adding the dependency, writing the pair, and the rule that finds them."
+summary = "Start the project, write a struct and a template beside it, and render a status badge."
 +++
 
-Damask needs Rust 1.88 or newer and no build script.
+helm starts with the smallest thing on the page: the pill that says whether one
+service is up.
+
+## The project
+
+```sh
+cargo new helm
+```
 
 ```toml
 [dependencies]
 damask = "0.2"
 ```
 
+Damask needs Rust 1.88 or newer. That is the whole setup: nothing to register, no
+template directory to declare, no build script.
+
+## Something to render
+
+A component renders a value, so the value comes first. `src/model.rs` holds the
+domain — for now, one enum:
+
+```rust
+// src/model.rs
+use std::fmt::{self, Display};
+
+/// Operational state of a service, ordered healthy → worst.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Status {
+    Healthy,
+    Degraded,
+    Down,
+}
+
+impl Status {
+    /// Human-readable form, for badges and summaries.
+    pub fn label(self) -> &'static str {
+        match self {
+            Status::Healthy => "Healthy",
+            Status::Degraded => "Degraded",
+            Status::Down => "Down",
+        }
+    }
+}
+
+impl Display for Status {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.label())
+    }
+}
+```
+
+The `Display` impl is doing more work than it looks like. It lets a template
+print a status without knowing there is a `match` behind it, and it is the first
+instance of a rule this book keeps returning to: **markup reads values, Rust
+computes them.**
+
 ## The two-file rule
 
 A component is **two files that share a basename, in the same directory**:
 
 ```
-src/ui/
-  button.rs     the struct
-  button.dmk    the template
+src/
+  model.rs
+  status_badge.rs     the struct
+  status_badge.dmk    the template
 ```
 
-The derive resolves the template by the *struct's* name, lowercased to
-snake_case, next to the file the struct is declared in. `struct Button` looks for
-`button.dmk`; `struct PageCard` looks for `page_card.dmk`.
+```rust
+// src/status_badge.rs
+use damask::Component;
+
+use crate::model::Status;
+
+/// A status pill.
+#[derive(Component)]
+pub struct StatusBadge {
+    pub status: Status,
+}
+```
+
+```dmk
+<!-- src/status_badge.dmk -->
+<span class="badge">{self.status}</span>
+```
+
+The struct's **fields are its props**, and the template reads them off `self`. A
+`{ … }` tag prints its value, HTML-escaped. The derive leaves the struct itself
+alone — generics, other derives and doc comments all work as usual — and adds
+`Render` and `Component` impls beside it.
+
+The template is found by the *struct's* name, lowercased to snake_case, next to
+the file the struct is declared in. `struct StatusBadge` looks for
+`status_badge.dmk`. Editing that file triggers a rebuild on its own; there is no
+`include_str!` to remember and no `build.rs` to configure.
 
 > [!IMPORTANT]
-> Always create and edit the two as a pair. Renaming the struct means renaming
-> the template, and a `#[derive(Component)]` with no `.dmk` beside it is a
-> compile error rather than an empty render.
+> Create and edit the two as a pair. Renaming the struct means renaming the
+> template, and a `#[derive(Component)]` with no `.dmk` beside it is a compile
+> error rather than an empty render.
 
-Two components may share a `.rs` file — the resolution is by struct name, not by
-file name — which is how a table and its cell can live together and still have
-`table.dmk` and `cell.dmk`. What is *not* allowed is two templates with the same
-basename in one directory.
+Two components may share a `.rs` file — resolution is by struct name, not by file
+name — and if the pairing has to be broken entirely, `#[template(path = "…")]`
+names a file instead. [The Component derive](/docs/derive/) has the resolution
+rules in full.
 
-## Writing it
+## Running it
 
 ```rust
-// button.rs
+// src/main.rs
+mod model;
+mod status_badge;
+
 use damask::Component;
 
-#[derive(Component)]
-pub struct Button {
-    pub label: String,
-    pub disabled: bool,
+use crate::model::Status;
+use crate::status_badge::StatusBadge;
+
+fn main() {
+    let badge = StatusBadge {
+        status: Status::Degraded,
+    };
+    println!("{}", badge.render());
 }
 ```
 
-```dmk
-<!-- button.dmk -->
-<button type="button" disabled={self.disabled}>{self.label}</button>
+```sh
+$ cargo run
+<span class="badge">Degraded</span>
 ```
 
-The struct's **fields are its props**, and the template reads them off `self`.
-The derive leaves the struct itself untouched — generics, other derives and doc
-comments all work as usual — and adds `Render` and `Component` impls beside it.
+`render()` comes from the `Component` trait, which is why `use damask::Component`
+is at the top of `main.rs`. It returns a `String`.
 
-## Rendering it
+Two things worth noticing about that build. A misspelled field — `statuss` — is a
+compile error naming the field, because the generated code is a struct literal
+and a field access like any other; nothing is looked up in a map at runtime. And
+`{self.status}` compiled only because `Status` implements `Display`. A value that
+cannot be printed is an error at the tag, not a blank space in the page.
 
-```rust
-use damask::Component;
-
-let markup = Button {
-    label: "Save".into(),
-    disabled: false,
-}
-.render();
-
-assert_eq!(markup, r#"<button type="button">Save</button>"#);
-```
-
-Note what `disabled={self.disabled}` did with `false`: it emitted **nothing**. In
-HTML an attribute's presence is what disables a control, so `disabled="false"`
-would still be disabled. Damask asks the value's type how to appear, and a `bool`
-renders a bare attribute or none at all. The next chapters cover that in full.
-
-## Methods
-
-Anything you would rather not write in markup goes in an ordinary `impl`:
-
-```rust
-impl Button {
-    fn skin(&self) -> &'static str {
-        if self.disabled { "btn btn--off" } else { "btn" }
-    }
-}
-```
-
-```dmk
-<button class={self.skin()} disabled={self.disabled}>{self.label}</button>
-```
-
-This is the seam that keeps templates readable. A condition with three arms is a
-`match` in Rust and a mess in markup, and putting it in the `impl` costs nothing
-— it is the same file's worth of component either way.
-
-## Editing the template
-
-Changing a `.dmk` triggers a rebuild on its own. There is no build script to
-configure and no `include_str!` to remember; the derive registers the template as
-a dependency of the crate.
-
-## Choosing a different template
-
-If the pairing has to be broken — two components of the same name in one
-directory, a template generated elsewhere — name it explicitly:
-
-```rust
-#[derive(Component)]
-#[template(path = "button_compact.dmk")]
-pub struct CompactButton {
-    pub label: String,
-}
-```
-
-The path resolves next to the struct, like the default does.
+One component, one field, one line of markup. The next chapter renders something
+with a shape to it: a feed with a loop, a conditional, and an empty state.

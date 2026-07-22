@@ -1,13 +1,8 @@
 {use crate::view::layouts::Shell}
-{use crate::view::ui::{Action, Mark, Panel}}
+{use crate::view::ui::{Action, Panel}}
 <Shell chrome={self.chrome.clone()} wide={true}>
 
-  <section class="relative pt-16 pb-4 sm:pt-24">
-    {# The motif, enormous and nearly invisible behind the hero. It is the one
-       place the mark is allowed to be decoration rather than identification. #}
-    <Mark class="pointer-events-none absolute -top-6 -right-10 hidden h-[26rem] w-[26rem]
-                 text-madder/[0.055] lg:block"/>
-
+  <section class="pt-16 pb-4 sm:pt-24">
     <p class="font-mono text-[0.75rem] uppercase tracking-[0.2em] text-madder">{self.content.eyebrow}</p>
 
     <h1 class="mt-5 max-w-[19ch] font-display text-[clamp(2.6rem,6.2vw,4.4rem)] font-normal
@@ -21,6 +16,13 @@
       {#each &self.content.actions as action}
         <Action href={action.href.clone()} primary={action.primary} class="">{action.label}</Action>
       {/each}
+    </div>
+
+    {# The dependency line, in the first screen. A reader who is convinced by the
+       hero should be able to start from it rather than go looking. #}
+    <div class="mt-10 max-w-[24rem]">
+      {@html self.install}
+      <p class="mt-2.5 font-ui text-[0.78rem] text-ink-soft">{self.content.install.note}</p>
     </div>
   </section>
 
@@ -59,7 +61,7 @@
           <h2 class="font-display text-[1.35rem] font-medium tracking-[-0.015em] text-ink">{feature.title}</h2>
           <p class="mt-2.5 font-serif text-[1rem] leading-[1.66] text-ink-soft">{@html feature.body_html}</p>
           {#if let Some(code) = &feature.code}
-            <div class="mt-4 overflow-x-auto rounded-lg border border-rule bg-surface">{@html code}</div>
+            <div class="mt-4">{@html code}</div>
           {/if}
         </article>
       {/each}

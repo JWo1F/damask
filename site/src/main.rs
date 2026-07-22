@@ -16,6 +16,7 @@ mod content;
 mod highlight;
 mod links;
 mod markdown;
+mod search;
 mod urls;
 mod view;
 
@@ -29,7 +30,7 @@ use content::{Collection, Library};
 use highlight::Highlighter;
 use links::Targets;
 use urls::Urls;
-use view::chrome::{Chrome, Here};
+use view::chrome::{Chrome, Here, Suggestion};
 use view::pages;
 use view::ui::Step;
 
@@ -108,6 +109,13 @@ fn run() -> Result<usize, String> {
     let assets = copy_tree(&args.assets, &args.out.join(ASSETS))?;
     check_links(&pages, &assets, &urls)?;
 
+    // Written after the link check rather than before: it is derived from the
+    // same rendered HTML, so a build that is about to fail on a broken link has
+    // no business emitting an index of it.
+    let index_path = args.out.join(ASSETS).join("search.idx");
+    fs::write(&index_path, search::index(&library))
+        .map_err(|e| format!("write {}: {e}", index_path.display()))?;
+
     // GitHub Pages runs Jekyll over the branch unless told not to, and Jekyll
     // drops files and directories whose names begin with an underscore.
     write(&args.out.join(".nojekyll"), "")?;
@@ -120,6 +128,37 @@ fn run() -> Result<usize, String> {
 /// Clean URLs, so each page is an `index.html` in a directory of its own — a
 /// static host serves `/book/slots/` from `book/slots/index.html` with no
 /// rewrite rules, which is the whole reason not to emit `slots.html`.
+/// Pages the search dialog offers before a reader has typed anything.
+///
+/// Named by slug, resolved against the real content — so a page that is
+/// retitled keeps its place here under its new name, and one that is removed
+/// drops out rather than becoming a broken link.
+const SUGGESTED: &[&str] = &[
+    "your-first-component",
+    "composition",
+    "overview",
+    "tags",
+    "slots",
+];
+
+fn suggestions(library: &Library) -> Vec<Suggestion> {
+    let mut out = Vec::new();
+    for slug in SUGGESTED {
+        for (collection, kind) in [(&library.book, "Book"), (&library.docs, "Reference")] {
+            if let Some(page) = collection.pages.iter().find(|p| p.slug == **slug) {
+                out.push(Suggestion {
+                    title: page.title.clone(),
+                    href: page.href.clone(),
+                    kind,
+                    summary: markdown::plain(&page.summary),
+                });
+                break;
+            }
+        }
+    }
+    out
+}
+
 fn render(library: &Library, urls: &Urls, highlighter: &Highlighter) -> Vec<Rendered> {
     let mut pages = vec![Rendered {
         path: PathBuf::from("index.html"),
@@ -134,7 +173,7 @@ fn render(library: &Library, urls: &Urls, highlighter: &Highlighter) -> Vec<Rend
             path: dir.join("index.html"),
             href: collection.href.clone(),
             anchors: Vec::new(),
-            html: index(collection, urls),
+            html: index(collection, urls, &suggestions(library)),
         });
 
         for (position, page) in collection.pages.iter().enumerate() {
@@ -142,7 +181,7 @@ fn render(library: &Library, urls: &Urls, highlighter: &Highlighter) -> Vec<Rend
                 path: dir.join(&page.slug).join("index.html"),
                 href: page.href.clone(),
                 anchors: page.headings.iter().map(|h| h.anchor.clone()).collect(),
-                html: article(collection, position, urls),
+                html: article(collection, position, urls, &suggestions(library)),
             });
         }
     }
@@ -202,10 +241,17 @@ fn home(library: &Library, urls: &Urls, highlighter: &Highlighter) -> String {
         .collect();
 
     pages::Home {
-        chrome: Chrome::new(urls, Here::Home, &home.title, markdown::plain(&home.lede)),
-        rs: highlighter.block("rust", &weave.rs),
-        dmk: highlighter.block("dmk", &weave.dmk),
-        out: highlighter.block("html", &weave.out),
+        chrome: Chrome::new(
+            urls,
+            Here::Home,
+            &home.title,
+            markdown::plain(&home.lede),
+            suggestions(library),
+        ),
+        install: highlighter.block("toml", &home.install.code),
+        rs: highlighter.pre("rust", &weave.rs),
+        dmk: highlighter.pre("dmk", &weave.dmk),
+        out: highlighter.pre("html", &weave.out),
         content: home.clone(),
         features,
         book_href: library.book.href.clone(),
@@ -214,20 +260,26 @@ fn home(library: &Library, urls: &Urls, highlighter: &Highlighter) -> String {
     .render()
 }
 
-fn index(collection: &Collection, urls: &Urls) -> String {
+fn index(collection: &Collection, urls: &Urls, suggestions: &[Suggestion]) -> String {
     pages::Index {
         chrome: Chrome::new(
             urls,
             collection.kind.into(),
             &collection.title,
             markdown::plain(&collection.lede),
+            suggestions.to_vec(),
         ),
         collection: collection.clone(),
     }
     .render()
 }
 
-fn article(collection: &Collection, position: usize, urls: &Urls) -> String {
+fn article(
+    collection: &Collection,
+    position: usize,
+    urls: &Urls,
+    suggestions: &[Suggestion],
+) -> String {
     let page = &collection.pages[position];
 
     // The pager's neighbours come from the flat page order, not from the grouped
@@ -249,7 +301,13 @@ fn article(collection: &Collection, position: usize, urls: &Urls) -> String {
     });
 
     pages::Article {
-        chrome: Chrome::new(urls, collection.kind.into(), &page.title, description),
+        chrome: Chrome::new(
+            urls,
+            collection.kind.into(),
+            &page.title,
+            description,
+            suggestions.to_vec(),
+        ),
         page: page.clone(),
         sections: collection.sections(),
         collection_title: collection.title.clone(),

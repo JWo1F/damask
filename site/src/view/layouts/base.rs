@@ -32,6 +32,14 @@ impl Base {
 })();
 </script>"#;
 
+    /// Hugeicons' stroke-rounded set, as an icon font.
+    ///
+    /// Loaded before `site.css` so the site's own rules — sizing, colour, the
+    /// copy button's two-glyph swap — are the ones that win.
+    fn icons() -> &'static str {
+        "https://use.hugeicons.com/font/icons.css"
+    }
+
     fn fonts() -> &'static str {
         "https://fonts.googleapis.com/css2\
          ?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600\

@@ -21,6 +21,8 @@ pub struct Home {
     pub chrome: Chrome,
     pub content: content::Home,
     pub features: Vec<Feature>,
+    /// The dependency snippet, highlighted.
+    pub install: String,
     /// The hero's three panels, highlighted.
     pub rs: String,
     pub dmk: String,

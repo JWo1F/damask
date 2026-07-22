@@ -2,3 +2,4 @@
 /tools/tailwindcss
 /site/dist
 /site/assets/site.css
+.DS_Store

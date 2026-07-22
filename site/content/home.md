@@ -1,12 +1,12 @@
 +++
 eyebrow = "Compile-time components for Rust"
-title = "Templates woven into the binary."
-closing = "Written the way you would write the HTML"
+title = "Components with real slots."
+closing = "The template is the markup"
 lede = """
-A Damask component is a Rust struct paired with an HTML template. The derive \
-turns the template into a `render` method at build time, so rendering a page is \
-plain, allocation-light Rust — no runtime engine, no template cache, no \
-interpreter between your data and the response.\
+A component is a Rust struct and an HTML template that share a filename. The \
+template declares as many named slots as it likes — with fallback content, \
+forwarding, and a way to ask what the caller filled — and the struct never \
+changes. Callers fill them the way they fill a web component's.\
 """
 
 [[actions]]
@@ -17,6 +17,13 @@ primary = true
 [[actions]]
 label = "Reference"
 href = "/docs/"
+
+[install]
+code = '''
+[dependencies]
+damask = "0.2"
+'''
+note = "Rust 1.88 or newer. No build script, no configuration."
 
 [weave]
 rs_name = "card.rs"
@@ -45,11 +52,30 @@ out = '''
 '''
 
 [[feature]]
-title = "Two files, one component"
+title = "Slots, not children"
 body = """
-The struct's fields are the props; the template beside it is the markup. Damask \
-finds the pair by name, so there is no build script, no macro argument and no \
-registry to keep in sync — editing the template triggers a rebuild on its own.\
+Most engines hand a component one anonymous block of content. A Damask template \
+declares as many named slots as it wants: `<slot>` marks the place, its body is \
+the fallback, and `slot="…"` on a direct child fills it. Several children may \
+name the same slot, and a `<slot>` placed where a fill goes forwards a slot of \
+your own straight through.\
+"""
+code = '''
+<Frame title={self.heading.clone()}>
+  <p>{self.body}</p>
+  <span slot="footer">© {self.year}</span>
+  <a slot="footer" href="/about">About</a>
+</Frame>
+'''
+
+[[feature]]
+title = "Two files, no wiring"
+body = """
+`button.rs` and `button.dmk`, side by side. Damask finds the template next to \
+the struct, so there is no path attribute, no templates directory, no registry \
+and no build script — and editing the template triggers a rebuild on its own. \
+It needs Rust 1.88, which is when a macro first gained the ability to ask where \
+it was written.\
 """
 lang = "rust"
 code = '''
@@ -66,7 +92,8 @@ title = "A missing prop is a compile error"
 body = """
 Component tags are checked like the struct literals they become. Rename a field \
 and every call site that still passes the old one stops the build, with the \
-field named in the message.\
+field named in the message. A prop typed `Option<_>` may be left out, and \
+arrives as `None`.\
 """
 code = '''
 <Button label="Save" disabled={self.locked}/>
@@ -74,30 +101,17 @@ code = '''
 '''
 
 [[feature]]
-title = "Escaping you cannot forget"
+title = "Attributes that know they are HTML"
 body = """
-`{ … }` escapes. Raw output has to be asked for by name, with `{@html … }`, so \
-the unsafe case is the one that is visible in review — and the `Renderer` trait \
-is where a project changes that policy wholesale.\
+On an element, `attr={expr}` asks the value's type how to appear. A `bool` \
+renders a bare attribute or nothing at all, and an `Option` renders nothing when \
+it is `None` — because in HTML it is the *presence* of `disabled` that disables \
+a control, and `disabled="false"` disables it too.\
 """
 code = '''
-{self.name}          <!-- <b> becomes &lt;b&gt; -->
-{@html self.body}    <!-- verbatim, and it looks it -->
-'''
-
-[[feature]]
-title = "Slots, without the struct knowing"
-body = """
-A template declares as many slots as it likes and the struct never changes. \
-`<slot>` marks the place, `slot="…"` fills it — as web components do — and \
-content passed from a caller stays on the caller's stack, borrowed, not boxed.\
-"""
-code = '''
-<Frame title={self.heading.clone()}>
-  <p>{self.body}</p>
-  <span slot="footer">© {self.year}</span>
-  <a slot="footer" href="/about">About</a>
-</Frame>
+<input title="row {self.n}"
+       disabled={self.locked}
+       placeholder={self.hint}/>
 '''
 
 +++
@@ -107,7 +121,9 @@ block, so it sees whatever is in scope — `self`, an `impl` method beside the
 struct, a `use` you wrote three lines up. Control flow is the Rust you already
 know, spelled `{#if}` and `{#each}` so that a template still reads as markup.
 
-What comes out the other end is a `render` method: a run of `write_raw` calls
-over string literals the compiler already knows, with your values escaped into
-the gaps. Nothing parses a template at runtime, because by then there is no
-template left to parse.
+Slots are matched by name when the page renders, and that is the price of
+keeping them off the struct: a template may add or drop a `<slot>` without
+touching a single field, and in exchange a misspelled slot name renders nothing
+rather than failing the build. Fills are borrowed rather than owned, so content
+passed from a caller stays on the caller's stack and can borrow the caller's
+data without being boxed.

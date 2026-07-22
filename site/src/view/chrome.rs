@@ -25,6 +25,23 @@ impl From<Kind> for Here {
     }
 }
 
+/// A page offered when the search dialog opens with nothing typed.
+///
+/// Built from the real content rather than written into the template, so a
+/// suggestion's label is the page's actual title and cannot drift when a
+/// chapter is renamed. The hrefs go through the link checker like any other.
+#[derive(Debug, Clone)]
+pub struct Suggestion {
+    pub title: String,
+    pub href: String,
+    /// "Book" or "Reference".
+    pub kind: &'static str,
+    /// The page's summary. Carried so a suggested row is the same three lines a
+    /// search result is — the idle state differs from a result list in what it
+    /// lists, not in how a row looks.
+    pub summary: String,
+}
+
 /// One entry in the site header.
 #[derive(Debug, Clone)]
 pub struct NavItem {
@@ -40,6 +57,8 @@ pub struct Chrome {
     pub description: String,
     pub here: Here,
     pub nav: Vec<NavItem>,
+    /// Where to send a reader who opened search with nothing in mind.
+    pub suggestions: Vec<Suggestion>,
     pub urls: Urls,
 }
 
@@ -52,11 +71,13 @@ impl Chrome {
         here: Here,
         title: impl Into<String>,
         description: impl Into<String>,
+        suggestions: Vec<Suggestion>,
     ) -> Self {
         Self {
             title: title.into(),
             description: description.into(),
             here,
+            suggestions,
             nav: vec![
                 NavItem {
                     label: "Book",
@@ -80,6 +101,17 @@ impl Chrome {
             self.title.clone()
         } else {
             format!("{} · {}", self.title, Self::NAME)
+        }
+    }
+
+    /// Which half of the site this page belongs to, or nothing for the home
+    /// page — which the header already offers and is not worth a slot in the
+    /// reader's history.
+    pub fn kind_label(&self) -> Option<&'static str> {
+        match self.here {
+            Here::Home => None,
+            Here::Book => Some("Book"),
+            Here::Docs => Some("Reference"),
         }
     }
 

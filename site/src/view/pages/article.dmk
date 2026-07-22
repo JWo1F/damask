@@ -12,8 +12,13 @@
 
     <div class="lg:pt-4">
       <details class="mb-8 rounded-xl border border-rule bg-surface/60 lg:hidden">
-        <summary class="cursor-pointer list-none px-4 py-3 font-ui text-[0.82rem] font-medium text-ink-soft">
+        {# `list-none` drops the native marker, so the chevron replaces it rather
+           than joining it — without one the summary reads as an inert card and
+           nothing says the panel opens. #}
+        <summary class="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3
+                        font-ui text-[0.82rem] font-medium text-ink-soft">
           {self.collection_title}
+          <i class="hgi-stroke hgi-arrow-down-01 icon disclosure" aria-hidden="true"></i>
         </summary>
         <div class="border-t border-rule px-2 py-3">
           <Sidebar sections={self.sections.clone()} current={self.page.slug.clone()}

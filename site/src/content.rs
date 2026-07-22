@@ -130,6 +130,7 @@ pub struct Home {
     #[serde(skip)]
     pub lede_html: String,
     pub actions: Vec<Action>,
+    pub install: Install,
     pub weave: Weave,
     #[serde(default, rename = "feature")]
     pub features: Vec<Feature>,
@@ -147,6 +148,18 @@ pub struct Action {
     pub href: String,
     #[serde(default)]
     pub primary: bool,
+}
+
+/// The dependency line, on the landing page.
+///
+/// A reader who has decided in the first screen should not have to open the
+/// book to find out what to paste — which is where this lived before.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Install {
+    pub code: String,
+    /// The constraint that belongs beside it rather than three pages later.
+    pub note: String,
 }
 
 /// The hero's three panels: the two files an author writes, and what they

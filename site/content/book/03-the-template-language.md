@@ -1,56 +1,118 @@
 +++
-title = "The template language"
-summary = "Brace tags: printing, escaping, conditionals, loops, and the Rust inside them."
+title = "The deploy feed"
+summary = "Loops, conditionals, an empty state, and the Rust inside a brace tag."
 +++
 
-A Damask template is HTML with **brace tags**. Everything the language adds lives
-inside `{ … }`, and what is inside is a Rust block.
+helm's second panel is a feed of recent deploys. It has everything the badge did
+not: a list to walk, a flag to check per entry, a state for when the list is
+empty, and a "and 4 more" line that only appears when there are more.
 
-## Printing
+Start with the data. Add to `src/model.rs`:
 
-```dmk
-<p>{self.name}</p>
+```rust
+/// A release of one service.
+pub struct Deploy {
+    pub service: String,
+    pub version: String,
+    pub author: String,
+    pub minutes_ago: u32,
+    pub rolled_back: bool,
+}
+
+impl Deploy {
+    /// Coarse relative time — enough for a feed, no date library needed.
+    pub fn when(&self) -> String {
+        match self.minutes_ago {
+            0 => "just now".to_string(),
+            m if m < 60 => format!("{m}m ago"),
+            m if m < 60 * 24 => format!("{}h ago", m / 60),
+            m => format!("{}d ago", m / (60 * 24)),
+        }
+    }
+}
 ```
 
-An expression prints its value, **HTML-escaped**. A statement or binding runs and
-prints nothing:
+## Borrowed props
 
-```dmk
-{let total = self.items.len()}
-<p>{total} items</p>
+The feed does not own the deploys — the page does. A component may borrow, and
+the lifetime goes on the struct as it would anywhere else:
+
+```rust
+// src/deploy_feed.rs
+use damask::Component;
+
+use crate::model::Deploy;
+
+#[derive(Component)]
+pub struct DeployFeed<'a> {
+    pub deploys: &'a [Deploy],
+    /// How many entries to show; the rest are summarised as a remainder.
+    pub limit: usize,
+}
+
+impl DeployFeed<'_> {
+    pub fn visible(&self) -> &[Deploy] {
+        let n = self.limit.min(self.deploys.len());
+        &self.deploys[..n]
+    }
+
+    pub fn hidden(&self) -> usize {
+        self.deploys.len().saturating_sub(self.limit)
+    }
+}
 ```
 
-Because the tag is a block, the last expression is what prints — `{2 + 3; 10}`
-prints `10`.
+Those two methods are the seam. Slicing to a limit and clamping a subtraction are
+things Rust does well and markup does badly, so they happen here and the template
+calls them.
+
+## The template
+
+```dmk
+<!-- src/deploy_feed.dmk -->
+<section>
+  <h1>Recent deploys</h1>
+  {#if self.deploys.is_empty()}
+    <p class="empty">Nothing has shipped in the last 24 hours.</p>
+  {:else}
+    <ul class="feed">
+      {#each self.visible() as d}
+        <li>
+          <span class="svc">{d.service}</span>
+          <span class="ver">{d.version}</span>
+          <span class="owner">by {d.author}</span>
+          {#if d.rolled_back}<span class="rb">rolled back</span>{/if}
+          <span class="ago">{d.when()}</span>
+        </li>
+      {/each}
+    </ul>
+    {#if self.hidden() > 0}
+      <p class="sub">and {self.hidden()} older deploy(s) not shown.</p>
+    {/if}
+  {/if}
+</section>
+```
+
+Everything the language adds lives inside braces, and what is inside is **a Rust
+block**, evaluated in the scope of the generated render method. It sees `self`,
+the methods on the `impl` next door, and anything imported with `{use}` — which
+chapter five needs and introduces. That is why `self.visible()`, `self.hidden() > 0` and `d.when()` need no special
+support: they are not template expressions, they are Rust.
+
+Because it is a block, the last expression is what prints — `{2 + 3; 10}` prints
+`10` — and a tag that is a statement or a binding runs and prints nothing:
+
+```dmk
+{let total = self.deploys.len()}
+<p>{total} deploys</p>
+```
 
 A literal brace is written as an expression: `{"{"}`.
 
-## Raw output
-
-`{@html … }` prints without escaping:
-
-```dmk
-<div class="prose">{@html self.rendered_markdown}</div>
-```
-
-Use it for content you produced yourself or that is already escaped — a child
-component's `.render()`, markdown you compiled at build time. Anything derived
-from a request goes through `{ … }`. The asymmetry is the point: the dangerous
-form is longer, named, and obvious in a diff.
-
 ## Conditionals
 
-```dmk
-{#if self.admin}
-  <span class="badge">admin</span>
-{:else if self.pending}
-  <span class="badge badge--muted">awaiting review</span>
-{:else}
-  <span class="badge badge--plain">member</span>
-{/if}
-```
-
-The condition is a Rust expression, so `if let` works too:
+`{#if}` splices its condition into a Rust `if`, so `{:else if}`, `{:else}` and
+`if let` all work:
 
 ```dmk
 {#if let Some(error) = &self.error}
@@ -60,25 +122,18 @@ The condition is a Rust expression, so `if let` works too:
 
 ## Loops
 
-```dmk
-<ul>
-  {#each &self.items as item}
-    <li>{item.label}</li>
-  {/each}
-</ul>
-```
-
-The expression is anything iterable — usually `&self.items`, which is why the
-binding is a reference. A trailing name is the index:
+`{#each E as p}` takes anything iterable. `self.visible()` returns a slice, so
+`d` is a `&Deploy`; over a field you own you would write `{#each &self.deploys as
+d}` for the same reason. A trailing identifier is the index:
 
 ```dmk
-{#each &self.chapters as chapter, position}
-  <li><span class="num">{position + 1}</span> {chapter.title}</li>
+{#each self.visible() as d, i}
+  <li value={i + 1}>{d.service}</li>
 {/each}
 ```
 
-Anything else after the `as` is treated as a whole pattern, so destructuring
-works:
+Anything after `as` that is *not* a trailing identifier is one whole pattern, so
+destructuring works:
 
 ```dmk
 {#each &self.pairs as (key, value)}
@@ -86,31 +141,11 @@ works:
 {/each}
 ```
 
-## Imports
-
-`{use …}` is an ordinary Rust `use`, and it is **scoped to the element that
-encloses it**:
-
-```dmk
-<section>
-  {use crate::ui::Badge}
-  <Badge tone={self.tone}/>
-</section>
-<!-- Badge is not in scope here -->
-```
-
-Import anything — components, functions, enums. At the top of a template, before
-any element, an import covers the whole file, which is where most of them go.
-
 ## Comments
 
-`{# … #}` is a template comment. It does not reach the output, which is what
-distinguishes it from `<!-- … -->`:
-
-```dmk
-{# The gap is on the header, not the caller: see CardHeader. #}
-<div class="card">…</div>
-```
+`<!-- … -->` passes through to the output. `{# … #}` does not, and it takes the
+blank line it would otherwise leave behind with it — use it for a note to the
+next person to open the file rather than to the browser.
 
 ## What does not work
 
@@ -120,12 +155,84 @@ distinguishes it from `<!-- … -->`:
 <input {#if self.locked}disabled{/if}>
 ```
 
-Attribute *names* are static — there is no `data-{key}=`. Express a conditional
-attribute through its value instead, using a `bool` or an `Option`:
+Attribute *names* are static; there is no `data-{key}=`. A conditional attribute
+is expressed through its value instead, which is the next chapter.
 
-```dmk
-<input disabled={self.locked} placeholder={self.hint.clone()}>
+## Running it
+
+```rust
+// src/main.rs
+mod deploy_feed;
+mod model;
+mod status_badge;
+
+use damask::Component;
+
+use crate::deploy_feed::DeployFeed;
+use crate::model::Deploy;
+
+fn main() {
+    let deploys = vec![
+        Deploy {
+            service: "checkout-api".into(),
+            version: "v5.1.2".into(),
+            author: "ada".into(),
+            minutes_ago: 12,
+            rolled_back: false,
+        },
+        Deploy {
+            service: "image-resizer".into(),
+            version: "v1.0.0-rc<1>".into(),
+            author: "grace".into(),
+            minutes_ago: 95,
+            rolled_back: true,
+        },
+        Deploy {
+            service: "edge-router".into(),
+            version: "v2.14.0".into(),
+            author: "linus".into(),
+            minutes_ago: 1500,
+            rolled_back: false,
+        },
+    ];
+
+    let feed = DeployFeed {
+        deploys: &deploys,
+        limit: 2,
+    };
+    println!("{}", feed.render());
+}
 ```
 
-For a whole run of attributes whose names you do not know, there is `{...expr}`,
-which the next chapter covers.
+```sh
+$ cargo run
+<section>
+  <h1>Recent deploys</h1>
+  <ul class="feed">
+    <li>
+      <span class="svc">checkout-api</span>
+      <span class="ver">v5.1.2</span>
+      <span class="owner">by ada</span>
+
+      <span class="ago">12m ago</span>
+    </li>
+    <li>
+      <span class="svc">image-resizer</span>
+      <span class="ver">v1.0.0-rc&lt;1&gt;</span>
+      <span class="owner">by grace</span>
+      <span class="rb">rolled back</span>
+      <span class="ago">1h ago</span>
+    </li>
+  </ul>
+  <p class="sub">and 1 older deploy(s) not shown.</p>
+</section>
+```
+
+The second version reads `v1.0.0-rc&lt;1&gt;`. That release name contains a `<`,
+and `{ … }` escaped it on the way out — the default, applied to every value a
+template prints, whether or not you were thinking about where it came from. There
+is a way to opt out, and chapter five needs it exactly once.
+
+Set `limit: 5` and the remainder line disappears. Pass an empty slice and the
+whole list is replaced by the empty state. That is the panel finished; next comes
+the table beside it, which needs attributes that do more than hold a string.
