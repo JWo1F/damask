@@ -2,13 +2,14 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use damask_template::{LineIndex, parse};
+use damask_template::{LineIndex, Span, parse};
 use tokio::sync::{Mutex as AsyncMutex, mpsc};
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer, jsonrpc::Result};
 
 use crate::analysis::{Context, cursor_context, in_code_tag, is_self_access};
-use crate::introspect;
+use crate::introspect::{self, Member, SlotDef};
+use crate::locate::{self, Target};
 use crate::lsp_client::LspClient;
 use crate::virtual_file::VirtualFile;
 
@@ -150,6 +151,17 @@ impl Backend {
         }
 
         Some(OverlayHandle { client, vf, rs_uri })
+    }
+
+    /// Hover for the component-facing surface rust-analyzer cannot explain: a
+    /// component's attributes (which lower to generated builder setters) and its
+    /// slots (matched by string at run time). Component *names* are a real type,
+    /// so those are left to rust-analyzer.
+    fn damask_hover(&self, uri: &Url, pos: Position) -> Option<Hover> {
+        let text = self.text_of(uri)?;
+        let path = uri.to_file_path().ok()?;
+        let offset = offset_at(&text, pos);
+        damask_hover_at(&path, &text, offset)
     }
 
     /// Hover via rust-analyzer, with the range mapped back to the template.
@@ -371,7 +383,16 @@ impl LanguageServer for Backend {
     }
 
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
-        self.docs.lock().unwrap().remove(&params.text_document.uri);
+        let uri = params.text_document.uri;
+        self.docs.lock().unwrap().remove(&uri);
+        // Release the closed template's overlay (its virtual file holds the whole
+        // lowered body and source map) and HTML skeleton version, so a long
+        // session that browses many templates does not accumulate them.
+        self.html_versions.lock().await.remove(&uri);
+        self.overlays
+            .lock()
+            .await
+            .retain(|_, state| state.damask_uri != uri);
     }
 
     async fn completion(&self, params: CompletionParams) -> Result<Option<CompletionResponse>> {
@@ -382,6 +403,16 @@ impl LanguageServer for Backend {
             return Ok(None);
         };
         let offset = offset_at(&text, position);
+
+        // A `slot="…"` fill: offer the target component's slot names. Checked
+        // ahead of the generic contexts, which would see only plain markup.
+        if let Some(component) = crate::analysis::slot_fill_component(&text, offset)
+            && let Some(path) = uri.to_file_path().ok()
+        {
+            return Ok(Some(CompletionResponse::Array(slot_value_items(
+                &path, &component,
+            ))));
+        }
 
         // Inside a `{ … }` tag, rust-analyzer gives far richer results than the
         // static introspection can; elsewhere (element names, component
@@ -435,12 +466,22 @@ impl LanguageServer for Backend {
                 ))))
             }
             // Plain markup (HTML element attributes, text) — the HTML server
-            // handles tag/attribute completion here.
+            // handles tag/attribute completion here. On a child of a component,
+            // `slot` is offered alongside so a slot fill is discoverable.
             Context::None => {
-                if let Some(items) = self.proxy_html_completion(&uri, position).await {
-                    return Ok(Some(CompletionResponse::Array(items)));
+                let mut items = Vec::new();
+                if let Some(component) = crate::analysis::slot_attribute_component(&text, offset) {
+                    let mut item = slot_attribute_item(&component);
+                    item.sort_text = Some("0slot".to_string());
+                    items.push(item);
                 }
-                Ok(None)
+                if let Some(html) = self.proxy_html_completion(&uri, position).await {
+                    items.extend(html);
+                }
+                if items.is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(CompletionResponse::Array(items)))
             }
         }
     }
@@ -448,6 +489,11 @@ impl LanguageServer for Backend {
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let pos = params.text_document_position_params;
         let uri = pos.text_document.uri;
+        // Component attributes and slots first: rust-analyzer sees only the
+        // generated setters they lower to, so answer these from introspection.
+        if let Some(hover) = self.damask_hover(&uri, pos.position) {
+            return Ok(Some(hover));
+        }
         // Code inside `{ … }` → rust-analyzer; markup → the HTML server.
         if let Some(hover) = self.proxy_hover(&uri, pos.position).await {
             return Ok(Some(hover));
@@ -650,6 +696,109 @@ fn fallback_hover(uri: &Url, position: Position, text: Option<String>) -> Option
     })
 }
 
+// ---------------------------------------------------------------------------
+// Native (introspection-based) hover for components, attributes, and slots.
+// ---------------------------------------------------------------------------
+
+/// Hover for the Damask entity at `offset`, or `None` when it is not one (plain
+/// markup, Rust code, or a component name — which rust-analyzer handles).
+fn damask_hover_at(path: &Path, text: &str, offset: usize) -> Option<Hover> {
+    let template = parse(text).ok()?;
+    let (value, span) = match locate::locate(&template, offset)? {
+        Target::ComponentName { .. } => return None,
+        Target::ComponentAttr {
+            component,
+            attr,
+            span,
+        } => {
+            let components = introspect::crate_components(path);
+            let def = components.iter().find(|c| c.name == component)?;
+            let field = def.fields.iter().find(|f| f.name == attr)?;
+            (attr_hover_markdown(&component, field), span)
+        }
+        Target::SlotName { name, span } => (slot_decl_markdown(name.as_deref()), span),
+        Target::SlotFill {
+            component,
+            name,
+            span,
+        } => {
+            // Look up the target component only to flag a slot it does not
+            // declare; the fill still hovers without it.
+            let slots = component.as_deref().map(|c| {
+                introspect::crate_components(path)
+                    .into_iter()
+                    .find(|d| d.name == c)
+                    .map(|d| d.slots())
+                    .unwrap_or_default()
+            });
+            (
+                slot_fill_markdown(component.as_deref(), &name, slots.as_deref()),
+                span,
+            )
+        }
+    };
+    Some(Hover {
+        contents: HoverContents::Markup(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value,
+        }),
+        range: Some(damask_range(text, span)),
+    })
+}
+
+/// Markdown for a component attribute: its declared type, whether it may be
+/// omitted, and its doc comment.
+fn attr_hover_markdown(component: &str, field: &Member) -> String {
+    let kind = if field.optional {
+        "optional prop"
+    } else {
+        "required prop"
+    };
+    let mut md = format!(
+        "```rust\n{}: {}\n```\n\n{} of `{}`.",
+        field.name, field.detail, kind, component
+    );
+    if let Some(docs) = &field.docs {
+        md.push_str("\n\n");
+        md.push_str(docs);
+    }
+    md
+}
+
+/// Markdown for a `<slot>` declaration.
+fn slot_decl_markdown(name: Option<&str>) -> String {
+    match name {
+        Some(n) => {
+            format!("The `{n}` slot.\n\nA caller fills it by marking a child `slot=\"{n}\"`.")
+        }
+        None => "The default slot.\n\nA caller fills it with any child not marked `slot=\"…\"`."
+            .to_string(),
+    }
+}
+
+/// Markdown for a `slot="…"` fill, noting the target component and flagging a
+/// name the component does not declare (`slots` known but missing it).
+fn slot_fill_markdown(component: Option<&str>, name: &str, slots: Option<&[SlotDef]>) -> String {
+    let mut md = match component {
+        Some(c) => format!("Fills the `{name}` slot of `{c}`."),
+        None => format!("Fills the `{name}` slot."),
+    };
+    if let (Some(c), Some(slots)) = (component, slots)
+        && !slots.iter().any(|s| s.name.as_deref() == Some(name))
+    {
+        md.push_str(&format!("\n\n⚠ `{c}` declares no `{name}` slot."));
+    }
+    md
+}
+
+/// Convert a template byte span to an editor range.
+fn damask_range(text: &str, span: Span) -> Range {
+    Range {
+        start: position_at(text, span.start),
+        end: position_at(text, span.end),
+    }
+}
+
 /// `{ self.… }` — the paired component's fields and methods (plus a `self`
 /// entry point outside a `self.` access).
 fn self_member_items(path: &Path, before: &str) -> Vec<CompletionItem> {
@@ -667,6 +816,7 @@ fn self_member_items(path: &Path, before: &str) -> Vec<CompletionItem> {
                 CompletionItemKind::FIELD
             }),
             detail: Some(m.detail.clone()),
+            documentation: member_docs(m),
             ..Default::default()
         })
         .collect();
@@ -693,6 +843,12 @@ fn component_name_items(path: &Path) -> Vec<CompletionItem> {
             label: c.name,
             kind: Some(CompletionItemKind::CLASS),
             detail: Some(c.module_path),
+            documentation: c.docs.map(|d| {
+                Documentation::MarkupContent(MarkupContent {
+                    kind: MarkupKind::Markdown,
+                    value: d,
+                })
+            }),
             ..Default::default()
         })
         .collect()
@@ -710,11 +866,58 @@ fn attribute_items(path: &Path, component: &str) -> Vec<CompletionItem> {
         .map(|f| CompletionItem {
             label: f.name.clone(),
             kind: Some(CompletionItemKind::FIELD),
-            detail: Some(f.detail.clone()),
+            // An optional prop is marked so a caller can see, in the list, which
+            // props may be left out (`Option<_>` or `#[component(default)]`).
+            detail: Some(if f.optional {
+                format!("{} (optional)", f.detail)
+            } else {
+                f.detail.clone()
+            }),
+            documentation: member_docs(f),
             insert_text: Some(format!("{}=", f.name)),
             ..Default::default()
         })
         .collect()
+}
+
+/// A member's doc comment as completion documentation, if it has one.
+fn member_docs(m: &Member) -> Option<Documentation> {
+    m.docs.as_ref().map(|d| {
+        Documentation::MarkupContent(MarkupContent {
+            kind: MarkupKind::Markdown,
+            value: d.clone(),
+        })
+    })
+}
+
+/// `<X slot="…"` — the named slots the enclosing `component` declares.
+fn slot_value_items(path: &Path, component: &str) -> Vec<CompletionItem> {
+    let components = introspect::crate_components(path);
+    let Some(def) = components.iter().find(|c| c.name == component) else {
+        return Vec::new();
+    };
+    def.slots()
+        .into_iter()
+        .filter_map(|s| s.name)
+        .map(|name| CompletionItem {
+            label: name,
+            kind: Some(CompletionItemKind::ENUM_MEMBER),
+            detail: Some(format!("slot of {component}")),
+            ..Default::default()
+        })
+        .collect()
+}
+
+/// The `slot` attribute itself, offered on a component's child so a slot fill is
+/// discoverable from the attribute list.
+fn slot_attribute_item(component: &str) -> CompletionItem {
+    CompletionItem {
+        label: "slot".to_string(),
+        kind: Some(CompletionItemKind::FIELD),
+        detail: Some(format!("fill a slot of {component}")),
+        insert_text: Some("slot=".to_string()),
+        ..Default::default()
+    }
 }
 
 /// `{use …}` — component paths in the crate.
@@ -755,6 +958,42 @@ fn word_at(text: &str, offset: usize) -> String {
 mod tests {
     use super::*;
     use crate::virtual_file::VirtualFile;
+
+    #[test]
+    fn attr_hover_shows_type_optionality_and_docs() {
+        let required = Member {
+            name: "title".into(),
+            detail: "String".into(),
+            is_method: false,
+            docs: Some("The headline.".into()),
+            optional: false,
+        };
+        let md = attr_hover_markdown("Notice", &required);
+        assert!(md.contains("title: String"));
+        assert!(md.contains("required prop of `Notice`"));
+        assert!(md.contains("The headline."));
+
+        let optional = Member {
+            optional: true,
+            docs: None,
+            ..required
+        };
+        assert!(attr_hover_markdown("Notice", &optional).contains("optional prop"));
+    }
+
+    #[test]
+    fn slot_fill_flags_unknown_slot() {
+        let slots = [introspect::SlotDef {
+            name: Some("footer".into()),
+        }];
+        // A declared slot: no warning.
+        assert!(!slot_fill_markdown(Some("Frame"), "footer", Some(&slots)).contains('⚠'));
+        // An undeclared one is flagged.
+        assert!(
+            slot_fill_markdown(Some("Frame"), "header", Some(&slots))
+                .contains("declares no `header`")
+        );
+    }
 
     #[test]
     fn word_at_finds_identifier() {

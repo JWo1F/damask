@@ -132,6 +132,122 @@ fn enclosing_open_element(before: &str) -> Option<(String, bool)> {
     Some((name, still_typing_name))
 }
 
+/// If the cursor sits inside a `slot="…"` attribute value, return the nearest
+/// enclosing component element — the one whose slot is being filled. Tolerant of
+/// the half-typed, not-yet-closed tag the cursor is in, so completion fires while
+/// the value is still being written.
+pub fn slot_fill_component(text: &str, offset: usize) -> Option<String> {
+    let offset = offset.min(text.len());
+    let before = &text[..offset];
+
+    // The cursor must be inside the value of an unclosed tag's `slot` attribute.
+    let lt = before.rfind('<')?;
+    let tag = &before[lt..];
+    if tag.contains('>') {
+        return None; // the tag is already closed — not in its attributes
+    }
+    let eq = tag.rfind('=')?;
+    // The attribute name is the word ending at `=`.
+    let name = tag[..eq]
+        .trim_end()
+        .rsplit(|c: char| c.is_whitespace())
+        .next()?;
+    if name != "slot" {
+        return None;
+    }
+    // The value after `=` must be an open quote (no closing one yet).
+    let value = tag[eq + 1..].trim_start();
+    let quote = value.chars().next().filter(|c| *c == '"' || *c == '\'')?;
+    if value[quote.len_utf8()..].contains(quote) {
+        return None; // the value is already closed
+    }
+
+    nearest_component_ancestor(&text[..lt])
+}
+
+/// If the cursor is in attribute-*name* position of an element nested inside a
+/// component, return that component — so `slot` can be offered as the attribute
+/// that fills one of its slots. `None` inside a value (that is a slot *value*
+/// position, handled by [`slot_fill_component`]) or with no component ancestor.
+pub fn slot_attribute_component(text: &str, offset: usize) -> Option<String> {
+    let offset = offset.min(text.len());
+    let before = &text[..offset];
+    let lt = before.rfind('<')?;
+    let tag = &before[lt..];
+    if tag.contains('>') || tag.starts_with("</") {
+        return None;
+    }
+    // Must be past the element name — some whitespace separates it from attrs.
+    let after_name = tag[1..]
+        .trim_start_matches(|c: char| c.is_alphanumeric() || c == '_' || c == '-' || c == ':');
+    if after_name.is_empty() {
+        return None; // still typing the element name
+    }
+    // Not inside a quoted value: an odd number of quotes means one is open.
+    if tag.matches('"').count() % 2 == 1 || tag.matches('\'').count() % 2 == 1 {
+        return None;
+    }
+    nearest_component_ancestor(&text[..lt])
+}
+
+/// The nearest still-open component (capitalized) element enclosing the end of
+/// `before`, by walking its element tags into a stack.
+fn nearest_component_ancestor(before: &str) -> Option<String> {
+    let mut stack: Vec<String> = Vec::new();
+    let bytes = before.as_bytes();
+    let mut i = 0;
+    while i < before.len() {
+        if bytes[i] != b'<' {
+            i += 1;
+            continue;
+        }
+        let rest = &before[i + 1..];
+        // `<!-- … -->` / `<!…>` are not elements.
+        if rest.starts_with('!') {
+            i += rest.find('>').map(|g| g + 2).unwrap_or(before.len() - i);
+            continue;
+        }
+        if let Some(after) = rest.strip_prefix('/') {
+            // A closing tag pops the matching open element.
+            let name: String = after
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+                .collect();
+            if let Some(top) = stack.last()
+                && *top == name
+            {
+                stack.pop();
+            } else if !stack.is_empty() {
+                stack.pop();
+            }
+            i += rest.find('>').map(|g| g + 2).unwrap_or(before.len() - i);
+            continue;
+        }
+        let name: String = rest
+            .chars()
+            .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '-')
+            .collect();
+        if name.is_empty() {
+            i += 1; // a `<` that is not a tag (prose), handled as text
+            continue;
+        }
+        // Advance to the tag's `>`; a `/>` just before it is self-closing and
+        // opens no scope.
+        let Some(gt) = rest.find('>') else {
+            break; // an unclosed tag — the element the cursor is inside
+        };
+        let self_closing = rest[..gt].trim_end().ends_with('/');
+        if !self_closing {
+            stack.push(name);
+        }
+        i += gt + 2;
+    }
+    stack
+        .into_iter()
+        .rev()
+        .find(|n| n.chars().next().is_some_and(char::is_uppercase))
+}
+
 /// Whether the text immediately before the cursor is a `self.` member access.
 pub fn is_self_access(before: &str) -> bool {
     let trimmed = before.trim_end_matches(|c: char| c.is_alphanumeric() || c == '_');
@@ -214,5 +330,61 @@ mod tests {
     fn self_access_forms() {
         assert!(is_self_access("{ self."));
         assert!(!is_self_access("{ other."));
+    }
+
+    fn slot_at_end(text: &str) -> Option<String> {
+        slot_fill_component(text, text.len())
+    }
+
+    #[test]
+    fn slot_value_resolves_component() {
+        assert_eq!(slot_at_end(r#"<Frame><span slot=""#), Some("Frame".into()));
+        assert_eq!(
+            slot_at_end(r#"<Frame><span slot="foo"#),
+            Some("Frame".into())
+        );
+        // Single quotes too.
+        assert_eq!(slot_at_end(r#"<Frame><span slot='"#), Some("Frame".into()));
+    }
+
+    #[test]
+    fn slot_value_skips_closed_siblings_and_self_closing() {
+        // A closed sibling element must not be treated as the ancestor.
+        assert_eq!(
+            slot_at_end(r#"<Frame><img/><span slot=""#),
+            Some("Frame".into())
+        );
+        // Nested components: the nearest one wins.
+        assert_eq!(
+            slot_at_end(r#"<Outer><Inner><span slot=""#),
+            Some("Inner".into())
+        );
+    }
+
+    #[test]
+    fn slot_value_needs_a_component_ancestor() {
+        // A lowercase-only ancestor is not a component.
+        assert_eq!(slot_at_end(r#"<div><span slot=""#), None);
+        // Not a `slot` attribute.
+        assert_eq!(slot_at_end(r#"<Frame><span class=""#), None);
+        // The value is already closed.
+        assert_eq!(slot_at_end(r#"<Frame><span slot="a" "#), None);
+    }
+
+    fn slot_attr_at_end(text: &str) -> Option<String> {
+        slot_attribute_component(text, text.len())
+    }
+
+    #[test]
+    fn slot_attribute_offered_on_component_child() {
+        // In attribute-name position on a child of a component.
+        assert_eq!(slot_attr_at_end("<Frame><span "), Some("Frame".into()));
+        assert_eq!(slot_attr_at_end("<Frame><span sl"), Some("Frame".into()));
+        // Still typing the element name — not yet an attribute position.
+        assert_eq!(slot_attr_at_end("<Frame><spa"), None);
+        // Inside a value is a slot-*value* position, not a name one.
+        assert_eq!(slot_attr_at_end(r#"<Frame><span slot=""#), None);
+        // No component ancestor.
+        assert_eq!(slot_attr_at_end("<div><span "), None);
     }
 }

@@ -4,6 +4,28 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Language server: component, attribute, and slot intelligence.** Hovering a
+  component attribute now shows the field's type, whether it may be omitted
+  (`Option<_>` or `#[component(default)]`), and its doc comment — where before
+  rust-analyzer saw only the generated builder setter it lowers to. Slot fills
+  autocomplete: typing `slot="…"` on a child of a component offers that
+  component's declared slot names, and `slot` itself is offered as an attribute.
+  Hover explains a `<slot>` declaration and a `slot="…"` fill (flagging a name
+  the component does not declare). Component and prop completions now carry doc
+  comments, and props are marked optional in the list.
+
+### Changed
+
+- **Language server: much lower memory use.** A multi-crate workspace now runs a
+  single rust-analyzer, rooted at the workspace, rather than one per member crate
+  — the main cause of the server's footprint growing several-fold in a workspace.
+  A closed template's overlay and HTML skeleton are released rather than kept for
+  the session.
+
 ## [0.3.0] - 2026-07-23
 
 ### Changed

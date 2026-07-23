@@ -18,6 +18,7 @@ mod analysis;
 mod backend;
 mod html_doc;
 mod introspect;
+mod locate;
 mod lsp_client;
 mod virtual_file;
 
