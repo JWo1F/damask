@@ -4,6 +4,17 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Language server: go-to-definition for component attributes and slot fills.**
+  Cmd/Ctrl-click on a component attribute now jumps to the struct field it sets,
+  and on a `slot="…"` fill to the `<slot>` declaration in the target component's
+  template — the same reason hover needed native support: both lower to
+  generated setters (or, for slots, to nothing) that rust-analyzer cannot follow.
+  Component *names* already resolved through rust-analyzer and still do.
+
 ## [0.3.1] - 2026-07-23
 
 ### Added

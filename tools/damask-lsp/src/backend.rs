@@ -164,6 +164,17 @@ impl Backend {
         damask_hover_at(&path, &text, offset)
     }
 
+    /// Go-to-definition for the component-facing surface: a component attribute
+    /// resolves to its struct field, and a `slot="…"` fill to the `<slot>`
+    /// declaration in the target component's template. Component *names* lower to
+    /// a real type, so those are left to rust-analyzer.
+    fn damask_definition(&self, uri: &Url, pos: Position) -> Option<GotoDefinitionResponse> {
+        let text = self.text_of(uri)?;
+        let path = uri.to_file_path().ok()?;
+        let offset = offset_at(&text, pos);
+        damask_definition_at(&path, &text, offset)
+    }
+
     /// Hover via rust-analyzer, with the range mapped back to the template.
     async fn proxy_hover(&self, damask_uri: &Url, pos: Position) -> Option<Hover> {
         let damask_text = self.text_of(damask_uri)?;
@@ -510,9 +521,13 @@ impl LanguageServer for Backend {
         params: GotoDefinitionParams,
     ) -> Result<Option<GotoDefinitionResponse>> {
         let pos = params.text_document_position_params;
-        Ok(self
-            .proxy_definition(&pos.text_document.uri, pos.position)
-            .await)
+        let uri = pos.text_document.uri;
+        // Attributes and slot fills resolve natively (rust-analyzer sees only the
+        // generated setters they lower to); everything else goes to the proxy.
+        if let Some(def) = self.damask_definition(&uri, pos.position) {
+            return Ok(Some(def));
+        }
+        Ok(self.proxy_definition(&uri, pos.position).await)
     }
 }
 
@@ -743,6 +758,38 @@ fn damask_hover_at(path: &Path, text: &str, offset: usize) -> Option<Hover> {
             value,
         }),
         range: Some(damask_range(text, span)),
+    })
+}
+
+/// Go-to-definition target for the Damask entity at `offset`: a component
+/// attribute → its struct field; a `slot="…"` fill → the `<slot>` declaration.
+/// `None` for anything else (component names are left to rust-analyzer).
+fn damask_definition_at(path: &Path, text: &str, offset: usize) -> Option<GotoDefinitionResponse> {
+    let template = parse(text).ok()?;
+    let span = match locate::locate(&template, offset)? {
+        Target::ComponentAttr {
+            component, attr, ..
+        } => introspect::field_definition(path, &component, &attr)?,
+        Target::SlotFill {
+            component: Some(component),
+            name,
+            ..
+        } => introspect::slot_definition(path, &component, &name)?,
+        _ => return None,
+    };
+    Some(GotoDefinitionResponse::Scalar(source_span_to_location(
+        span,
+    )?))
+}
+
+/// An introspected source span as an editor `Location`.
+fn source_span_to_location(span: introspect::SourceSpan) -> Option<Location> {
+    Some(Location {
+        uri: Url::from_file_path(&span.path).ok()?,
+        range: Range {
+            start: Position::new(span.start.0, span.start.1),
+            end: Position::new(span.end.0, span.end.1),
+        },
     })
 }
 

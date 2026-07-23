@@ -5,9 +5,18 @@
 //! resolution. It agrees with the macro on pairing by reusing
 //! [`damask_template::to_snake_case`].
 
-use damask_template::{ElementKind, Node, parse, to_snake_case};
+use damask_template::{ElementKind, LineIndex, Node, Span, parse, to_snake_case};
 use std::path::{Path, PathBuf};
 use syn::{Attribute, Expr, ImplItem, Item, Lit, Meta, Type};
+
+/// A source location in a file, as zero-based `(line, column)` LSP coordinates —
+/// what go-to-definition resolves a component attribute or slot fill to.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceSpan {
+    pub path: PathBuf,
+    pub start: (u32, u32),
+    pub end: (u32, u32),
+}
 
 /// A field or method a template can reference through `self`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -163,6 +172,131 @@ fn sibling_template(rs_path: &Path, struct_name: &str) -> Option<PathBuf> {
         .parent()?
         .join(format!("{}.dmk", to_snake_case(struct_name)));
     dmk.is_file().then_some(dmk)
+}
+
+/// Resolve `component`'s `field` to the source location of its declaration —
+/// the field identifier in the struct — for go-to-definition. Scans the crate's
+/// `.rs` files for the `#[derive(Component)]` struct and the named field.
+pub fn field_definition(from_file: &Path, component: &str, field: &str) -> Option<SourceSpan> {
+    let src_root = crate_src_dir(from_file)?;
+    let mut found = None;
+    find_field_def(&src_root, component, field, &mut found);
+    found
+}
+
+fn find_field_def(dir: &Path, component: &str, field: &str, out: &mut Option<SourceSpan>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        if out.is_some() {
+            return;
+        }
+        let path = entry.path();
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if path.is_dir() {
+            if name != "target" && !name.starts_with('.') {
+                find_field_def(&path, component, field, out);
+            }
+        } else if name.ends_with(".rs")
+            && let Ok(text) = std::fs::read_to_string(&path)
+            && let Some((start, end)) = field_ident_span(&text, component, field)
+        {
+            *out = Some(SourceSpan { path, start, end });
+        }
+    }
+}
+
+/// The zero-based `(line, column)` span of `field`'s identifier in the
+/// `#[derive(Component)]` struct `component`, if this source defines it.
+fn field_ident_span(text: &str, component: &str, field: &str) -> Option<((u32, u32), (u32, u32))> {
+    let file = syn::parse_file(text).ok()?;
+    for item in &file.items {
+        if let Item::Struct(s) = item
+            && s.ident == component
+            && has_component_derive(&s.attrs)
+        {
+            for f in &s.fields {
+                if let Some(id) = &f.ident
+                    && id == field
+                {
+                    return Some(ident_span(id));
+                }
+            }
+        }
+    }
+    None
+}
+
+/// A `syn` identifier's span as zero-based LSP `(line, column)` coordinates.
+/// `proc-macro2`'s line is one-based; its column is already zero-based.
+fn ident_span(id: &syn::Ident) -> ((u32, u32), (u32, u32)) {
+    let span = id.span();
+    let start = span.start();
+    let end = span.end();
+    (
+        (start.line as u32 - 1, start.column as u32),
+        (end.line as u32 - 1, end.column as u32),
+    )
+}
+
+/// Resolve `component`'s `slot` fill to the `<slot>` declaration in that
+/// component's template, for go-to-definition on `slot="…"`.
+pub fn slot_definition(from_file: &Path, component: &str, slot: &str) -> Option<SourceSpan> {
+    let def = crate_components(from_file)
+        .into_iter()
+        .find(|c| c.name == component)?;
+    let path = def.template_path?;
+    let src = std::fs::read_to_string(&path).ok()?;
+    let template = parse(&src).ok()?;
+    let mut span = None;
+    find_slot_decl(&template.nodes, slot, &mut span);
+    let span = span?;
+    let index = LineIndex::new(&src);
+    Some(SourceSpan {
+        path,
+        start: index.line_col(&src, span.start),
+        end: index.line_col(&src, span.end),
+    })
+}
+
+/// The source span of the `<slot name="…">` declaration matching `slot` — the
+/// `name` value itself — searching a node tree.
+fn find_slot_decl(nodes: &[Node], slot: &str, out: &mut Option<Span>) {
+    for node in nodes {
+        if out.is_some() {
+            return;
+        }
+        match node {
+            Node::Element(el) => {
+                if el.kind == ElementKind::Slot {
+                    for attr in &el.attrs {
+                        if attr.name.as_str() == "name"
+                            && attr.value.as_static_text() == Some(slot)
+                            && let damask_template::AttrValue::Literal(parts) = &attr.value
+                            && let [damask_template::AttrPart::Text(t)] = parts.as_slice()
+                        {
+                            *out = Some(t.span);
+                            return;
+                        }
+                    }
+                }
+                find_slot_decl(&el.children, slot, out);
+            }
+            Node::If(if_node) => {
+                for (_, body) in &if_node.branches {
+                    find_slot_decl(body, slot, out);
+                }
+                if let Some(body) = &if_node.otherwise {
+                    find_slot_decl(body, slot, out);
+                }
+            }
+            Node::For(f) => find_slot_decl(&f.body, slot, out),
+            Node::Snippet(s) => find_slot_decl(&s.body, slot, out),
+            _ => {}
+        }
+    }
 }
 
 /// Walk a node tree collecting every `<slot>` declaration, in source order,
@@ -536,6 +670,32 @@ mod tests {
     }
 
     #[test]
+    fn field_ident_span_is_zero_based_line_col() {
+        let src = "#[derive(Component)]\npub struct Card {\n    pub title: String,\n}\n";
+        let (start, end) = field_ident_span(src, "Card", "title").expect("field span");
+        // `title` sits on the third line (index 2), after `    pub ` (8 chars).
+        assert_eq!(start, (2, 8));
+        assert_eq!(end, (2, 13));
+    }
+
+    #[test]
+    fn field_ident_span_requires_the_component_derive() {
+        // A struct of the same name without the derive is not a component.
+        let src = "pub struct Card {\n    pub title: String,\n}\n";
+        assert!(field_ident_span(src, "Card", "title").is_none());
+    }
+
+    #[test]
+    fn find_slot_decl_points_at_the_name() {
+        let src = r#"<section><slot/><footer><slot name="footer">x</slot></footer></section>"#;
+        let template = parse(src).unwrap();
+        let mut span = None;
+        find_slot_decl(&template.nodes, "footer", &mut span);
+        let span = span.expect("footer slot declaration");
+        assert_eq!(&src[span.start..span.end], "footer");
+    }
+
+    #[test]
     fn collects_slots_named_and_default() {
         // The showcase `Frame` shape: a default slot and a named one.
         let template = parse(
@@ -599,6 +759,13 @@ mod tests {
             }),
             "footer slot from frame.dmk"
         );
+
+        // Go-to-definition: the `title` prop resolves into frame.rs, and the
+        // `footer` slot fill into frame.dmk.
+        let field = field_definition(&frame, "Frame", "title").expect("title field def");
+        assert!(field.path.ends_with("frame.rs"));
+        let slot = slot_definition(&frame, "Frame", "footer").expect("footer slot def");
+        assert!(slot.path.ends_with("frame.dmk"));
     }
 
     #[test]
