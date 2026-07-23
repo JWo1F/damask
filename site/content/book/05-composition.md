@@ -158,9 +158,9 @@ impl SiteHeader<'_> {
     <div class="masthead-row">
       <div class="brand">helm <span>/ fleet status</span></div>
       <nav>
-        {#each &self.nav as entry}
+        {#for entry in &self.nav}
           <a href={self.href(entry)} class={ "active": *entry == self.current }>{entry}</a>
-        {/each}
+        {/for}
       </nav>
     </div>
     {#if self.fleet.all_clear()}

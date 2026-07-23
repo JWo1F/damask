@@ -133,7 +133,7 @@ pub struct ServiceTable<'a> {
     <tr><th>Service</th><th>Status</th><th>Uptime</th><th>p95</th><th>Version</th></tr>
   </thead>
   <tbody>
-    {#each self.services as svc, i}
+    {#for (i, svc) in self.services.iter().enumerate()}
       <tr class={ "alt": i % 2 == 1, "breach": svc.breaches_slo(self.slo_target) }>
         <td><div class="svc">{svc.name}</div><div class="owner">{svc.owner}</div></td>
         <td>{svc.status}</td>
@@ -141,7 +141,7 @@ pub struct ServiceTable<'a> {
         <td data-slow={svc.is_slow()}>{svc.latency()}</td>
         <td class="ver">{svc.version}</td>
       </tr>
-    {/each}
+    {/for}
   </tbody>
 </table>
 ```

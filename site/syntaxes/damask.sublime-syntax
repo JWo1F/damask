@@ -15,7 +15,7 @@ file_extensions: [dmk]
 scope: text.html.damask
 
 variables:
-  block_keyword: 'if|each|snippet|else'
+  block_keyword: 'if|for|snippet|else'
 
 contexts:
   main:
@@ -29,7 +29,7 @@ contexts:
     - include: component-tag
     - include: element-tag
 
-  # `{# … #}` — a template comment. Distinguished from `{#if}`/`{#each}` by what
+  # `{# … #}` — a template comment. Distinguished from `{#if}`/`{#for}` by what
   # follows the hash, which is why this has to be tried before block-tag.
   brace-comment:
     - match: '\{#(?!({{block_keyword}})\b)'
@@ -40,7 +40,7 @@ contexts:
           scope: punctuation.definition.comment.end.damask
           pop: true
 
-  # `{#if …}`, `{:else}`, `{/each}` — control flow.
+  # `{#if …}`, `{:else}`, `{/for}` — control flow.
   block-tag:
     - match: '(\{)([#:/])({{block_keyword}})\b'
       captures:

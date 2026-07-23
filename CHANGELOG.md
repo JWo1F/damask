@@ -4,6 +4,24 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-07-23
+
+### Changed
+
+- **Breaking.** Loops are now written as a Rust `for`: `{#for pat in E}…{/for}`
+  replaces `{#each E as p}…{/each}`. The header is Rust verbatim — `pat` is any
+  pattern and `E` any iterable — so there is no bespoke loop syntax to learn and
+  the whole header injects and highlights as the Rust it is. The old `, i` index
+  shortcut is gone in favour of Rust's own `.enumerate()`:
+
+  | Before | After |
+  |---|---|
+  | `{#each &self.items as item}…{/each}` | `{#for item in &self.items}…{/for}` |
+  | `{#each &self.xs as x, i}…{/each}` | `{#for (i, x) in self.xs.iter().enumerate()}…{/for}` |
+  | `{#each E as (k, v)}…{/each}` | `{#for (k, v) in E}…{/for}` |
+
+  `{#each}` is no longer recognized and is a parse error.
+
 ## [0.2.0] - 2026-07-22
 
 ### Added

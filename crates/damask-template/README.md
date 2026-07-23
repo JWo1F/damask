@@ -37,7 +37,7 @@ the parser never needs to track Rust's evolution.
 | `{@html expr}` | write `expr` raw, unescaped |
 | `{@render expr}` | render a snippet or fragment |
 | `{#if c}…{:else if c}…{:else}…{/if}` | conditional |
-| `{#each E as p[, i]}…{/each}` | loop |
+| `{#for pat in E}…{/for}` | loop (Rust `for`) |
 | `{#snippet name(params)}…{/snippet}` | define a reusable fragment |
 
 Positions are tracked throughout, so consumers can map any node back to its

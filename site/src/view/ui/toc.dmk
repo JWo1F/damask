@@ -4,13 +4,13 @@
     On this page
   </p>
   <ul class="space-y-1 border-l border-rule">
-    {#each &self.headings as heading}
+    {#for heading in &self.headings}
       <li>
         <a href="#{heading.anchor}" data-toc-link={heading.anchor.clone()}
            class=["-ml-px block border-l border-transparent py-1 pl-3 text-[0.79rem] leading-snug",
                   "text-ink-soft transition-colors hover:border-ink-faint hover:text-ink",
                   Self::indent(heading)]>{heading.text}</a>
       </li>
-    {/each}
+    {/for}
   </ul>
 </nav>

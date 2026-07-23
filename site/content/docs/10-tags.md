@@ -77,26 +77,28 @@ The condition is spliced into a Rust `if`, so `if let` works:
 {#if let Some(error) = &self.error}<p class="error">{error}</p>{/if}
 ```
 
-## `{#each E as p}` / `{/each}`
+## `{#for pat in E}` / `{/for}`
 
-`E` is any `IntoIterator` expression — usually `&self.items`. The tag is split on
-the first ` as `, and both halves must be non-empty.
+A Rust `for` loop: `pat` is any pattern, `E` any `IntoIterator` expression —
+usually `&self.items`. The header is split on the first ` in `, and both halves
+must be non-empty. There is no bespoke loop syntax to learn; it lowers to the
+`for` you already write.
 
 ```dmk
-{#each &self.items as item}<li>{item.label}</li>{/each}
+{#for item in &self.items}<li>{item.label}</li>{/for}
 ```
 
-A trailing `, ident` is the index; anything else is a whole pattern.
+The pattern is real Rust, so a tuple destructures and an index comes from
+`.enumerate()` — exactly as in a hand-written loop.
 
 ```dmk
-{#each &self.chapters as chapter, i}<li>{i + 1}. {chapter.title}</li>{/each}
-{#each &self.pairs as (key, value)}<dt>{key}</dt><dd>{value}</dd>{/each}
+{#for (i, chapter) in self.chapters.iter().enumerate()}<li>{i + 1}. {chapter.title}</li>{/for}
+{#for (key, value) in &self.pairs}<dt>{key}</dt><dd>{value}</dd>{/for}
 ```
 
 | Form | Lowers to |
 |---|---|
-| `{#each E as p}` | `for p in E { … }` |
-| `{#each E as p, i}` | `for (i, p) in (E).into_iter().enumerate() { … }` |
+| `{#for pat in E}` | `for pat in E { … }` |
 
 ## `{#snippet name(params)}` / `{/snippet}`
 

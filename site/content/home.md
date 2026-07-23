@@ -119,7 +119,7 @@ code = '''
 There is no separate expression language to learn. A `{ … }` tag holds a Rust
 block, so it sees whatever is in scope — `self`, an `impl` method beside the
 struct, a `use` you wrote three lines up. Control flow is the Rust you already
-know, spelled `{#if}` and `{#each}` so that a template still reads as markup.
+know, spelled `{#if}` and `{#for}` so that a template still reads as markup.
 
 Slots are matched by name when the page renders, and that is the price of
 keeping them off the struct: a template may add or drop a `<slot>` without

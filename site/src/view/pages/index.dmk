@@ -15,7 +15,7 @@
      sidebar — the index and the sidebar are two views of one ordering, and a
      flat list here would be a third. #}
   <div class="mt-12 space-y-11">
-    {#each &self.collection.sections() as section}
+    {#for section in &self.collection.sections()}
       <section>
         {#if !section.label.is_empty()}
           <h2 class="mb-4 font-ui text-[0.72rem] font-semibold uppercase tracking-[0.14em] text-ink-faint">
@@ -23,13 +23,13 @@
           </h2>
         {/if}
         <div class="grid gap-2.5">
-          {#each &section.pages as page, position}
+          {#for (position, page) in section.pages.iter().enumerate()}
             <PageCard href={page.href.clone()} title={page.title.clone()}
                       summary={page.summary_html.clone()}
                       position={if self.numbered() { Some(position + 1) } else { None }}/>
-          {/each}
+          {/for}
         </div>
       </section>
-    {/each}
+    {/for}
   </div>
 </Shell>

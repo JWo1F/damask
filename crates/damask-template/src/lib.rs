@@ -16,7 +16,7 @@
 //! | `{@html expr}` | write `expr` raw |
 //! | `{@render expr}` | render a snippet / fragment |
 //! | `{#if c}…{:else if c}…{:else}…{/if}` | conditional |
-//! | `{#each E as p[, i]}…{/each}` | loop |
+//! | `{#for pat in E}…{/for}` | loop (Rust `for`) |
 //! | `{#snippet name(params)}…{/snippet}` | define a reusable fragment |
 //!
 //! # Elements
@@ -157,8 +157,8 @@ pub enum Node {
     Render(Spanned),
     /// `{#if …}…{/if}`.
     If(IfNode),
-    /// `{#each …}…{/each}`.
-    Each(EachNode),
+    /// `{#for …}…{/for}`.
+    For(ForNode),
     /// `{#snippet …}…{/snippet}`.
     Snippet(SnippetNode),
     /// An HTML element, component, or slot.
@@ -174,11 +174,13 @@ pub struct IfNode {
     pub otherwise: Option<Vec<Node>>,
 }
 
-/// `{#each expr as binding}…{/each}` (binding may be `pat` or `pat, index`).
+/// `{#for pat in expr}…{/for}` — a Rust `for` loop over an iterable. `pat` is
+/// any Rust pattern (`item`, `(i, item)`, `Point { x, y }`) and `expr` any
+/// iterable; enumeration is `expr.iter().enumerate()`, exactly as in Rust.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EachNode {
+pub struct ForNode {
+    pub pat: Spanned,
     pub expr: Spanned,
-    pub binding: Spanned,
     pub body: Vec<Node>,
 }
 

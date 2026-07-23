@@ -8,7 +8,7 @@ section = "Components"
 
 ```dmk
 {#snippet item(label)}<li>{label}</li>{/snippet}
-<ul>{#each &self.labels as label}{@render item(label)}{/each}</ul>
+<ul>{#for label in &self.labels}{@render item(label)}{/for}</ul>
 ```
 
 Defined with `{#snippet name(params)}…{/snippet}`, rendered with `{@render}`.

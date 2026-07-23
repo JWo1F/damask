@@ -1,5 +1,5 @@
 use crate::{
-    Attr, AttrPart, AttrValue, ClassTerm, EachNode, Element, ElementKind, IfNode, Node,
+    Attr, AttrPart, AttrValue, ClassTerm, Element, ElementKind, ForNode, IfNode, Node,
     SnippetNode, Span, Spanned, Template,
 };
 use std::fmt;
@@ -182,7 +182,7 @@ impl<'a> Parser<'a> {
             let b = self.bytes[self.pos];
             if b == b'{' {
                 // `{# … #}` — a comment for the reader of the template, which
-                // reaches no output at all. Told from `{#if}`/`{#each}` by the
+                // reaches no output at all. Told from `{#if}`/`{#for}` by the
                 // whitespace: a block keyword cannot begin with one.
                 if self.starts_with("{#") && self.is_comment_open() {
                     flush!();
@@ -609,8 +609,8 @@ impl<'a> Parser<'a> {
                     self.parse_if(open, cond.to_spanned())?,
                 )));
             }
-            if let Some(rest) = keyword(body, "each") {
-                return Ok(TagResult::Node(Node::Each(self.parse_each(open, rest)?)));
+            if let Some(rest) = keyword(body, "for") {
+                return Ok(TagResult::Node(Node::For(self.parse_for(open, rest)?)));
             }
             if let Some(rest) = keyword(body, "snippet") {
                 return Ok(TagResult::Node(Node::Snippet(
@@ -686,25 +686,28 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn parse_each(&mut self, open: usize, code: Slice) -> Result<EachNode, ParseError> {
-        let (expr, binding) = code
-            .split_once(" as ")
-            .ok_or_else(|| self.err_at(open, "`{#each … as …}` requires `as`".into()))?;
+    fn parse_for(&mut self, open: usize, code: Slice) -> Result<ForNode, ParseError> {
+        // A Rust `for` header: `pat in expr`. The pattern never contains ` in `,
+        // so the first occurrence is the separator — enumeration and the like
+        // are written on the expression as ordinary Rust (`xs.iter().enumerate()`).
+        let (pat, expr) = code
+            .split_once(" in ")
+            .ok_or_else(|| self.err_at(open, "`{#for pat in expr}` requires `in`".into()))?;
+        let pat = pat.trim();
         let expr = expr.trim();
-        let binding = binding.trim();
-        if expr.is_empty() || binding.is_empty() {
-            return Err(self.err_at(open, format!("malformed `{{#each {}}}`", code.s)));
+        if pat.is_empty() || expr.is_empty() {
+            return Err(self.err_at(open, format!("malformed `{{#for {}}}`", code.s)));
         }
         let (body, term) = self.parse_nodes()?;
         match term {
-            Term::TagClose(k) if k == "each" => Ok(EachNode {
+            Term::TagClose(k) if k == "for" => Ok(ForNode {
+                pat: pat.to_spanned(),
                 expr: expr.to_spanned(),
-                binding: binding.to_spanned(),
                 body,
             }),
             other => Err(self.err_at(
                 open,
-                format!("`{{#each}}` not closed (found {})", other.describe()),
+                format!("`{{#for}}` not closed (found {})", other.describe()),
             )),
         }
     }
@@ -1119,13 +1122,25 @@ mod tests {
     }
 
     #[test]
-    fn each_block() {
-        let n = nodes("{#each &self.items as item}<li>{item}</li>{/each}");
+    fn for_block() {
+        let n = nodes("{#for item in &self.items}<li>{item}</li>{/for}");
         match &n[0] {
-            Node::Each(e) => {
-                assert_eq!(e.expr, "&self.items");
-                assert_eq!(e.binding, "item");
-                assert_eq!(e.body.len(), 1); // one <li> element
+            Node::For(f) => {
+                assert_eq!(f.pat, "item");
+                assert_eq!(f.expr, "&self.items");
+                assert_eq!(f.body.len(), 1); // one <li> element
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn for_block_tuple_pattern() {
+        let n = nodes("{#for (i, item) in self.items.iter().enumerate()}{i}{item}{/for}");
+        match &n[0] {
+            Node::For(f) => {
+                assert_eq!(f.pat, "(i, item)");
+                assert_eq!(f.expr, "self.items.iter().enumerate()");
             }
             other => panic!("{other:?}"),
         }
@@ -1315,10 +1330,10 @@ mod tests {
                         collect(body, out);
                     }
                 }
-                Node::Each(e) => {
-                    out.push(&e.expr);
-                    out.push(&e.binding);
-                    collect(&e.body, out);
+                Node::For(f) => {
+                    out.push(&f.pat);
+                    out.push(&f.expr);
+                    collect(&f.body, out);
                 }
                 Node::Snippet(s) => {
                     out.push(&s.name);
@@ -1365,7 +1380,7 @@ mod tests {
         let src = concat!(
             r#"Hi {self.name}! <a href={self.url} title="go">{@html self.body}</a>"#,
             "{#if self.ok}yes{:else if self.maybe}m{:else}no{/if}",
-            "{#each &self.items as item, i}{item}{/each}",
+            "{#for (item, i) in self.items.iter().zip(0..)}{item}{i}{/for}",
             "{#snippet foo(x: u8)}z{/snippet}",
         );
         let t = parse(src).unwrap();

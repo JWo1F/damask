@@ -13,9 +13,9 @@
     </p>
 
     <div class="mt-9 flex flex-wrap justify-center gap-3">
-      {#each &self.content.actions as action}
+      {#for action in &self.content.actions}
         <Action href={action.href.clone()} primary={action.primary} class="">{action.label}</Action>
-      {/each}
+      {/for}
     </div>
 
     {# The dependency line, in the first screen. A reader who is convinced by the
@@ -59,7 +59,7 @@
 
   <section class="mt-24 sm:mt-32" aria-label="Why">
     <div class="grid gap-x-10 gap-y-12 sm:grid-cols-2">
-      {#each &self.features as feature}
+      {#for feature in &self.features}
         <article class="min-w-0">
           <h2 class="font-display text-[1.35rem] font-medium tracking-[-0.015em] text-ink">{feature.title}</h2>
           <p class="mt-2.5 font-serif text-[1rem] leading-[1.66] text-ink-soft">{@html feature.body_html}</p>
@@ -67,7 +67,7 @@
             <div class="mt-4">{@html code}</div>
           {/if}
         </article>
-      {/each}
+      {/for}
     </div>
   </section>
 

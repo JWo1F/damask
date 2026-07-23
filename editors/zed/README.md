@@ -18,7 +18,7 @@ Syntax highlighting and language-server support for [Damask](../../README.md)
 - **Indentation** — auto-indent on newline, Tab, and re-indent. It comes from
   three places, because no single one covers the whole file: HTML elements
   indent via the injected HTML grammar's own queries, nested brace groups inside
-  a tag via [`indents.scm`](languages/damask/indents.scm), and `{#if}` / `{#each}` /
+  a tag via [`indents.scm`](languages/damask/indents.scm), and `{#if}` / `{#for}` /
   `{#snippet}` blocks via the indent regexes in
   [`config.toml`](languages/damask/config.toml) — those tags are flat sibling nodes
   in the grammar, so a tree-sitter query cannot span them.

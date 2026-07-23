@@ -59,14 +59,14 @@ or binding, it runs and prints nothing.
 | `{@render expr}` | render a snippet / fragment |
 | `{use path}` | a Rust `use`, scoped to the enclosing element |
 | `{#if c}…{:else if c2}…{:else}…{/if}` | conditional |
-| `{#each E as p}` / `{#each E as p, i}` `…{/each}` | loop |
+| `{#for pat in E}…{/for}` | loop — a Rust `for` |
 | `{#snippet name(params)}…{/snippet}` | define a reusable fragment |
 
 ```html
 <ul>
-{#each &self.items as item}
+{#for item in &self.items}
   <li>{item}</li>
-{/each}
+{/for}
 </ul>
 ```
 
@@ -204,7 +204,7 @@ else — and it is scoped to the HTML element that encloses it.
 
 ```html
 {#snippet item(label)}<li>{label}</li>{/snippet}
-<ul>{#each &self.labels as label}{@render item(label)}{/each}</ul>
+<ul>{#for label in &self.labels}{@render item(label)}{/for}</ul>
 ```
 
 Slots can also be filled from Rust, with `render_with`:

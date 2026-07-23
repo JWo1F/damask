@@ -32,7 +32,7 @@
         <section data-group="suggested">
           <h2 class="search-group">Start here</h2>
           <ul class="search-results" role="listbox">
-            {#each &self.chrome.suggestions as page}
+            {#for page in &self.chrome.suggestions}
               <li>
                 <a href={page.href.clone()} role="option">
                   <span class="search-kind">{page.kind}</span>
@@ -40,7 +40,7 @@
                   <span class="search-preview">{page.summary}</span>
                 </a>
               </li>
-            {/each}
+            {/for}
           </ul>
         </section>
       </div>

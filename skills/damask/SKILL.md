@@ -3,7 +3,7 @@ name: damask-components
 description: >-
   Author and modify Damask: the paired `.rs` + `.dmk`
   component files, the `#[derive(Component)]` struct, the brace template
-  tags (`{ }`, `{@html}`, `{@render}`, `{#if}`, `{#each}`, `{#snippet}`,
+  tags (`{ }`, `{@html}`, `{@render}`, `{#if}`, `{#for}`, `{#snippet}`,
   `{use}`), HTML/component elements (`<Foo attr={e}/>`), `<slot>`s, snippets,
   and custom renderers. Use whenever creating or editing a `.dmk` template or a
   `#[derive(Component)]` struct, or wiring Damask into a Rust project.
@@ -72,17 +72,19 @@ statement/binding runs and prints nothing.
 | `{@render expr}` | render a **snippet / fragment** |
 | `{use path}` | a Rust `use`, scoped to the enclosing element |
 | `{#if c}…{:else if c2}…{:else}…{/if}` | conditional |
-| `{#each E as p}` / `{#each E as p, i}` `…{/each}` | loop |
+| `{#for pat in E}…{/for}` | loop — a Rust `for` |
 | `{#snippet name(params)}…{/snippet}` | define a reusable fragment |
 
-`E` is a Rust expression yielding an iterable — usually `&self.items`. Literal
-braces are written as an expression: `{"{"}`.
+`{#for pat in E}` is a Rust `for` loop: `pat` is any pattern and `E` any iterable
+— usually `&self.items`. An index is `.enumerate()`, exactly as in Rust
+(`{#for (i, item) in self.items.iter().enumerate()}`). Literal braces are written
+as an expression: `{"{"}`.
 
 ```html
 <ul>
-{#each &self.items as item}
+{#for item in &self.items}
   <li>{item}</li>
-{/each}
+{/for}
 </ul>
 
 {#if self.admin}<span class="badge">admin</span>{/if}
@@ -272,7 +274,7 @@ make a snippet a render-prop:
 
 ```html
 {#snippet item(label)}<li>{label}</li>{/snippet}
-<ul>{#each &self.labels as label}{@render item(label)}{/each}</ul>
+<ul>{#for label in &self.labels}{@render item(label)}{/for}</ul>
 ```
 
 Children can also come from Rust with `damask::fragment`:

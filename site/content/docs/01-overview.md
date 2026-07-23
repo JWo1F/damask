@@ -31,7 +31,7 @@ pub struct Card {
 | `{use path}` | a Rust `use`, scoped to the enclosing element |
 | `{# … #}` | a comment that does not reach the output |
 | `{#if c}…{:else if c}…{:else}…{/if}` | conditional |
-| `{#each E as p}`, `{#each E as p, i}` `…{/each}` | loop |
+| `{#for pat in E}…{/for}` | loop (a Rust `for`) |
 | `{#snippet name(params)}…{/snippet}` | define a reusable fragment |
 
 A `{ … }` tag is a Rust block. It prints nothing when it ends in `;` or opens

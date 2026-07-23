@@ -21,7 +21,7 @@
 //! other by a constant offset.
 
 use crate::{
-    Attr, AttrPart, AttrValue, ClassTerm, EachNode, Element, ElementKind, IfNode, Node,
+    Attr, AttrPart, AttrValue, ClassTerm, Element, ElementKind, ForNode, IfNode, Node,
     SnippetNode, Span, Spanned, Template, is_void_element,
 };
 
@@ -36,8 +36,8 @@ pub struct Mapping {
 }
 
 /// The ordered set of source↔generated correspondences produced by lowering.
-/// Entries are pushed in generated order (which, apart from `{#each … as p, i}`
-/// swapping pattern and index, is also source order).
+/// Entries are pushed in generated order, which is also source order: a
+/// `{#for pat in expr}` header emits `pat` before `expr`, exactly as written.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SourceMap {
     pub mappings: Vec<Mapping>,
@@ -161,7 +161,7 @@ impl Layout {
         }
     }
 
-    /// The layout for a control-flow body — `{#if}`, `{#each}`. These are not
+    /// The layout for a control-flow body — `{#if}`, `{#for}`. These are not
     /// elements and produce no tag, so they do not nest the output.
     ///
     /// `closing` resets to the body's own depth: the last node of a *body* is
@@ -283,7 +283,7 @@ fn emit_node(node: &Node, layout: Layout, is_last: bool, e: &mut Emit) -> Result
             e.at_line_start = false;
         }
         Node::If(if_node) => emit_if(if_node, layout.same(), e)?,
-        Node::Each(each) => emit_each(each, layout.same(), e)?,
+        Node::For(node) => emit_for(node, layout.same(), e)?,
         Node::Snippet(snippet) => emit_snippet(snippet, e)?,
         Node::Element(element) => emit_element(element, layout, e)?,
     }
@@ -386,65 +386,26 @@ fn emit_if(if_node: &IfNode, layout: Layout, e: &mut Emit) -> Result<(), String>
     Ok(())
 }
 
-/// `{#each E as p}` → `for p in E {`, and `{#each E as p, i}` →
-/// `for (i, p) in (E).into_iter().enumerate() {`.
-fn emit_each(each: &EachNode, layout: Layout, e: &mut Emit) -> Result<(), String> {
+/// `{#for pat in expr}` → `for pat in expr {`. The header is Rust verbatim, so
+/// enumeration and the like are written on `expr` (`xs.iter().enumerate()`);
+/// the lowering has no special case of its own.
+fn emit_for(node: &ForNode, layout: Layout, e: &mut Emit) -> Result<(), String> {
     // An empty iterator runs the body no times, so the state after the loop is
     // known only where the body agrees with the state before it.
     let before = e.at_line_start;
-    let (expr, binding) = (each.expr.as_str().trim(), each.binding.as_str().trim());
-    if expr.is_empty() || binding.is_empty() {
-        return Err("malformed `{#each}`".into());
-    }
-    // A trailing `, ident` is the index form; anything else (e.g. a tuple
-    // pattern `(a, b)`) is treated as the whole pattern.
-    if let Some(comma) = binding.rfind(',') {
-        let pat = sub_fragment(&each.binding, &binding[..comma]);
-        let idx = sub_fragment(&each.binding, &binding[comma + 1..]);
-        let is_ident = !idx.text.is_empty()
-            && idx.text.chars().all(|c| c.is_alphanumeric() || c == '_')
-            && idx
-                .text
-                .chars()
-                .next()
-                .is_some_and(|c| c.is_alphabetic() || c == '_');
-        if is_ident && !pat.text.is_empty() {
-            e.raw("for (");
-            e.frag(&idx);
-            e.raw(", ");
-            e.frag(&pat);
-            e.raw(") in (");
-            e.frag(&each.expr);
-            e.raw(").into_iter().enumerate() {\n");
-            emit_nodes(&each.body, layout, e)?;
-            e.raw("}\n");
-            e.at_line_start &= before;
-            return Ok(());
-        }
+    let (pat, expr) = (node.pat.as_str().trim(), node.expr.as_str().trim());
+    if pat.is_empty() || expr.is_empty() {
+        return Err("malformed `{#for}`".into());
     }
     e.raw("for ");
-    e.frag(&each.binding);
+    e.frag(&node.pat);
     e.raw(" in ");
-    e.frag(&each.expr);
+    e.frag(&node.expr);
     e.raw(" {\n");
-    emit_nodes(&each.body, layout, e)?;
+    emit_nodes(&node.body, layout, e)?;
     e.raw("}\n");
     e.at_line_start &= before;
     Ok(())
-}
-
-/// Build a [`Spanned`] for `piece`, a trimmed sub-slice of `whole.text`, with a
-/// span offset into the source to match. `piece` must be a substring of
-/// `whole.text` (typically the result of slicing then trimming it).
-fn sub_fragment(whole: &Spanned, piece: &str) -> Spanned {
-    // Locate `piece` within `whole.text` by its trimmed bounds. Both the slice
-    // passed in and `whole.text` share the same buffer offsets because `whole`
-    // is itself a verbatim slice of the source (parser invariant).
-    let lead = piece.len() - piece.trim_start().len();
-    let trimmed = piece.trim();
-    let offset = piece.as_ptr() as usize - whole.text.as_ptr() as usize + lead;
-    let start = whole.span.start + offset;
-    Spanned::new(trimmed, Span::new(start, start + trimmed.len()))
 }
 
 fn emit_snippet(snippet: &SnippetNode, e: &mut Emit) -> Result<(), String> {
@@ -1041,16 +1002,18 @@ mod tests {
     }
 
     #[test]
-    fn if_and_each() {
+    fn if_and_for() {
         let b = body("{#if self.a}x{:else}y{/if}");
         assert!(b.contains("if self.a {"));
         assert!(b.contains("} else {"));
         assert!(
-            body("{#each &self.items as item}{item}{/each}").contains("for item in &self.items {")
+            body("{#for item in &self.items}{item}{/for}").contains("for item in &self.items {")
         );
+        // The header is Rust verbatim: a tuple pattern over `.enumerate()` passes
+        // straight through, with no lowering-side rewrite.
         assert!(
-            body("{#each &self.items as item, i}{i}{/each}")
-                .contains("for (i, item) in (&self.items).into_iter().enumerate() {")
+            body("{#for (i, item) in self.items.iter().enumerate()}{i}{/for}")
+                .contains("for (i, item) in self.items.iter().enumerate() {")
         );
     }
 
@@ -1305,8 +1268,8 @@ mod tests {
         let src = concat!(
             "Hi {self.name}! {@html self.body}{@render self.foot}",
             "{#if self.ok}{self.a}{:else if self.b}{self.c}{:else}{self.d}{/if}",
-            "{#each &self.items as item, i}{item}{i}{/each}",
-            "{#each &self.xs as x}{x}{/each}",
+            "{#for (item, i) in self.items.iter().zip(0..)}{item}{i}{/for}",
+            "{#for x in &self.xs}{x}{/for}",
             r#"<a href={self.url}>x</a>"#,
             r#"<Card title={2 + 8}>b</Card>"#,
             "{#snippet foo(x: u8)}{x}{/snippet}",
@@ -1328,14 +1291,14 @@ mod tests {
         }
     }
 
-    /// `{#each E as pat, i}` swaps pattern and index in the output; both, and the
-    /// iterable, must still map back to their exact source ranges.
+    /// A `{#for}` header emits its pattern and iterable verbatim, each mapping
+    /// back to its exact source range.
     #[test]
-    fn each_index_form_maps_reordered_pieces() {
-        let src = "{#each &self.items as item, i}{item}{/each}";
+    fn for_header_maps_pieces() {
+        let src = "{#for (i, item) in self.items.iter().enumerate()}{item}{/for}";
         let t = crate::parse(src).unwrap();
         let (out, map) = lower_mapped(&t).unwrap();
-        for needle in ["item", "i", "&self.items"] {
+        for needle in ["(i, item)", "self.items.iter().enumerate()"] {
             let m = map
                 .mappings
                 .iter()

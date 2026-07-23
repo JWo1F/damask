@@ -76,7 +76,7 @@ calls them.
     <p class="empty">Nothing has shipped in the last 24 hours.</p>
   {:else}
     <ul class="feed">
-      {#each self.visible() as d}
+      {#for d in self.visible()}
         <li>
           <span class="svc">{d.service}</span>
           <span class="ver">{d.version}</span>
@@ -84,7 +84,7 @@ calls them.
           {#if d.rolled_back}<span class="rb">rolled back</span>{/if}
           <span class="ago">{d.when()}</span>
         </li>
-      {/each}
+      {/for}
     </ul>
     {#if self.hidden() > 0}
       <p class="sub">and {self.hidden()} older deploy(s) not shown.</p>
@@ -122,23 +122,23 @@ A literal brace is written as an expression: `{"{"}`.
 
 ## Loops
 
-`{#each E as p}` takes anything iterable. `self.visible()` returns a slice, so
-`d` is a `&Deploy`; over a field you own you would write `{#each &self.deploys as
-d}` for the same reason. A trailing identifier is the index:
+`{#for pat in E}` is a Rust `for` loop, spelled the way you already know. `E` is
+anything iterable: `self.visible()` returns a slice, so `d` is a `&Deploy`; over
+a field you own you would write `{#for d in &self.deploys}` for the same reason.
+An index is `.enumerate()`, no different from a hand-written loop:
 
 ```dmk
-{#each self.visible() as d, i}
+{#for (i, d) in self.visible().iter().enumerate()}
   <li value={i + 1}>{d.service}</li>
-{/each}
+{/for}
 ```
 
-Anything after `as` that is *not* a trailing identifier is one whole pattern, so
-destructuring works:
+The binding is a real Rust pattern, so destructuring works:
 
 ```dmk
-{#each &self.pairs as (key, value)}
+{#for (key, value) in &self.pairs}
   <dt>{key}</dt><dd>{value}</dd>
-{/each}
+{/for}
 ```
 
 ## Comments

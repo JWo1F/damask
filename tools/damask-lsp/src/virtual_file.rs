@@ -196,7 +196,7 @@ mod tests {
     fn all_mapped_bytes_round_trip_verbatim() {
         let damask = concat!(
             "{#if self.ok}{self.a}{:else}{self.b}{/if}",
-            "{#each &self.items as item, i}{item}{i}{/each}",
+            "{#for (item, i) in self.items.iter().zip(0..)}{item}{i}{/for}",
             r#"<a href={self.url}>x</a>"#,
         );
         let (vf, src) = build(damask);
