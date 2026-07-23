@@ -1,6 +1,6 @@
 use crate::{
-    Attr, AttrPart, AttrValue, ClassTerm, Element, ElementKind, ForNode, IfNode, Node,
-    SnippetNode, Span, Spanned, Template,
+    Attr, AttrPart, AttrValue, ClassTerm, Element, ElementKind, ForNode, IfNode, Node, SnippetNode,
+    Span, Spanned, Template,
 };
 use std::fmt;
 

@@ -21,8 +21,8 @@
 //! other by a constant offset.
 
 use crate::{
-    Attr, AttrPart, AttrValue, ClassTerm, Element, ElementKind, ForNode, IfNode, Node,
-    SnippetNode, Span, Spanned, Template, is_void_element,
+    Attr, AttrPart, AttrValue, ClassTerm, Element, ElementKind, ForNode, IfNode, Node, SnippetNode,
+    Span, Spanned, Template, is_void_element,
 };
 
 /// A verbatim correspondence between a `.dmk` source range and the generated
