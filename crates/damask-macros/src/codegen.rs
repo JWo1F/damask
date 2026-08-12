@@ -16,14 +16,15 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
         Err(e) => return e.to_compile_error(),
     };
 
-    let defaulted = match crate::props::extract_defaulted(&input.attrs) {
+    let options = match crate::props::extract_options(&input.attrs) {
         Ok(v) => v,
         Err(e) => return e.to_compile_error(),
     };
+    let krate = options.krate.clone();
     // Emitted whatever happens below: a template that fails to resolve or parse
     // is one error, and every call site reporting that the component cannot be
     // built would bury it.
-    let builder = crate::props::expand(&input, defaulted);
+    let builder = crate::props::expand(&input, &options);
     let failed = |span, msg: &str| {
         let error = compile_error(span, msg);
         quote! { #builder #error }
@@ -47,7 +48,7 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
 
     // The template → Rust lowering lives in `damask-template` so the language
     // server generates byte-identical code for its virtual files.
-    let body_src = match damask_template::lower(&template) {
+    let body_src = match damask_template::lower_with(&template, &options.krate_str()) {
         Ok(src) => src,
         Err(msg) => {
             return failed(
@@ -77,21 +78,21 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
     let path_lit = LitStr::new(&resolved.path.to_string_lossy(), Span::call_site());
 
     quote! {
-        impl #impl_generics ::damask::Render for #name #ty_generics #where_clause {
-            fn render_into(&self, __damask: &mut dyn ::damask::Renderer) {
-                ::damask::Render::render_slots(self, __damask, ::damask::Slots::EMPTY)
+        impl #impl_generics #krate::Render for #name #ty_generics #where_clause {
+            fn render_into(&self, __damask: &mut dyn #krate::Renderer) {
+                #krate::Render::render_slots(self, __damask, #krate::Slots::EMPTY)
             }
 
             fn render_slots(
                 &self,
-                __damask: &mut dyn ::damask::Renderer,
-                __damask_slots: ::damask::Slots<'_>,
+                __damask: &mut dyn #krate::Renderer,
+                __damask_slots: #krate::Slots<'_>,
             ) #body
         }
 
-        impl #impl_generics ::damask::Component for #name #ty_generics #where_clause {
-            fn default_renderer(&self) -> ::std::boxed::Box<dyn ::damask::Renderer> {
-                ::std::boxed::Box::new(::damask::renderers::HtmlRenderer::new())
+        impl #impl_generics #krate::Component for #name #ty_generics #where_clause {
+            fn default_renderer(&self) -> ::std::boxed::Box<dyn #krate::Renderer> {
+                ::std::boxed::Box::new(#krate::renderers::HtmlRenderer::new())
             }
         }
 

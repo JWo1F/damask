@@ -8,6 +8,14 @@ All notable changes to Damask are documented here. The format follows
 
 ### Added
 
+- **`#[component(crate = ::some::path)]` names the path generated code reaches
+  Damask through.** For a framework that re-exports Damask rather than having
+  its users depend on it: the default `::damask` resolves against the extern
+  prelude and nowhere else, so without this every application would have to
+  name `damask` in its own `Cargo.toml` just to write a template. The lowering
+  takes the path too — `damask_template::lower_with` and `lower_mapped_with`,
+  alongside the unchanged `lower` and `lower_mapped`.
+
 - **`data` expands one value into a run of `data-*` attributes.** The second
   attribute with forms of its own, and the Rails `data: { … }` equivalent:
   `data={self.hooks()}` takes anything implementing the new `DataItem` trait —

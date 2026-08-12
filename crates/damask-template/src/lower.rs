@@ -57,20 +57,41 @@ struct Emit {
     /// is never the *last* run between two things, because the run that made
     /// this flag true is still there.
     at_line_start: bool,
+    /// The path scaffolding reaches this crate through, substituted for
+    /// [`PLACEHOLDER`] as each piece is emitted.
+    krate: String,
 }
 
+/// What the lowering writes where the crate path goes.
+///
+/// Scaffolding is emitted as string literals with the path embedded in them, so
+/// this stands in for it and [`Emit::raw`] substitutes. Substituting beats
+/// emitting one `use … as` alias at the top of the block and leaning on it: the
+/// generated body is a scope a template's own Rust runs in, and a lowering that
+/// binds no names there cannot collide with anything the author writes.
+const PLACEHOLDER: &str = "__damask_krate";
+
 impl Emit {
-    fn new() -> Self {
+    fn new(krate: &str) -> Self {
         Emit {
             out: String::new(),
             map: SourceMap::default(),
             at_line_start: false,
+            krate: krate.to_string(),
         }
     }
 
     /// Append scaffolding that does not correspond to any source range.
+    ///
+    /// Substitution happens here rather than after the fact so that the source
+    /// map, which records offsets into `out` as it grows, stays correct — and it
+    /// is safe to do here because a *fragment* (the author's own Rust) goes
+    /// through [`frag_sub`](Emit::frag_sub) and is never rewritten.
     fn raw(&mut self, s: &str) {
-        self.out.push_str(s);
+        match s.contains(PLACEHOLDER) {
+            true => self.out.push_str(&s.replace(PLACEHOLDER, &self.krate)),
+            false => self.out.push_str(s),
+        }
     }
 
     /// Splice a source fragment verbatim and record its mapping.
@@ -94,22 +115,41 @@ impl Emit {
     }
 }
 
+/// How a lowered body names this crate, when the caller does not say.
+///
+/// It is a parameter at all because a framework may re-export Damask rather than
+/// have its users depend on it — generated code that said `::damask` outright
+/// would only compile where `damask` is a *direct* dependency, since a leading
+/// `::` resolves against the extern prelude and nothing else.
+pub const DEFAULT_CRATE: &str = "::damask";
+
 /// Lower a template to the body of `render_into`, as a string of Rust source.
 ///
 /// The result is a single brace-delimited block; the caller parses it once so
 /// control-flow tags whose braces span multiple `{ }` block tags balance as one
 /// Rust block.
 pub fn lower(template: &Template) -> Result<String, String> {
-    lower_mapped(template).map(|(body, _)| body)
+    lower_with(template, DEFAULT_CRATE)
+}
+
+/// Like [`lower`], but names this crate `krate` — see [`DEFAULT_CRATE`].
+pub fn lower_with(template: &Template, krate: &str) -> Result<String, String> {
+    lower_mapped_with(template, krate).map(|(body, _)| body)
 }
 
 /// Like [`lower`], but also returns the [`SourceMap`] tying generated ranges
 /// back to the template.
 pub fn lower_mapped(template: &Template) -> Result<(String, SourceMap), String> {
-    let mut e = Emit::new();
+    lower_mapped_with(template, DEFAULT_CRATE)
+}
+
+/// Like [`lower_mapped`], but names this crate `krate` — see [`DEFAULT_CRATE`].
+pub fn lower_mapped_with(template: &Template, krate: &str) -> Result<(String, SourceMap), String> {
+    let mut e = Emit::new(krate);
+    e.raw("{\n");
     // Bring `Component`/`Render` into scope (unnamed) so `child.render()` and
     // `{@render …}`-style calls resolve without the author importing the traits.
-    e.raw("{\n#[allow(unused_imports)] use ::damask::{Component as _, Render as _};\n");
+    e.raw("#[allow(unused_imports)] use __damask_krate::{Component as _, Render as _};\n");
     // The caller's fills, under a name a template may actually write. `<slot>`
     // resolves against them implicitly; this is what lets a template *ask* —
     // whether a slot was filled, and where to put the answer. Shadowable on
@@ -266,7 +306,7 @@ fn emit_node(node: &Node, layout: Layout, is_last: bool, e: &mut Emit) -> Result
         Node::Expr(code) => emit_expr(code, e),
         Node::Html(code) => {
             require_expr(code.as_str(), "{@html … }")?;
-            e.raw("__damask.write_display_raw(::damask::as_display(&(");
+            e.raw("__damask.write_display_raw(__damask_krate::as_display(&(");
             e.frag(code);
             e.raw(")));\n");
             e.at_line_start = false;
@@ -276,7 +316,7 @@ fn emit_node(node: &Node, layout: Layout, is_last: bool, e: &mut Emit) -> Result
         Node::Render(code) => {
             require_expr(code.as_str(), "{@render … }")?;
             indented(layout.depth, e, |e| {
-                e.raw("::damask::Render::render_into(&(");
+                e.raw("__damask_krate::Render::render_into(&(");
                 e.frag(code);
                 e.raw("), &mut *__damask);\n");
             });
@@ -322,13 +362,13 @@ fn emit_expr(code: &Spanned, e: &mut Emit) {
     } else if trimmed.contains(';') {
         // Multiple statements ending in an expression need a block; the block's
         // value is a temporary, so borrowing it is fine.
-        e.raw("__damask.write_escaped(::damask::as_display(&({ ");
+        e.raw("__damask.write_escaped(__damask_krate::as_display(&({ ");
         e.frag(code);
         e.raw(" })));\n");
     } else {
         // A plain expression: borrow it directly (no block) so field access
         // like `self.name` borrows rather than moves out of `&self`.
-        e.raw("__damask.write_escaped(::damask::as_display(&(");
+        e.raw("__damask.write_escaped(__damask_krate::as_display(&(");
         e.frag(code);
         e.raw(")));\n");
     }
@@ -415,13 +455,13 @@ fn emit_snippet(snippet: &SnippetNode, e: &mut Emit) -> Result<(), String> {
     if snippet.params.as_str().is_empty() {
         e.raw("let ");
         e.frag(&snippet.name);
-        e.raw(" = ::damask::fragment(|__damask: &mut dyn ::damask::Renderer| {\n");
+        e.raw(" = __damask_krate::fragment(|__damask: &mut dyn __damask_krate::Renderer| {\n");
     } else {
         e.raw("let ");
         e.frag(&snippet.name);
         e.raw(" = |");
         e.frag(&snippet.params);
-        e.raw("| ::damask::fragment(move |__damask: &mut dyn ::damask::Renderer| {\n");
+        e.raw("| __damask_krate::fragment(move |__damask: &mut dyn __damask_krate::Renderer| {\n");
     }
     e.at_line_start = false;
     emit_nodes(&snippet.body, Layout::ROOT, e)?;
@@ -502,7 +542,7 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
             AttrValue::Spread(code) => {
                 require_expr(code.as_str(), "{...} attribute spread")?;
                 flush_raw(&mut raw, e);
-                e.raw("::damask::AttrSpread::write_attrs(&(");
+                e.raw("__damask_krate::AttrSpread::write_attrs(&(");
                 e.frag(code);
                 e.raw("), &mut *__damask);\n");
             }
@@ -516,7 +556,7 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
                         AttrPart::Expr(code) => {
                             require_expr(code.as_str(), "attribute value")?;
                             flush_raw(&mut raw, e);
-                            e.raw("__damask.write_escaped(::damask::as_display(&(");
+                            e.raw("__damask.write_escaped(__damask_krate::as_display(&(");
                             e.frag(code);
                             e.raw(")));\n");
                         }
@@ -531,7 +571,7 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
             AttrValue::Expr(code) => {
                 require_expr(code.as_str(), "attribute value")?;
                 flush_raw(&mut raw, e);
-                e.raw("::damask::Attr::write_attr(&(");
+                e.raw("__damask_krate::Attr::write_attr(&(");
                 e.frag(code);
                 e.raw(&format!("), {:?}, &mut *__damask);\n", attr.name.as_str()));
             }
@@ -600,7 +640,7 @@ fn emit_slot_placeholder(el: &Element, layout: Layout, e: &mut Emit) -> Result<(
     // own markup and already carries that depth, so the two cannot share one
     // bracket: `Slots::render` applies the depth to whichever it takes.
     e.raw(&format!(
-        "__damask_slots.render({name:?}, &mut *__damask, {}, |__damask: &mut dyn ::damask::Renderer| {{\n",
+        "__damask_slots.render({name:?}, &mut *__damask, {}, |__damask: &mut dyn __damask_krate::Renderer| {{\n",
         layout.depth
     ));
     e.at_line_start = false;
@@ -648,7 +688,7 @@ fn emit_class_list(
     directives: &[&Attr],
     e: &mut Emit,
 ) -> Result<(), String> {
-    e.raw("{\nlet mut __damask_class = ::damask::ClassList::new();\n");
+    e.raw("{\nlet mut __damask_class = __damask_krate::ClassList::new();\n");
 
     match value {
         None => {}
@@ -658,7 +698,7 @@ fn emit_class_list(
                     ClassTerm::Nothing => {}
                     ClassTerm::Expr(code) => {
                         require_expr(code.as_str(), "class list entry")?;
-                        e.raw("::damask::ClassItem::add_to(&(");
+                        e.raw("__damask_krate::ClassItem::add_to(&(");
                         e.frag(code);
                         e.raw("), &mut __damask_class);\n");
                     }
@@ -668,7 +708,7 @@ fn emit_class_list(
                         // `unused_parens` in the user's crate, not in ours.
                         e.raw("if ");
                         e.frag(when);
-                        e.raw(" { ::damask::ClassItem::add_to(&(");
+                        e.raw(" { __damask_krate::ClassItem::add_to(&(");
                         e.frag(name);
                         e.raw("), &mut __damask_class); }\n");
                     }
@@ -676,13 +716,13 @@ fn emit_class_list(
             }
         }
         Some(AttrValue::Literal(parts)) => {
-            e.raw("::damask::ClassItem::add_to(&(");
+            e.raw("__damask_krate::ClassItem::add_to(&(");
             emit_literal_string(parts, e)?;
             e.raw("), &mut __damask_class);\n");
         }
         Some(AttrValue::Expr(code)) => {
             require_expr(code.as_str(), "class")?;
-            e.raw("::damask::ClassItem::add_to(&(");
+            e.raw("__damask_krate::ClassItem::add_to(&(");
             e.frag(code);
             e.raw("), &mut __damask_class);\n");
         }
@@ -731,7 +771,7 @@ fn emit_class_list(
 /// values are held to `Attr` rather than to `DataValue`, and a `data` map
 /// appearing next to one cannot change how it compiles.
 fn emit_data_set(value: &AttrValue, e: &mut Emit) -> Result<(), String> {
-    e.raw("{\nlet mut __damask_data = ::damask::DataSet::new();\n");
+    e.raw("{\nlet mut __damask_data = __damask_krate::DataSet::new();\n");
 
     match value {
         AttrValue::Data(terms) => {
@@ -740,13 +780,13 @@ fn emit_data_set(value: &AttrValue, e: &mut Emit) -> Result<(), String> {
                     DataTerm::Nothing => {}
                     DataTerm::Expr(code) => {
                         require_expr(code.as_str(), "data list entry")?;
-                        e.raw("::damask::DataItem::add_to(&(");
+                        e.raw("__damask_krate::DataItem::add_to(&(");
                         e.frag(code);
                         e.raw("), &mut __damask_data);\n");
                     }
                     DataTerm::Pair { key, value } => {
                         require_expr(value.as_str(), "data value")?;
-                        e.raw("::damask::DataValue::add_to(&(");
+                        e.raw("__damask_krate::DataValue::add_to(&(");
                         e.frag(value);
                         e.raw("), ");
                         // The key is spliced as the Rust it was written as — a
@@ -760,7 +800,7 @@ fn emit_data_set(value: &AttrValue, e: &mut Emit) -> Result<(), String> {
         }
         AttrValue::Expr(code) => {
             require_expr(code.as_str(), "data")?;
-            e.raw("::damask::DataItem::add_to(&(");
+            e.raw("__damask_krate::DataItem::add_to(&(");
             e.frag(code);
             e.raw("), &mut __damask_data);\n");
         }
@@ -869,7 +909,7 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
     if layout.depth > 0 {
         e.raw(&format!("__damask.push_indent({});\n", layout.depth));
     }
-    e.raw(&format!("::damask::Render::{method}(&("));
+    e.raw(&format!("__damask_krate::Render::{method}(&("));
     // Built through the derive's hidden builder rather than as a struct literal:
     // the props named here are the ones the author wrote, and only the derive
     // knows which of the rest may be skipped and what they default to. A prop
@@ -909,7 +949,7 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
                 e.frag(&attr.name);
                 e.raw("(");
                 if !interpolating {
-                    e.raw("::damask::props::literal(");
+                    e.raw("__damask_krate::props::literal(");
                 }
                 emit_literal_string(parts, e)?;
                 e.raw(if interpolating { ".into())\n" } else { "))\n" });
@@ -962,9 +1002,9 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
         return Ok(());
     }
 
-    e.raw(", ::damask::Slots::new(&[\n");
+    e.raw(", __damask_krate::Slots::new(&[\n");
     if has_default {
-        e.raw("::damask::Slot::new(::damask::DEFAULT_SLOT, &::damask::fragment(|__damask: &mut dyn ::damask::Renderer| {\n");
+        e.raw("__damask_krate::Slot::new(__damask_krate::DEFAULT_SLOT, &__damask_krate::fragment(|__damask: &mut dyn __damask_krate::Renderer| {\n");
         e.at_line_start = false;
         for (i, n) in default.iter().enumerate() {
             emit_node(n, Layout::ROOT, i + 1 == default.len(), e)?;
@@ -973,7 +1013,7 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
     }
     for (name, body) in &named {
         e.raw(&format!(
-            "::damask::Slot::new({name:?}, &::damask::fragment(|__damask: &mut dyn ::damask::Renderer| {{\n"
+            "__damask_krate::Slot::new({name:?}, &__damask_krate::fragment(|__damask: &mut dyn __damask_krate::Renderer| {{\n"
         ));
         e.at_line_start = false;
         emit_nodes(body, Layout::ROOT, e)?;

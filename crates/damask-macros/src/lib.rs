@@ -31,6 +31,12 @@ mod resolve;
 /// as `None`. Marking the struct `#[component(default)]` extends that to every
 /// prop, filling the ones a call site skips from the struct's `Default` impl.
 ///
+/// `#[component(crate = ::some::path)]` names the path generated code reaches
+/// Damask through. It exists for frameworks that re-export this crate: the
+/// default `::damask` resolves against the extern prelude and nowhere else, so
+/// without it every application would have to depend on `damask` by name in
+/// order to write a template.
+///
 /// The struct is left untouched; only an `impl Component`, the hidden builder
 /// call sites construct it through, and a private `include_bytes!` binding that
 /// ties the template into the rebuild graph are added.

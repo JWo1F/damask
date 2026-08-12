@@ -27,7 +27,7 @@
 //! number of props may be skipped and none are tracked.
 
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::{ToTokens, format_ident, quote};
 use syn::{
     Attribute, DeriveInput, Fields, GenericParam, Generics, Ident, PathArguments, Type, Visibility,
 };
@@ -42,10 +42,30 @@ struct Prop<'a> {
     tracked: Option<(Ident, Ident)>,
 }
 
+/// Everything `#[component(…)]` can say.
+pub struct Options {
+    /// `#[component(default)]` — every prop may be skipped, filled from `Default`.
+    pub defaulted: bool,
+    /// `#[component(crate = …)]` — the path generated code reaches this crate
+    /// through. A framework that re-exports Damask sets it, because the default
+    /// `::damask` only resolves where `damask` is a direct dependency.
+    pub krate: syn::Path,
+}
+
+impl Options {
+    /// The path as the template lowering wants it: a string, since that side
+    /// assembles Rust source rather than tokens.
+    pub fn krate_str(&self) -> String {
+        self.krate.to_token_stream().to_string()
+    }
+}
+
 /// Generate the builder for `input`, or nothing when the struct has no named
 /// props to build (a tuple struct's fields cannot be addressed by name, so it is
 /// left as it was: constructible from Rust, but not from a template).
-pub fn expand(input: &DeriveInput, defaulted: bool) -> TokenStream {
+pub fn expand(input: &DeriveInput, options: &Options) -> TokenStream {
+    let defaulted = options.defaulted;
+    let krate = &options.krate;
     let name = &input.ident;
     let vis = &input.vis;
 
@@ -147,7 +167,7 @@ pub fn expand(input: &DeriveInput, defaulted: bool) -> TokenStream {
             .filter_map(|other| {
                 other.tracked.as_ref().map(|(param, _)| {
                     if other.ident == prop.ident {
-                        quote!(::damask::props::Set)
+                        quote!(#krate::props::Set)
                     } else {
                         quote!(#param)
                     }
@@ -218,7 +238,7 @@ pub fn expand(input: &DeriveInput, defaulted: bool) -> TokenStream {
             // error rather than a no-op.
             TokenStream::new()
         } else {
-            quote!(where #(#params: ::damask::props::Provided,)*)
+            quote!(where #(#params: #krate::props::Provided,)*)
         };
         (
             bounds,
@@ -351,29 +371,38 @@ fn generic_args(generics: &Generics) -> Vec<TokenStream> {
         .collect()
 }
 
-/// Read `#[component(default)]`, the opt-in that lets a call site skip any prop.
-pub fn extract_defaulted(attrs: &[Attribute]) -> syn::Result<bool> {
-    let mut found = false;
+/// Read `#[component(…)]`.
+pub fn extract_options(attrs: &[Attribute]) -> syn::Result<Options> {
+    let mut defaulted = false;
+    let mut krate: Option<syn::Path> = None;
+
     for attr in attrs {
         if !attr.path().is_ident("component") {
             continue;
         }
         let mut seen = false;
         attr.parse_nested_meta(|meta| {
+            seen = true;
             if meta.path.is_ident("default") {
-                seen = true;
+                defaulted = true;
+                Ok(())
+            } else if meta.path.is_ident("crate") {
+                krate = Some(meta.value()?.parse()?);
                 Ok(())
             } else {
-                Err(meta.error("unknown `component` option; expected `default`"))
+                Err(meta.error("unknown `component` option; expected `default` or `crate = …`"))
             }
         })?;
         if !seen {
             return Err(syn::Error::new_spanned(
                 attr,
-                "`#[component]` requires an option; the only one is `default`",
+                "`#[component]` requires an option; they are `default` and `crate = …`",
             ));
         }
-        found = true;
     }
-    Ok(found)
+
+    Ok(Options {
+        defaulted,
+        krate: krate.unwrap_or_else(|| syn::parse_quote!(::damask)),
+    })
 }

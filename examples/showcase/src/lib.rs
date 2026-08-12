@@ -1,6 +1,7 @@
 //! Runnable Damask example components, exercised by the integration tests and the
 //! `showcase` binary.
 
+pub mod aliased;
 pub mod board;
 pub mod button;
 pub mod card;

@@ -41,7 +41,9 @@ mod lower;
 mod parser;
 
 pub use line_index::LineIndex;
-pub use lower::{Mapping, SourceMap, lower, lower_mapped};
+pub use lower::{
+    DEFAULT_CRATE, Mapping, SourceMap, lower, lower_mapped, lower_mapped_with, lower_with,
+};
 pub use parser::{ParseError, in_tag, is_void_element, parse, tag_spans};
 
 /// A half-open byte range `[start, end)` into the template source.

@@ -1,0 +1,5 @@
+{use crate::greeting::Greeting}
+<p class={self.tone}>
+  <Greeting name={self.who.clone()}/>
+  {#if self.emphatic}<strong>!</strong>{/if}
+</p>
