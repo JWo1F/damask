@@ -36,9 +36,10 @@ pub fn cursor_context(text: &str, offset: usize) -> Context {
             Context::SelfMember
         };
     }
-    // A `class=[…]` list holds Rust expressions but no braces, so nothing above
-    // recognises it — which is why completion used to stop at the bracket.
-    if in_class_list(text, offset) {
+    // A `class=[…]` or `data=[…]` list holds Rust expressions but no braces, so
+    // nothing above recognises it — which is why completion used to stop at the
+    // bracket.
+    if in_value_list(text, offset) {
         return Context::SelfMember;
     }
     match enclosing_open_element(&text[..offset]) {
@@ -73,8 +74,11 @@ fn in_string(text: &str, offset: usize) -> bool {
     open
 }
 
-/// Whether the cursor sits inside an unclosed `class=[ … ]` list.
-fn in_class_list(text: &str, offset: usize) -> bool {
+/// The attributes whose value may be a `[ … ]` list of Rust expressions.
+const LIST_ATTRS: [&str; 2] = ["class", "data"];
+
+/// Whether the cursor sits inside an unclosed `class=[ … ]` or `data=[ … ]`.
+fn in_value_list(text: &str, offset: usize) -> bool {
     let before = &text[..offset];
     let Some(open) = before.rfind('[') else {
         return false;
@@ -83,12 +87,13 @@ fn in_class_list(text: &str, offset: usize) -> bool {
         return false;
     }
     // The `[` has to be this attribute's value, not a bracket inside some other
-    // expression, so what precedes it must be `class=`.
+    // expression, so what precedes it must be one of those names and an `=`.
     let head = before[..open].trim_end();
     if !head.ends_with('=') {
         return false;
     }
-    head[..head.len() - 1].trim_end().ends_with("class")
+    let name = head[..head.len() - 1].trim_end();
+    LIST_ATTRS.iter().any(|attr| name.ends_with(attr))
 }
 
 /// Whether the tag enclosing the cursor is a `{use …}` statement.
@@ -316,6 +321,21 @@ mod tests {
         assert_eq!(ctx(r#"<div class={ "px-"#), Context::None);
         // The condition after it is Rust again.
         assert_eq!(ctx(r#"<div class={ "px-3": self."#), Context::SelfMember);
+    }
+
+    /// `data` takes the same list and map forms, so the cursor inside one has to
+    /// be classified the same way.
+    #[test]
+    fn data_list_and_map_entries_complete_as_rust() {
+        assert_eq!(ctx(r#"<div data=[self."#), Context::SelfMember);
+        assert_eq!(ctx(r#"<div data=[a, self.x"#), Context::SelfMember);
+        assert_eq!(ctx(r#"<div data=[a] "#), Context::None);
+        // The key is an attribute name, not Rust; the value after it is Rust.
+        assert_eq!(ctx(r#"<div data={ "cont"#), Context::None);
+        assert_eq!(
+            ctx(r#"<div data={ "controller": self."#),
+            Context::SelfMember
+        );
     }
 
     #[test]

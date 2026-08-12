@@ -52,6 +52,7 @@ comment passes through to the output.
 | `attr` | boolean attribute, always on |
 | `class=[…]`, `class={ "n": cond }` | class list, class map |
 | `class:name={cond}` | class directive, which wins over the list |
+| `data={expr}`, `data=[…]`, `data={ "k": v }` | one value expanded into `data-*` attributes (`DataItem`) |
 | `{...expr}` | attribute spread (`AttrSpread`), HTML elements only |
 
 Void elements — `<br>`, `<input>`, `<img>` and friends — need no end tag. A
@@ -72,6 +73,7 @@ at the end tag.
 | `Slots`, `Slot`, `DEFAULT_SLOT` | filling slots from Rust |
 | `fragment(f)`, `Fragment` | a closure as renderable content |
 | `Attr`, `AttrSpread`, `ClassItem`, `ClassList` | how values become attributes |
+| `DataItem`, `DataValue`, `DataSet` | how one value becomes a run of `data-*` attributes |
 | `as_display` | widen a reference to `&dyn Display` |
 
 `use damask::prelude::*;` brings in the common set.

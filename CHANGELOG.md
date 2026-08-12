@@ -4,6 +4,38 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`data` expands one value into a run of `data-*` attributes.** The second
+  attribute with forms of its own, and the Rails `data: { … }` equivalent:
+  `data={self.hooks()}` takes anything implementing the new `DataItem` trait —
+  pair lists, `HashMap`, `BTreeMap`, `DataSet`, an `Option` of any of them, or
+  your own type — and `data=[…]` merges several sources, with a later mention of
+  a key overriding an earlier one. `data={ "controller": "modal" }` is the
+  inline map. Values implement `DataValue`, which mirrors `Attr` one level down:
+  a `bool` renders a bare `data-open` or nothing, an `Option` renders nothing
+  when `None`. Keys are verbatim, not dasherized. A `HashMap` is visited in key
+  order so the same state always renders the same attribute order.
+
+  A quoted `data="…"` is untouched and stays an ordinary attribute, which is
+  what leaves `<object data="movie.swf">` alone — only `data={…}` and `data=[…]`
+  expand. Longhand `data-*` attributes are likewise left on the `Attr` path and
+  are not merged into the set.
+
+- **`is_attr_name_safe`**, the check both the `data` keys and the key/value
+  `AttrSpread` apply to a name before writing it.
+
+### Fixed
+
+- **A key/value `{...expr}` spread could inject an attribute.** `AttrSpread for
+  [(K, V)]` escaped the name, but escaping cannot make a name safe: a key
+  holding a space or an `=` ends the name and begins a second attribute, so a
+  key derived from state could smuggle in an `onclick`. Such a pair is now
+  dropped, and trips a `debug_assert` in a debug build. Names written in a
+  template were never affected — the parser does not accept one.
+
 ## [0.3.2] - 2026-07-23
 
 ### Added

@@ -113,4 +113,10 @@ use damask::prelude::*;
 
 Brings in `Component` (trait and derive), `Render`, `Renderer`, `Slot`, `Slots`,
 `DEFAULT_SLOT`, `fragment`, `HtmlRenderer`, `StringRenderer`, `Whitespace`, and
-the attribute traits `Attr`, `AttrSpread`, `ClassItem`, `ClassList`.
+the attribute traits `Attr`, `AttrSpread`, `ClassItem`, `ClassList`, `DataItem`,
+`DataSet`, `DataValue`.
+
+The attribute traits are documented where the syntax they back is: `Attr` and
+`AttrSpread` in [Attributes](/docs/attributes/), `ClassItem` and `ClassList` in
+[Class lists](/docs/class-lists/), `DataItem`, `DataValue` and `DataSet` in
+[Data attributes](/docs/data-attributes/).

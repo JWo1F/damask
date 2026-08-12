@@ -21,8 +21,8 @@
 //! other by a constant offset.
 
 use crate::{
-    Attr, AttrPart, AttrValue, ClassTerm, Element, ElementKind, ForNode, IfNode, Node, SnippetNode,
-    Span, Spanned, Template, is_void_element,
+    Attr, AttrPart, AttrValue, ClassTerm, DataTerm, Element, ElementKind, ForNode, IfNode, Node,
+    SnippetNode, Span, Spanned, Template, is_void_element,
 };
 
 /// A verbatim correspondence between a `.dmk` source range and the generated
@@ -474,6 +474,16 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
             emit_class_list(Some(&attr.value), &directives, e)?;
             continue;
         }
+        // `data` expands into a run of `data-*` attributes — but only in the
+        // forms that ask for it. A quoted `data="…"` stays the ordinary
+        // attribute it has always been, which is what leaves `<object
+        // data="movie.swf">` alone; a dynamic one there is written
+        // `data="{self.url}"`.
+        if name == "data" && matches!(attr.value, AttrValue::Data(_) | AttrValue::Expr(_)) {
+            flush_raw(&mut raw, e);
+            emit_data_set(&attr.value, e)?;
+            continue;
+        }
         match &attr.value {
             AttrValue::Boolean => {
                 raw.push(' ');
@@ -484,6 +494,10 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
                 return Err(format!(
                     "`{name}` cannot take a class list; only `class` can"
                 ));
+            }
+            // Likewise: only `data` parses into this.
+            AttrValue::Data(_) => {
+                return Err(format!("`{name}` cannot take a data map; only `data` can"));
             }
             AttrValue::Spread(code) => {
                 require_expr(code.as_str(), "{...} attribute spread")?;
@@ -675,6 +689,9 @@ fn emit_class_list(
         Some(AttrValue::Boolean) => return Err("`class` needs a value".into()),
         // A spread carries its own names, so it never reaches here as `class`.
         Some(AttrValue::Spread(_)) => unreachable!("a spread has no attribute name"),
+        // Only an attribute named `data` parses into this, and it is routed to
+        // `emit_data_set` before it could reach here.
+        Some(AttrValue::Data(_)) => unreachable!("a data map is not a class value"),
     }
 
     // Applied after the base list, because that is what "takes precedence"
@@ -701,6 +718,58 @@ fn emit_class_list(
     }
 
     e.raw("__damask_class.write_attr(\"class\", &mut *__damask);\n}\n");
+    Ok(())
+}
+
+/// Emit the run of `data-*` attributes a `data` value expands into.
+///
+/// Everything lands in one [`damask::DataSet`], for the reason the class forms
+/// share one `ClassList`: a key mentioned twice has to resolve to one
+/// attribute, and only a collector that outlives the individual entries can
+/// decide which mention wins. Sibling `data-*` attributes written out longhand
+/// are *not* collected here — they stay on the ordinary `Attr` path, so their
+/// values are held to `Attr` rather than to `DataValue`, and a `data` map
+/// appearing next to one cannot change how it compiles.
+fn emit_data_set(value: &AttrValue, e: &mut Emit) -> Result<(), String> {
+    e.raw("{\nlet mut __damask_data = ::damask::DataSet::new();\n");
+
+    match value {
+        AttrValue::Data(terms) => {
+            for term in terms {
+                match term {
+                    DataTerm::Nothing => {}
+                    DataTerm::Expr(code) => {
+                        require_expr(code.as_str(), "data list entry")?;
+                        e.raw("::damask::DataItem::add_to(&(");
+                        e.frag(code);
+                        e.raw("), &mut __damask_data);\n");
+                    }
+                    DataTerm::Pair { key, value } => {
+                        require_expr(value.as_str(), "data value")?;
+                        e.raw("::damask::DataValue::add_to(&(");
+                        e.frag(value);
+                        e.raw("), ");
+                        // The key is spliced as the Rust it was written as — a
+                        // string literal — so that it is checked, and spanned,
+                        // like every other fragment.
+                        e.frag(key);
+                        e.raw(", &mut __damask_data);\n");
+                    }
+                }
+            }
+        }
+        AttrValue::Expr(code) => {
+            require_expr(code.as_str(), "data")?;
+            e.raw("::damask::DataItem::add_to(&(");
+            e.frag(code);
+            e.raw("), &mut __damask_data);\n");
+        }
+        // A quoted `data="…"` and a bare `data` never reach here: both stay
+        // ordinary attributes, and a spread has no name to be `data`.
+        _ => unreachable!("only a braced or bracketed `data` value reaches a data set"),
+    }
+
+    e.raw("__damask_data.write_attrs(&mut *__damask);\n}\n");
     Ok(())
 }
 
@@ -858,6 +927,16 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
             AttrValue::Classes(_) => {
                 return Err(format!(
                     "`{}` is a component prop, so it cannot take a class list",
+                    attr.name.as_str()
+                ));
+            }
+            // The same, and the reason is worth stating: on a component `data`
+            // is an ordinary prop, so `data={expr}` there passes the value
+            // through untouched. It is the map and list forms that assemble
+            // markup, and those have nowhere to go.
+            AttrValue::Data(_) => {
+                return Err(format!(
+                    "`{}` is a component prop, so it cannot take a data map",
                     attr.name.as_str()
                 ));
             }
@@ -1074,6 +1153,59 @@ mod tests {
         // A `::` path inside is not a colon for these purposes.
         let p = body(r#"<div class={ "c": matches!(self.t, Tone::Ok) }></div>"#);
         assert!(p.contains("__damask_class"));
+    }
+
+    #[test]
+    fn data_expression_list_and_map_forms() {
+        let e = body(r#"<div data={self.wiring}></div>"#);
+        assert!(e.contains("let mut __damask_data = ::damask::DataSet::new();"));
+        assert!(e.contains("::damask::DataItem::add_to(&(self.wiring), &mut __damask_data);"));
+        assert!(e.contains("__damask_data.write_attrs(&mut *__damask);"));
+
+        let l = body(r#"<div data=[self.base(), None, { "open": self.on }]></div>"#);
+        assert!(l.contains("::damask::DataItem::add_to(&(self.base()), &mut __damask_data);"));
+        // A literal `None` drops out at compile time, as it does in a class list.
+        assert!(!l.contains("None"));
+        assert!(
+            l.contains(r#"::damask::DataValue::add_to(&(self.on), "open", &mut __damask_data);"#)
+        );
+
+        let m = body(r#"<div data={ "controller": "modal", "index": self.i }></div>"#);
+        assert!(m.contains(
+            r#"::damask::DataValue::add_to(&("modal"), "controller", &mut __damask_data);"#
+        ));
+        assert!(
+            m.contains(r#"::damask::DataValue::add_to(&(self.i), "index", &mut __damask_data);"#)
+        );
+    }
+
+    /// A quoted `data="…"` is the ordinary attribute it has always been, which
+    /// is what leaves `<object data="movie.swf">` compiling to literal text.
+    #[test]
+    fn a_quoted_data_value_stays_an_ordinary_attribute() {
+        let b = body(r#"<object data="movie.swf"></object>"#);
+        assert!(b.contains(r#"<object data=\"movie.swf\""#));
+        assert!(!b.contains("DataSet"));
+    }
+
+    /// Longhand `data-*` attributes are not collected into the set: they stay on
+    /// the `Attr` path whether or not a `data` map sits beside them, so adding
+    /// one cannot change how the other compiles.
+    #[test]
+    fn longhand_data_attributes_are_left_alone() {
+        let b = body(r#"<div data-controller="modal" data={self.extra}></div>"#);
+        assert!(b.contains(r#"data-controller=\"modal\""#));
+        assert!(b.contains("::damask::DataItem::add_to(&(self.extra), &mut __damask_data);"));
+    }
+
+    #[test]
+    fn a_data_map_is_an_error_off_data() {
+        // Only `data` parses into a data map, and only on an HTML element.
+        assert!(lower(&crate::parse(r#"<Comp data={ "a": self.x }/>"#).unwrap()).is_err());
+        assert!(lower(&crate::parse(r#"<Comp data=[self.x]/>"#).unwrap()).is_err());
+        // On a component, a plain `data={expr}` is an ordinary prop.
+        let p = body(r#"<Comp data={self.x}/>"#);
+        assert!(p.contains(".data((self.x))"));
     }
 
     #[test]

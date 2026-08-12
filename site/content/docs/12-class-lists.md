@@ -4,8 +4,9 @@ summary = "The three extra forms `class` accepts, and how they combine."
 section = "Templates"
 +++
 
-`class` is the one attribute with forms of its own, because building a class
-string is the thing templates do most.
+`class` has forms of its own because building a class string is the thing
+templates do most. ([`data`](/docs/data-attributes/) has its own set, borrowing
+this grammar for a different job: a list and a map, no directive.)
 
 ```dmk
 <div class="card shadow"                                   <!-- quoted, interpolating -->

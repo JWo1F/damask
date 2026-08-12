@@ -300,6 +300,84 @@ fn class_list_composes_and_directives_win() {
     assert!(b.contains(r#"class="base""#), "{b}");
 }
 
+/// A `data` value expands into one `data-*` attribute per key, from a map, an
+/// ordered pair list, or an inline map — and a later mention of a key overrides
+/// an earlier one without moving it.
+#[test]
+fn a_data_value_expands_into_attributes() {
+    use damask_showcase::wired::Wired;
+    use std::collections::BTreeMap;
+
+    let attrs: BTreeMap<String, String> = [
+        ("modal-target".to_string(), "dialog".to_string()),
+        ("size".to_string(), "wide".to_string()),
+    ]
+    .into_iter()
+    .collect();
+
+    let out = Wired {
+        attrs: attrs.clone(),
+        // `size` is already in the map, so this overrides it in place.
+        extra: Some(vec![("size", "narrow".to_string())]),
+        index: 3,
+        open: true,
+    }
+    .render();
+    // The `<div>` carries the list; the `<span>` inside it carries the map on
+    // its own, so the two are checked apart.
+    let div = out.lines().next().unwrap();
+    let span = out.lines().nth(1).unwrap();
+
+    assert!(div.contains(r#"data-modal-target="dialog""#), "{div}");
+    assert!(div.contains(r#"data-size="narrow""#), "{div}");
+    assert!(!div.contains(r#"data-size="wide""#), "{div}");
+    // The overridden key keeps the position its first mention gave it.
+    assert!(
+        div.find("data-modal-target").unwrap() < div.find("data-size").unwrap(),
+        "{div}"
+    );
+    // A number carries its display; a true `bool` is a bare attribute.
+    assert!(div.contains(r#"data-index="3""#), "{div}");
+    assert!(div.contains("data-open>"), "{div}");
+    // The longhand attribute beside the set is untouched.
+    assert!(div.contains(r#"data-controller="modal""#), "{div}");
+    // A bare `data={expr}` expands the same way, with nothing else mixed in.
+    assert_eq!(
+        span,
+        r#"  <span data-modal-target="dialog" data-size="wide"></span>"#
+    );
+
+    let bare = Wired {
+        attrs,
+        extra: None,
+        index: 0,
+        open: false,
+    }
+    .render();
+    // `None` contributes nothing, and a false `bool` omits its key entirely.
+    assert!(!bare.contains("data-open"), "{bare}");
+    assert!(bare.contains(r#"data-size="wide""#), "{bare}");
+}
+
+/// Keys reach the output verbatim and values escaped, so a value derived from
+/// state cannot break out of the attribute it was given.
+#[test]
+fn data_values_are_escaped() {
+    use damask_showcase::wired::Wired;
+    use std::collections::BTreeMap;
+
+    let out = Wired {
+        attrs: BTreeMap::new(),
+        extra: Some(vec![("host", r#"" onclick="x"#.to_string())]),
+        index: 0,
+        open: false,
+    }
+    .render();
+
+    assert!(!out.contains(r#"onclick="x""#), "{out}");
+    assert!(out.contains("&quot;"), "{out}");
+}
+
 /// `{...expr}` splices attributes a component cannot name: a computed name, or
 /// a map. The `&'static str` form is markup the author wrote; the pair form
 /// escapes, so state can go through it safely.

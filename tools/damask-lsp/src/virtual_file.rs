@@ -190,6 +190,23 @@ mod tests {
         }
     }
 
+    /// The `data` forms hold Rust in the same two places a class list does — a
+    /// bare list entry, and the value half of a map pair — so both have to map.
+    #[test]
+    fn data_values_are_mapped_for_hover() {
+        let damask = r#"<div data=[self.extra, { "on": self.ok }]></div>"#;
+        let (vf, _) = build(damask);
+        for needle in ["self.extra", "self.ok }"] {
+            let at = damask.find(needle).unwrap();
+            let ov = vf
+                .source_to_overlay(at)
+                .unwrap_or_else(|| panic!("`{needle}` is unmapped, so nothing can hover it"));
+            let want = needle.trim_end_matches(" }");
+            assert_eq!(&vf.text[ov..ov + want.len()], want);
+            assert_eq!(vf.overlay_to_source(ov), Some(at));
+        }
+    }
+
     /// Every mapped source byte must translate to an overlay byte that holds the
     /// same character, and translate back to itself.
     #[test]

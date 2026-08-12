@@ -1,6 +1,6 @@
 use crate::{
-    Attr, AttrPart, AttrValue, ClassTerm, Element, ElementKind, ForNode, IfNode, Node, SnippetNode,
-    Span, Spanned, Template,
+    Attr, AttrPart, AttrValue, ClassTerm, DataTerm, Element, ElementKind, ForNode, IfNode, Node,
+    SnippetNode, Span, Spanned, Template,
 };
 use std::fmt;
 
@@ -371,13 +371,19 @@ impl<'a> Parser<'a> {
                 self.pos += 1;
                 self.skip_ws();
                 let is_class = name.as_str() == "class";
+                let is_data = name.as_str() == "data";
                 let value = match self.bytes.get(self.pos) {
                     Some(b'"') => AttrValue::Literal(self.parse_quoted(b'"')?),
                     Some(b'\'') => AttrValue::Literal(self.parse_quoted(b'\'')?),
                     Some(b'[') if is_class => AttrValue::Classes(self.parse_class_list()?),
-                    Some(b'{') if is_class && self.brace_is_class_map(self.pos) => {
+                    Some(b'[') if is_data => AttrValue::Data(self.parse_data_list()?),
+                    Some(b'{') if is_class && self.brace_is_pair_map(self.pos) => {
                         let inner = self.parse_brace_inner()?;
                         AttrValue::Classes(parse_class_pairs(&inner)?)
+                    }
+                    Some(b'{') if is_data && self.brace_is_pair_map(self.pos) => {
+                        let inner = self.parse_brace_inner()?;
+                        AttrValue::Data(parse_data_pairs(&inner)?)
                     }
                     Some(b'{') => AttrValue::Expr(self.parse_brace_inner()?),
                     _ => {
@@ -479,22 +485,24 @@ impl<'a> Parser<'a> {
         Ok(parts)
     }
 
-    /// Whether the `{ … }` at `open` is a class map rather than a Rust block.
+    /// Whether the `{ … }` at `open` is a `"key": value` map rather than a Rust
+    /// block — the form `class` and `data` both take.
     ///
     /// The tell is a top-level `:` that is not part of a `::` path. Rust has no
     /// expression with a bare colon at the top level of a block — type
     /// ascription is not a thing and there is no ternary — so the two forms do
     /// not overlap in practice. A loop label (`'a: loop`) would, but a template
     /// attribute holding one is not a case worth trading this syntax for.
-    fn brace_is_class_map(&self, open: usize) -> bool {
+    fn brace_is_pair_map(&self, open: usize) -> bool {
         let Ok((inner, _)) = self.scan_braces(open) else {
             return false;
         };
         top_level_colon(inner).is_some()
     }
 
-    /// Parse `[ term, term, … ]` into class terms. `pos` must be at `[`.
-    fn parse_class_list(&mut self) -> Result<Vec<ClassTerm>, ParseError> {
+    /// Scan `[ item, item, … ]` at `pos` into its top-level items, each still a
+    /// raw slice. `label` names the attribute in the unclosed-bracket error.
+    fn parse_bracket_items(&mut self, label: &str) -> Result<Vec<Slice<'a>>, ParseError> {
         let open = self.pos;
         let inner_start = open + 1;
         let mut i = inner_start;
@@ -518,24 +526,39 @@ impl<'a> Parser<'a> {
             }
         }
         if i >= self.n {
-            return Err(self.err_at(open, "unclosed class list: missing `]`".into()));
+            return Err(self.err_at(open, format!("unclosed {label}: missing `]`")));
         }
         let inner = Slice::new(&self.src[inner_start..i], inner_start);
         self.pos = i + 1;
 
+        Ok(split_top_level(inner, b',')
+            .into_iter()
+            .map(Slice::trim)
+            .filter(|item| !item.s.is_empty())
+            .collect())
+    }
+
+    /// Parse `[ term, term, … ]` into class terms. `pos` must be at `[`.
+    fn parse_class_list(&mut self) -> Result<Vec<ClassTerm>, ParseError> {
         let mut terms = Vec::new();
-        for item in split_top_level(inner, b',') {
-            let item = item.trim();
-            if item.s.is_empty() {
-                continue;
-            }
+        for item in self.parse_bracket_items("class list")? {
             // A nested `{ … }` inside a list is a map of conditional classes,
             // so the two forms compose: `[base, { "on": cond }]`.
-            if item.s.starts_with('{') && item.s.ends_with('}') {
-                let body = Slice::new(&item.s[1..item.s.len() - 1], item.start + 1);
-                terms.extend(parse_class_pairs(&body.trim().to_spanned())?);
-            } else {
-                terms.push(class_term(item.to_spanned()));
+            match brace_body(item) {
+                Some(body) => terms.extend(parse_class_pairs(&body)?),
+                None => terms.push(class_term(item.to_spanned())),
+            }
+        }
+        Ok(terms)
+    }
+
+    /// Parse `[ term, term, … ]` into data terms. `pos` must be at `[`.
+    fn parse_data_list(&mut self) -> Result<Vec<DataTerm>, ParseError> {
+        let mut terms = Vec::new();
+        for item in self.parse_bracket_items("data list")? {
+            match brace_body(item) {
+                Some(body) => terms.extend(parse_data_pairs(&body)?),
+                None => terms.push(data_term(item.to_spanned())),
             }
         }
         Ok(terms)
@@ -891,6 +914,22 @@ fn class_term(text: Spanned) -> ClassTerm {
     }
 }
 
+/// A single data-list term, on the same rule as [`class_term`].
+fn data_term(text: Spanned) -> DataTerm {
+    if text.as_str() == "None" {
+        DataTerm::Nothing
+    } else {
+        DataTerm::Expr(text)
+    }
+}
+
+/// The inside of a list item that is a `{ … }` map, or `None` for one that is
+/// an ordinary expression.
+fn brace_body(item: Slice<'_>) -> Option<Spanned> {
+    let inner = item.s.strip_prefix('{')?.strip_suffix('}')?;
+    Some(Slice::new(inner, item.start + 1).trim().to_spanned())
+}
+
 /// Byte offset of the first top-level `:` that is not part of `::`, if any.
 ///
 /// "Top level" means outside every bracket, string and char literal, so the
@@ -958,38 +997,58 @@ fn split_top_level(src: Slice<'_>, sep: u8) -> Vec<Slice<'_>> {
     out
 }
 
-/// Parse `"a": cond, "b": cond` into conditional class terms.
-fn parse_class_pairs(body: &Spanned) -> Result<Vec<ClassTerm>, ParseError> {
+/// Split `"a": x, "b": y` into its key/value halves, each keeping its span.
+///
+/// `key` and `value` name the two halves in the error messages, which is the
+/// only thing that differs between a class map (`name`/`condition`) and a data
+/// map (`key`/`value`).
+fn split_pairs(
+    body: &Spanned,
+    what: &str,
+    key: &str,
+    value: &str,
+) -> Result<Vec<(Spanned, Spanned)>, ParseError> {
     let src = Slice::new(body.as_str(), body.span.start);
-    let mut terms = Vec::new();
+    let mut pairs = Vec::new();
     for pair in split_top_level(src, b',') {
         let pair = pair.trim();
         if pair.s.is_empty() {
             continue;
         }
+        let span = Span::new(pair.start, pair.start + pair.s.len());
         let Some(at) = top_level_colon(pair.s) else {
             return Err(ParseError {
-                message: format!(
-                    "expected `name: condition` in a class map, found `{}`",
-                    pair.s
-                ),
-                span: Span::new(pair.start, pair.start + pair.s.len()),
+                message: format!("expected `{key}: {value}` in a {what}, found `{}`", pair.s),
+                span,
             });
         };
-        let name = Slice::new(&pair.s[..at], pair.start).trim();
-        let when = Slice::new(&pair.s[at + 1..], pair.start + at + 1).trim();
-        if name.s.is_empty() || when.s.is_empty() {
+        let left = Slice::new(&pair.s[..at], pair.start).trim();
+        let right = Slice::new(&pair.s[at + 1..], pair.start + at + 1).trim();
+        if left.s.is_empty() || right.s.is_empty() {
             return Err(ParseError {
-                message: "a class map entry needs both a name and a condition".into(),
-                span: Span::new(pair.start, pair.start + pair.s.len()),
+                message: format!("a {what} entry needs both a {key} and a {value}"),
+                span,
             });
         }
-        terms.push(ClassTerm::Cond {
-            name: name.to_spanned(),
-            when: when.to_spanned(),
-        });
+        pairs.push((left.to_spanned(), right.to_spanned()));
     }
-    Ok(terms)
+    Ok(pairs)
+}
+
+/// Parse `"a": cond, "b": cond` into conditional class terms.
+fn parse_class_pairs(body: &Spanned) -> Result<Vec<ClassTerm>, ParseError> {
+    Ok(split_pairs(body, "class map", "name", "condition")?
+        .into_iter()
+        .map(|(name, when)| ClassTerm::Cond { name, when })
+        .collect())
+}
+
+/// Parse `"a": value, "b": value` into data terms.
+fn parse_data_pairs(body: &Spanned) -> Result<Vec<DataTerm>, ParseError> {
+    Ok(split_pairs(body, "data map", "key", "value")?
+        .into_iter()
+        .map(|(key, value)| DataTerm::Pair { key, value })
+        .collect())
 }
 
 fn scan_braces_end(src: &str, open: usize) -> usize {
@@ -1360,6 +1419,18 @@ mod tests {
                                             out.push(when);
                                         }
                                         ClassTerm::Nothing => {}
+                                    }
+                                }
+                            }
+                            AttrValue::Data(terms) => {
+                                for term in terms {
+                                    match term {
+                                        DataTerm::Expr(t) => out.push(t),
+                                        DataTerm::Pair { key, value } => {
+                                            out.push(key);
+                                            out.push(value);
+                                        }
+                                        DataTerm::Nothing => {}
                                     }
                                 }
                             }

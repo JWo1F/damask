@@ -255,6 +255,13 @@ pub enum AttrValue {
     /// own rather than an expression handed to the compiler, and giving every
     /// attribute that grammar would make `foo={ … }` ambiguous for no gain.
     Classes(Vec<ClassTerm>),
+    /// A data set: `data=[…]` or `data={ "k": value }`.
+    ///
+    /// Only `data` parses this way, for the same reason `class` does. A plain
+    /// `data={expr}` is *not* this — it parses as [`AttrValue::Expr`], because
+    /// on a component `data` is an ordinary prop and only lowering knows which
+    /// kind of element it landed on.
+    Data(Vec<DataTerm>),
 }
 
 /// One entry in a `class` list.
@@ -270,6 +277,20 @@ pub enum ClassTerm {
     Nothing,
     /// `"name": cond` — the class is present while `cond` holds.
     Cond { name: Spanned, when: Spanned },
+}
+
+/// One entry in a `data` set.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DataTerm {
+    /// A Rust expression yielding something implementing `damask::DataItem` —
+    /// a map, a pair list, or an `Option` of one.
+    Expr(Spanned),
+    /// A literal `None`, dropped for the same reason [`ClassTerm::Nothing`] is:
+    /// a bare `None` has no type to infer from.
+    Nothing,
+    /// `"key": value` — one attribute, named by `key` and rendered by `value`'s
+    /// `damask::DataValue` impl, which may decline to render it at all.
+    Pair { key: Spanned, value: Spanned },
 }
 
 impl AttrValue {

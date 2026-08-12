@@ -112,6 +112,27 @@ omits the attribute.
 > discoverable by a scanner, use the map form, whose names are ordinary strings:
 > `class={ "animate-pulse": cond }`.
 
+### Data attributes
+
+`data` expands one value into a run of `data-*` attributes, the way a Rails view
+does with `data: { … }`, and takes the same three forms:
+
+```html
+<div data={self.hooks()}                                  <!-- any DataItem -->
+     data=[self.base(), { "open": self.open }]            <!-- list, later wins -->
+     data={ "controller": "modal", "index": self.i }>     <!-- map -->
+```
+
+A key becomes `data-<key>` verbatim — `"user_id"` is `data-user_id`. Values
+follow the `Attr` rules one level down, so a `bool` renders a bare `data-open` or
+nothing, and an `Option` renders nothing when `None`. `DataItem` is implemented
+for pair lists, `HashMap`, `BTreeMap`, `Option` of any of them, and whatever you
+implement it for.
+
+> **A quoted `data="…"` is untouched**, which is what leaves `<object
+> data="movie.swf">` working. Only `data={…}` and `data=[…]` expand; a dynamic
+> `<object>` source is written `data="{self.url}"`.
+
 ### Spreading attributes
 
 `{...expr}` splices a prepared run of attributes — for the ones a component

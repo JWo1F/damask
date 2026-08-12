@@ -18,3 +18,4 @@ pub mod panel;
 pub mod shell;
 pub mod tagged;
 pub mod theme;
+pub mod wired;

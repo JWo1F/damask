@@ -1,6 +1,6 @@
 +++
 title = "The service table"
-summary = "Classes that assemble themselves from conditions, and attributes that know they are HTML."
+summary = "Classes that assemble themselves from conditions, data that expands from one value, and attributes that know they are HTML."
 +++
 
 The centre of the page is a table of services — one row each, striped, with rows
@@ -215,10 +215,83 @@ invalid control loses `base` however the list was assembled.
 > When a class must be discoverable by a scanner, use the map form, whose names
 > are ordinary strings: `class={ "animate-pulse": self.busy }`.
 
+## The problem: a row full of `data-`
+
+Rows are going to be clickable, which means handing the client-side controller
+everything it needs to know about the service. Written out, that is four
+attributes agreeing with each other by hand:
+
+```dmk
+<tr data-controller="service-row"
+    data-service={svc.name.clone()}
+    data-status={svc.status.slug()}
+    data-slow={svc.is_slow()}>
+```
+
+It works, and it does not scale. The names repeat their prefix, the set has to be
+retyped on every element that wants it, and a group that should travel together —
+"everything the controller needs" — is four separate facts the template holds
+apart. If the controller grows a fifth, every row template has to hear about it.
+
+## The fix: `data` takes a value
+
+`data` is the other attribute with forms of its own. Where `class` assembles one
+string from parts, `data` expands **one value into a run of attributes** — the
+thing a Rails view does with `data: { … }`. The map form writes the same four:
+
+```dmk
+<tr data={ "controller": "service-row",
+           "service": svc.name.clone(),
+           "status": svc.status.slug(),
+           "slow": svc.is_slow() }>
+```
+
+Each key becomes `data-<key>`, written verbatim — `"user_id"` is `data-user_id`,
+not `data-user-id`. Values answer the same question `attr={…}` does, one level
+down: `slow` is a `bool`, so a fast service gets no `data-slow` at all, exactly
+as the longhand did.
+
+The point, though, is that a *value* is now the unit. Give the group a name and
+the template stops holding it apart:
+
+```rust
+impl Service {
+    /// Everything the row controller needs, as one group.
+    pub fn hooks(&self) -> Vec<(&'static str, String)> {
+        vec![
+            ("controller", "service-row".into()),
+            ("service", self.name.clone()),
+            ("status", self.status.slug().into()),
+        ]
+    }
+}
+```
+
+```dmk
+<tr data={svc.hooks()}>
+```
+
+Anything implementing `DataItem` fits there — a `Vec` of pairs, a `HashMap` or
+`BTreeMap`, an `Option` of any of them for a group that is sometimes absent, or a
+type of your own. And a **list** merges several sources, with a later mention of
+a key overriding an earlier one:
+
+```dmk
+<tr data=[svc.hooks(), { "slow": svc.is_slow() }]>
+```
+
+That is the shape to reach for when a component takes a data map from its caller
+and adds its own: the caller's group first, yours after, and yours wins.
+
+> [!WARNING]
+> A **quoted** `data="…"` is an ordinary attribute and stays one — which is what
+> leaves `<object data="movie.swf">` working. It is `data={…}` and `data=[…]`
+> that expand. A dynamic `<object>` source is written `data="{self.url}"`.
+
 ## Attributes you cannot name
 
-`{...expr}` splices a prepared run of attributes — the ones a component cannot
-know the names of, like a computed `data-<controller>-target`:
+`{...expr}` splices a prepared run of attributes — the ones whose names the
+template cannot write at all, like a computed `data-<controller>-target`:
 
 ```dmk
 <input {...self.wiring} {...&self.data}>
@@ -230,8 +303,13 @@ lifetime is what keeps a request-derived value out, since a string built from a
 form field cannot be `'static`. **`[(K, V)]` and `Vec<(K, V)>`** are a map,
 escaped on the way out, and that is where anything derived from state belongs.
 
-helm needs none of this, and most components never will. [Attributes](/docs/attributes/)
-and [Class lists](/docs/class-lists/) have the exhaustive rules.
+A name that could break out of its own attribute — one holding a space, or an
+`=` — is dropped rather than escaped, because escaping a *name* does not make it
+safe. The same check guards every `data` key.
+
+helm needs none of this, and most components never will.
+[Attributes](/docs/attributes/), [Class lists](/docs/class-lists/) and
+[Data attributes](/docs/data-attributes/) have the exhaustive rules.
 
 ## Back to the badge
 

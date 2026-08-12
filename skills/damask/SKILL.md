@@ -153,7 +153,8 @@ impl Default for Theme { /* accent: "indigo", label: "Theme", dense: false */ }
 
 ### Class lists
 
-`class` — and only `class` — takes three further forms:
+`class` takes three further forms (`data`, below, takes the list and the map for
+a different job; nothing else takes either):
 
 ```html
 <div class="a b"                                  <!-- as ever, interpolating -->
@@ -174,6 +175,38 @@ impl Default for Theme { /* accent: "indigo", label: "Theme", dense: false */ }
 > look — the rule gets compiled out of your stylesheet. When a class has to be
 > discoverable by a scanner, use the map form, whose names are ordinary strings:
 > `class={ "animate-pulse": cond }`.
+
+### Data attributes
+
+`data` expands **one value into a run of `data-*` attributes**, as a Rails view
+does with `data: { … }`:
+
+```html
+<div data={self.hooks()}                              <!-- any DataItem -->
+     data=[self.base(), { "open": self.open }]        <!-- list; later wins -->
+     data={ "controller": "modal", "index": self.i }> <!-- map -->
+```
+
+- `DataItem` — what a whole source implements: `[(K, V)]`/`Vec`/array where
+  `K: AsRef<str>`, `HashMap` (visited in key order, so output is stable),
+  `BTreeMap`, `DataSet`, `Option<T>`, `&T`. **Not** a bare string: a data set is
+  made of pairs. A literal `None` in a list is dropped at compile time.
+- `DataValue` — what one value implements, mirroring `Attr` one level down:
+  `bool` gives a bare ` data-key` when true and **nothing** when false;
+  `Option<T>` gives nothing when `None`; strings, numbers and `char` give
+  ` data-key="escaped"`.
+- Keys are **verbatim**, not dasherized: `"user_id"` is `data-user_id`. A key
+  that could not be written safely (whitespace, `=`, quotes …) is dropped.
+- A key mentioned twice keeps its **first position** and takes the **last
+  value**, which is what makes `data=[base, extra]` mean "extra overrides base".
+- Longhand `data-*` attributes beside a `data` value are ordinary attributes and
+  are not merged into the set.
+
+> **A quoted `data="…"` does not expand** — it is the ordinary attribute it has
+> always been, which is what leaves `<object data="movie.swf">` working. Write a
+> dynamic one as `data="{self.url}"`. On a *component*, `data` is an ordinary
+> prop, so `data={expr}` passes the value through; `data=[…]` and the map form
+> are errors there, as `class=[…]` is.
 
 ### Spreading attributes
 
@@ -300,7 +333,7 @@ let out = r.finish();
 - **Control flow does not work in attribute position.** `<input {#if x}foo{/if}>`
   is a parse error, and attribute *names* are static (no `data-{key}=`). Express
   a conditional attribute with a `bool`/`Option` value instead; for a map of
-  `data-*`, build the run in Rust and emit it with `{@html}` in content position.
+  `data-*`, use `data={…}`, and for names of any other shape, `{...expr}`.
 - **`{ … }` HTML-escapes; `{@html … }` does not.** Only use `{@html}` for content
   you trust or that is already escaped (e.g. a child's `.render()`).
 - **Component attributes move into fields** — pass `attr={self.x.clone()}` for a
