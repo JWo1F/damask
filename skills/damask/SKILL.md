@@ -317,6 +317,51 @@ use damask::fragment;
 Layout { children: fragment(|r| r.write_raw("<p>hi</p>")) }.render();
 ```
 
+## Async templates
+
+Write `.await` anywhere a template holds Rust — `{ … }`, an `{#if}`/`{#for}`
+condition or iterable, an attribute value — and the component becomes async
+automatically; no attribute or parameter to add. A template with no `.await`
+anywhere stays exactly as sync as it always was, at no extra cost:
+
+```html
+<!-- profile.dmk -->
+<p>{self.load_name().await}</p>
+```
+
+An async component implements `AsyncComponent`/`AsyncRender` instead of
+`Component`/`Render`, so it renders with `.render_async().await`, not
+`.render()`:
+
+```rust
+use damask::AsyncComponent;
+let html = Profile { user_id }.render_async().await;
+```
+
+Composition works both ways at once: a *sync* component gets `AsyncRender` for
+free (any `Render` does), so an async template can embed a plain sync child at
+no real cost — its future is already finished the moment it's created. An
+async-only component has no sync `Render` to fall back to (running it would
+mean blocking on a future inside whatever executor is already driving the
+caller), so a **sync** template embedding an async-only child is a compile
+error naming the missing `Render` impl — the fix is to make the embedding
+template async too (add `.await` somewhere, or restructure so the async work
+happens before the `<Component/>` tag).
+
+Two narrower spots don't support `.await`, both with a straightforward
+rewrite:
+
+- **A component's slot fill** — the children between `<Comp>…</Comp>`, or a
+  `slot="x"` child — travels to the callee as a plain `&dyn Render`, so it
+  can't itself contain `.await`. Compute the value first and pass the result:
+  `{ let x = self.fetch().await }` above the tag, then `<Comp>{x}</Comp>`.
+  (A `<slot>`'s own *fallback* body, back in the component that declares it,
+  has no such limit — it awaits like any other markup.)
+- **A `{#snippet}` that takes parameters cannot itself `.await`.** Move the
+  `.await` to the call site instead: `{@render item(self.fetch().await)}`,
+  with `item`'s own body using the already-resolved value. A parameterless
+  snippet awaits freely.
+
 ## Custom renderers
 
 The `Renderer` trait owns the output buffer and escaping. Implement it to change

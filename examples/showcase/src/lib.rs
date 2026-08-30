@@ -2,6 +2,8 @@
 //! `showcase` binary.
 
 pub mod aliased;
+pub mod async_greeting;
+pub mod async_panel;
 pub mod board;
 pub mod button;
 pub mod card;

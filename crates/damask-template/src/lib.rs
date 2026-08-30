@@ -36,10 +36,12 @@
 //! `damask::Slots`, so a template can ask whether one was filled
 //! (`slots.has("x")`) and place it by name (`{@render slots.get("x")}`).
 
+mod awaits;
 mod line_index;
 mod lower;
 mod parser;
 
+pub use awaits::needs_async;
 pub use line_index::LineIndex;
 pub use lower::{
     DEFAULT_CRATE, Mapping, SourceMap, lower, lower_mapped, lower_mapped_with, lower_with,

@@ -1,0 +1,6 @@
+<section>
+  <Button label="fixed"/>
+  {#snippet shout(x: String)}{x.to_uppercase()}{/snippet}
+  <p>{@render shout(self.load_label().await)}</p>
+  <footer><slot name="footer">{self.load_label().await}</slot></footer>
+</section>

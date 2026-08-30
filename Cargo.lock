@@ -182,6 +182,9 @@ dependencies = [
 [[package]]
 name = "damask-template"
 version = "0.3.2"
+dependencies = [
+ "proc-macro2",
+]
 
 [[package]]
 name = "dashmap"

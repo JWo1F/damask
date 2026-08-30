@@ -22,7 +22,7 @@
 //! the `.dmk` source to the appended region, so a request at a template position
 //! can be forwarded to the equivalent overlay position and results mapped back.
 
-use damask_template::{Span, Template, lower_mapped};
+use damask_template::{Span, Template, lower_mapped, needs_async};
 
 /// The synthetic method name appended to the paired module. Chosen to be
 /// unlikely to collide with anything a component author would write.
@@ -65,7 +65,17 @@ impl VirtualFile {
             "\n\n#[allow(dead_code, unused, unused_braces, unused_parens, clippy::all)]\nimpl ",
         );
         text.push_str(struct_name);
-        text.push_str("\n{\n    fn ");
+        text.push_str("\n{\n    ");
+        // `.await` only type-checks inside an async fn/block, so a template
+        // that awaits something needs the synthetic method to be async too —
+        // matching what the derive itself emits (`AsyncRender` instead of
+        // `Render`) — or rust-analyzer would flag every `.await` in the
+        // template as a false diagnostic.
+        if needs_async(template) {
+            text.push_str("async fn ");
+        } else {
+            text.push_str("fn ");
+        }
         text.push_str(CHECK_FN);
         text.push_str(
             "(&self, __damask: &mut dyn ::damask::Renderer, __damask_slots: ::damask::Slots<'_>) ",
@@ -149,6 +159,17 @@ mod tests {
             "fn __damask_check(&self, __damask: &mut dyn ::damask::Renderer, __damask_slots: ::damask::Slots<'_>)"
         ));
         assert!(vf.text.contains("self.name"));
+    }
+
+    /// A template with `.await` needs the synthetic check method to be
+    /// `async fn` — otherwise rust-analyzer would flag every `.await` in the
+    /// template as a bogus "not allowed outside async fn" diagnostic, even
+    /// though the real derive compiles it fine.
+    #[test]
+    fn a_template_with_await_gets_an_async_check_fn() {
+        let template = damask_template::parse("{self.load().await}").unwrap();
+        let vf = VirtualFile::build(RS, "Greeting", &template).unwrap();
+        assert!(vf.text.contains("async fn __damask_check("), "{}", vf.text);
     }
 
     #[test]

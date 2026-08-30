@@ -11,5 +11,8 @@ readme = "README.md"
 keywords = ["template", "parser", "component", "html", "markup"]
 categories = ["template-engine", "parser-implementations"]
 
+[dependencies]
+proc-macro2.workspace = true
+
 [lints]
 workspace = true

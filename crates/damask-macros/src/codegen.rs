@@ -46,6 +46,15 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
         }
     };
 
+    // Whether this template's own Rust contains `.await` anywhere, decided
+    // once here so it can pick which trait impl to emit below. See
+    // `damask_template::needs_async` for exactly what counts: composition
+    // (a `<Component/>` that turns out to be async-only) is not detected here
+    // — that surfaces as an ordinary "trait not implemented" error at the call
+    // site instead, since a proc macro has no type information about another
+    // component's expansion.
+    let is_async = damask_template::needs_async(&template);
+
     // The template → Rust lowering lives in `damask-template` so the language
     // server generates byte-identical code for its virtual files.
     let body_src = match damask_template::lower_with(&template, &options.krate_str()) {
@@ -77,24 +86,79 @@ pub fn expand(input: DeriveInput, source_file: Option<PathBuf>) -> TokenStream {
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
     let path_lit = LitStr::new(&resolved.path.to_string_lossy(), Span::call_site());
 
+    // A genuinely async component has no sensible `Render`/`Component` to
+    // fall back to — running it would mean blocking on a future inside
+    // whatever executor is already driving the caller — so it implements only
+    // the async pair. It gets nothing for free in return: every sync
+    // component's `Render` implementor gets `AsyncRender`/`AsyncComponent`
+    // through the blanket impls in `damask`, which is what lets an async
+    // template embed a sync child at the cost of an already-ready future and
+    // nothing more.
+    let render_impl = if is_async {
+        quote! {
+            impl #impl_generics #krate::AsyncRender for #name #ty_generics #where_clause {
+                fn render_into_async<'damask_life0, 'damask_life1, 'damask_async_trait>(
+                    &'damask_life0 self,
+                    __damask: &'damask_life1 mut dyn #krate::Renderer,
+                ) -> #krate::RenderFuture<'damask_async_trait>
+                where
+                    'damask_life0: 'damask_async_trait,
+                    'damask_life1: 'damask_async_trait,
+                    Self: 'damask_async_trait,
+                {
+                    #krate::AsyncRender::render_slots_async(self, __damask, #krate::Slots::EMPTY)
+                }
+
+                fn render_slots_async<
+                    'damask_life0,
+                    'damask_life1,
+                    'damask_life2,
+                    'damask_async_trait,
+                >(
+                    &'damask_life0 self,
+                    __damask: &'damask_life1 mut dyn #krate::Renderer,
+                    __damask_slots: #krate::Slots<'damask_life2>,
+                ) -> #krate::RenderFuture<'damask_async_trait>
+                where
+                    'damask_life0: 'damask_async_trait,
+                    'damask_life1: 'damask_async_trait,
+                    'damask_life2: 'damask_async_trait,
+                    Self: 'damask_async_trait,
+                {
+                    ::std::boxed::Box::pin(async move #body)
+                }
+            }
+
+            impl #impl_generics #krate::AsyncComponent for #name #ty_generics #where_clause {
+                fn default_renderer(&self) -> ::std::boxed::Box<dyn #krate::Renderer> {
+                    ::std::boxed::Box::new(#krate::renderers::HtmlRenderer::new())
+                }
+            }
+        }
+    } else {
+        quote! {
+            impl #impl_generics #krate::Render for #name #ty_generics #where_clause {
+                fn render_into(&self, __damask: &mut dyn #krate::Renderer) {
+                    #krate::Render::render_slots(self, __damask, #krate::Slots::EMPTY)
+                }
+
+                fn render_slots(
+                    &self,
+                    __damask: &mut dyn #krate::Renderer,
+                    __damask_slots: #krate::Slots<'_>,
+                ) #body
+            }
+
+            impl #impl_generics #krate::Component for #name #ty_generics #where_clause {
+                fn default_renderer(&self) -> ::std::boxed::Box<dyn #krate::Renderer> {
+                    ::std::boxed::Box::new(#krate::renderers::HtmlRenderer::new())
+                }
+            }
+        }
+    };
+
     quote! {
-        impl #impl_generics #krate::Render for #name #ty_generics #where_clause {
-            fn render_into(&self, __damask: &mut dyn #krate::Renderer) {
-                #krate::Render::render_slots(self, __damask, #krate::Slots::EMPTY)
-            }
-
-            fn render_slots(
-                &self,
-                __damask: &mut dyn #krate::Renderer,
-                __damask_slots: #krate::Slots<'_>,
-            ) #body
-        }
-
-        impl #impl_generics #krate::Component for #name #ty_generics #where_clause {
-            fn default_renderer(&self) -> ::std::boxed::Box<dyn #krate::Renderer> {
-                ::std::boxed::Box::new(#krate::renderers::HtmlRenderer::new())
-            }
-        }
+        #render_impl
 
         // The builder a template's `<Name …/>` goes through, since a call site
         // cannot see which props it left out.

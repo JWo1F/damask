@@ -8,6 +8,29 @@ All notable changes to Damask are documented here. The format follows
 
 ### Added
 
+- **Async templates.** Write `.await` anywhere a `.dmk` holds Rust — `{ … }`,
+  an `{#if}`/`{#for}` condition or iterable, an attribute value — and the
+  derive emits an async render path automatically; no attribute to add, and a
+  template with no `.await` anywhere stays exactly as sync as before, at no
+  extra cost. An async component implements the new `AsyncComponent`/
+  `AsyncRender` traits instead of `Component`/`Render`, and renders with
+  `.render_async().await`. Every sync `Render` gets `AsyncRender` for free
+  (blanket impls in `damask`), so an async template can embed a plain sync
+  child at no real cost; the reverse — a sync template embedding an
+  async-only child — is a compile error, since there is no sync fallback that
+  wouldn't mean blocking on a future inside the caller's own executor.
+
+  Two spots don't support `.await`: a component's slot fill (the children
+  between `<Comp>…</Comp>`, which travel to the callee as a plain
+  `&dyn Render`), and a `{#snippet}` that takes parameters (its closure has to
+  stay callable more than once, which an `async move` capturing a
+  non-`Copy` parameter can't guarantee). Both have a one-line rewrite — see
+  the "Async templates" section of the component-authoring skill.
+
+  New in `damask`: `AsyncRender`, `AsyncComponent`, `RenderFuture`,
+  `AsyncFragment`/`fragment_async`, and `Slots::render_async`. New in
+  `damask_template`: `needs_async`.
+
 - **`#[component(crate = ::some::path)]` names the path generated code reaches
   Damask through.** For a framework that re-exports Damask rather than having
   its users depend on it: the default `::damask` resolves against the extern

@@ -46,6 +46,8 @@
 //! that.
 
 use std::fmt::Display;
+use std::future::Future;
+use std::pin::Pin;
 
 pub mod attr;
 pub mod props;
@@ -259,6 +261,29 @@ impl<'a> Slots<'a> {
             None => fallback(r),
         }
     }
+
+    /// Like [`render`](Slots::render), for a `<slot>` that lives in an async
+    /// template — see [`AsyncRender`] for why a fallback here hands back a
+    /// boxed future rather than running inline.
+    pub fn render_async<'r>(
+        &self,
+        name: &str,
+        r: &'r mut dyn Renderer,
+        indent: usize,
+        fallback: impl FnOnce(&'r mut dyn Renderer) -> RenderFuture<'r>,
+    ) -> RenderFuture<'r>
+    where
+        'a: 'r,
+    {
+        match self.get(name) {
+            Some(content) => Box::pin(async move {
+                r.push_indent(indent);
+                content.render_into_async(r).await;
+                r.pop_indent(indent);
+            }),
+            None => fallback(r),
+        }
+    }
 }
 
 /// Renderable content: given a renderer, write yourself into it.
@@ -326,6 +351,91 @@ impl<T: Render> Render for Option<T> {
     }
 }
 
+/// A future returned by an [`AsyncRender`] method.
+///
+/// Boxed rather than a plain `impl Future`, because `AsyncRender` has to stay
+/// object-safe the same way [`Renderer`] and [`Render`] are.
+pub type RenderFuture<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
+
+/// The async counterpart of [`Render`], for content whose template genuinely
+/// `.await`s something.
+///
+/// `async fn` in a trait is not `dyn`-safe — the compiler cannot size a call
+/// through `&dyn AsyncRender` without knowing the concrete future — so, like
+/// the `async-trait` crate, these methods hand back an explicitly boxed
+/// future instead. That is one allocation per render, which is exactly the
+/// cost [`Render`] stays free of: the derive only emits `AsyncRender` for a
+/// `.dmk` that contains `.await`; everything else keeps rendering through the
+/// plain, allocation-free `Render`.
+///
+/// Every [`Render`] implementor gets `AsyncRender` for free, through the
+/// blanket impl below — its future has nothing to poll but a sync call that
+/// already ran to completion. That is what lets an async template embed a
+/// sync child exactly as cheaply as a sync template can; the reverse does not
+/// hold, since a genuinely async component has no sensible `Render` to fall
+/// back to (running it would mean blocking on a future inside whatever
+/// executor is already driving the caller).
+pub trait AsyncRender {
+    /// Write this content into `r`, with no slots filled.
+    fn render_into_async<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        r: &'life1 mut dyn Renderer,
+    ) -> RenderFuture<'async_trait>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait;
+
+    /// Write this content into `r`, resolving its `<slot>`s against `slots`.
+    ///
+    /// The derive overrides this with the lowered template and redirects
+    /// [`render_into_async`](AsyncRender::render_into_async) here with
+    /// [`Slots::EMPTY`], mirroring [`Render::render_slots`].
+    fn render_slots_async<'life0, 'life1, 'life2, 'async_trait>(
+        &'life0 self,
+        r: &'life1 mut dyn Renderer,
+        _slots: Slots<'life2>,
+    ) -> RenderFuture<'async_trait>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.render_into_async(r)
+    }
+}
+
+impl<T: Render + ?Sized> AsyncRender for T {
+    fn render_into_async<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        r: &'life1 mut dyn Renderer,
+    ) -> RenderFuture<'async_trait>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Render::render_into(self, r);
+        Box::pin(async {})
+    }
+
+    fn render_slots_async<'life0, 'life1, 'life2, 'async_trait>(
+        &'life0 self,
+        r: &'life1 mut dyn Renderer,
+        slots: Slots<'life2>,
+    ) -> RenderFuture<'async_trait>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        'life2: 'async_trait,
+        Self: 'async_trait,
+    {
+        Render::render_slots(self, r, slots);
+        Box::pin(async {})
+    }
+}
+
 /// Wraps a `Fn(&mut dyn Renderer)` closure as [`Render`].
 ///
 /// A blanket `impl<F: Fn(..)> Render for F` would conflict (under coherence)
@@ -353,6 +463,37 @@ impl<F: Fn(&mut dyn Renderer)> Render for Fragment<F> {
 /// ```
 pub fn fragment<F: Fn(&mut dyn Renderer)>(f: F) -> Fragment<F> {
     Fragment(f)
+}
+
+/// Wraps a closure returning a boxed future as [`AsyncRender`] — the async
+/// counterpart of [`Fragment`], for a `{#snippet}` whose enclosing template
+/// awaits something. Build one with [`fragment_async`].
+pub struct AsyncFragment<F>(pub F);
+
+impl<F> AsyncRender for AsyncFragment<F>
+where
+    F: for<'r> Fn(&'r mut dyn Renderer) -> RenderFuture<'r>,
+{
+    fn render_into_async<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        r: &'life1 mut dyn Renderer,
+    ) -> RenderFuture<'async_trait>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        (self.0)(r)
+    }
+}
+
+/// Turn a `|r: &mut dyn Renderer| { Box::pin(async move { … }) }` closure into
+/// async-renderable content — the async counterpart of [`fragment`].
+pub fn fragment_async<F>(f: F) -> AsyncFragment<F>
+where
+    F: for<'r> Fn(&'r mut dyn Renderer) -> RenderFuture<'r>,
+{
+    AsyncFragment(f)
 }
 
 /// Widen a reference to `&dyn Display` for [`Renderer::write_escaped`] and
@@ -431,13 +572,66 @@ pub trait Component: Render {
     }
 }
 
+/// The async counterpart of [`Component`], for a component whose template
+/// genuinely `.await`s something — see [`AsyncRender`] for why that means a
+/// separate trait rather than one method that is sometimes async.
+///
+/// Every [`Component`] gets `AsyncComponent` for free (via [`AsyncRender`]'s
+/// blanket impl), so `render_async`/`render_with_async` work uniformly across
+/// sync and async components; only a genuinely async component's derive
+/// implements this trait directly, since such a component has no sync
+/// `Component` to fall back to.
+pub trait AsyncComponent: AsyncRender {
+    /// The renderer [`render_async`](AsyncComponent::render_async) uses when
+    /// the caller names none. See [`Component::default_renderer`].
+    fn default_renderer(&self) -> Box<dyn Renderer>;
+
+    /// Render to a `String` using the [default renderer](AsyncComponent::default_renderer).
+    fn render_async<'life0, 'async_trait>(
+        &'life0 self,
+    ) -> Pin<Box<dyn Future<Output = String> + 'async_trait>>
+    where
+        'life0: 'async_trait,
+        Self: 'async_trait,
+    {
+        self.render_with_async(Slots::EMPTY)
+    }
+
+    /// Like [`render_async`](AsyncComponent::render_async), but fills the
+    /// template's `<slot>`s — see [`Component::render_with`].
+    fn render_with_async<'life0, 'life1, 'async_trait>(
+        &'life0 self,
+        slots: Slots<'life1>,
+    ) -> Pin<Box<dyn Future<Output = String> + 'async_trait>>
+    where
+        'life0: 'async_trait,
+        'life1: 'async_trait,
+        Self: 'async_trait,
+    {
+        Box::pin(async move {
+            let mut r = self.default_renderer();
+            self.render_slots_async(r.as_mut(), slots).await;
+            r.finish()
+        })
+    }
+}
+
+impl<T: Component + ?Sized> AsyncComponent for T {
+    fn default_renderer(&self) -> Box<dyn Renderer> {
+        Component::default_renderer(self)
+    }
+}
+
 /// Common imports for authoring and using components.
 ///
 /// `Component` here is both the trait and its derive macro.
 pub mod prelude {
     pub use crate::attr::{Attr, AttrSpread, ClassItem, ClassList, DataItem, DataSet, DataValue};
     pub use crate::renderers::{HtmlRenderer, StringRenderer, Whitespace};
-    pub use crate::{Component, DEFAULT_SLOT, Render, Renderer, Slot, Slots, fragment};
+    pub use crate::{
+        AsyncComponent, AsyncRender, Component, DEFAULT_SLOT, Render, RenderFuture, Renderer, Slot,
+        Slots, fragment, fragment_async,
+    };
 }
 
 #[cfg(test)]
@@ -518,5 +712,98 @@ mod tests {
         assert!(!slots.has("body"));
         assert_eq!(rendered(slots.get_default()), "Hello Ada!");
         assert!(!Slots::EMPTY.has_default());
+    }
+
+    /// A single-threaded, no-IO executor for these tests: no runtime
+    /// dependency, and every future here resolves without ever really
+    /// suspending, so busy-polling with a no-op waker is enough.
+    fn block_on<F: Future>(f: F) -> F::Output {
+        let mut f = std::pin::pin!(f);
+        let waker = std::task::Waker::noop();
+        let mut cx = std::task::Context::from_waker(waker);
+        loop {
+            if let std::task::Poll::Ready(v) = f.as_mut().poll(&mut cx) {
+                return v;
+            }
+        }
+    }
+
+    /// A hand-written component that genuinely awaits something, standing in
+    /// for what the derive emits for a `.dmk` containing `.await`.
+    struct AsyncGreeting {
+        name: String,
+    }
+
+    impl AsyncRender for AsyncGreeting {
+        fn render_into_async<'life0, 'life1, 'async_trait>(
+            &'life0 self,
+            r: &'life1 mut dyn Renderer,
+        ) -> RenderFuture<'async_trait>
+        where
+            'life0: 'async_trait,
+            'life1: 'async_trait,
+            Self: 'async_trait,
+        {
+            Box::pin(async move {
+                let name = std::future::ready(self.name.clone()).await;
+                r.write_raw("Hello ");
+                r.write_escaped(&name);
+                r.write_raw("!");
+            })
+        }
+    }
+
+    impl AsyncComponent for AsyncGreeting {
+        fn default_renderer(&self) -> Box<dyn Renderer> {
+            Box::new(HtmlRenderer::new())
+        }
+    }
+
+    #[test]
+    fn a_genuinely_async_component_renders_through_render_async() {
+        let g = AsyncGreeting {
+            name: "<Ada>".into(),
+        };
+        assert_eq!(block_on(g.render_async()), "Hello &lt;Ada&gt;!");
+    }
+
+    /// The blanket `AsyncRender` a plain `Render` type gets for free — no
+    /// `.dmk` awaits anything, so an async parent can still embed it.
+    #[test]
+    fn a_sync_component_renders_through_the_async_path_for_free() {
+        let g = Greeting { name: "Bob".into() };
+        let mut r: Box<dyn Renderer> = Box::new(HtmlRenderer::new());
+        block_on(AsyncRender::render_into_async(&g, r.as_mut()));
+        assert_eq!(r.finish(), "Hello Bob!");
+        assert_eq!(block_on(g.render_async()), "Hello Bob!");
+    }
+
+    #[test]
+    fn slots_render_async_fills_and_falls_back() {
+        let g = Greeting { name: "Ada".into() };
+        let entries = [Slot::new("body", &g)];
+        let slots = Slots::new(&entries);
+
+        let filled = block_on(async {
+            let mut r: Box<dyn Renderer> = Box::new(HtmlRenderer::new());
+            slots
+                .render_async("body", r.as_mut(), 0, |r| {
+                    Box::pin(async { r.write_raw("fallback") })
+                })
+                .await;
+            r.finish()
+        });
+        assert_eq!(filled, "Hello Ada!");
+
+        let fallback = block_on(async {
+            let mut r: Box<dyn Renderer> = Box::new(HtmlRenderer::new());
+            slots
+                .render_async("absent", r.as_mut(), 0, |r| {
+                    Box::pin(async { r.write_raw("fallback") })
+                })
+                .await;
+            r.finish()
+        });
+        assert_eq!(fallback, "fallback");
     }
 }

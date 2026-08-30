@@ -60,6 +60,15 @@ struct Emit {
     /// The path scaffolding reaches this crate through, substituted for
     /// [`PLACEHOLDER`] as each piece is emitted.
     krate: String,
+    /// Whether this template contains `.await` anywhere (see
+    /// [`crate::needs_async`]), decided once before lowering starts. Every
+    /// render call this template makes — a nested `<Component/>`, a
+    /// `{@render …}`, a `<slot>`'s fallback — goes through the async form and
+    /// is awaited when this is set, and through the plain sync form when it
+    /// is not. A template does not mix the two: the whole body sits inside
+    /// one `fn` (sync) or one `async move { … }` (async), so every call
+    /// inside it has to match.
+    is_async: bool,
 }
 
 /// What the lowering writes where the crate path goes.
@@ -72,12 +81,13 @@ struct Emit {
 const PLACEHOLDER: &str = "__damask_krate";
 
 impl Emit {
-    fn new(krate: &str) -> Self {
+    fn new(krate: &str, is_async: bool) -> Self {
         Emit {
             out: String::new(),
             map: SourceMap::default(),
             at_line_start: false,
             krate: krate.to_string(),
+            is_async,
         }
     }
 
@@ -145,11 +155,15 @@ pub fn lower_mapped(template: &Template) -> Result<(String, SourceMap), String> 
 
 /// Like [`lower_mapped`], but names this crate `krate` — see [`DEFAULT_CRATE`].
 pub fn lower_mapped_with(template: &Template, krate: &str) -> Result<(String, SourceMap), String> {
-    let mut e = Emit::new(krate);
+    let mut e = Emit::new(krate, crate::needs_async(template));
     e.raw("{\n");
-    // Bring `Component`/`Render` into scope (unnamed) so `child.render()` and
-    // `{@render …}`-style calls resolve without the author importing the traits.
-    e.raw("#[allow(unused_imports)] use __damask_krate::{Component as _, Render as _};\n");
+    // Bring `Component`/`Render` (and their async counterparts) into scope
+    // (unnamed) so `child.render()`, `child.render_async().await`, and
+    // `{@render …}`-style calls resolve without the author importing the
+    // traits.
+    e.raw(
+        "#[allow(unused_imports)] use __damask_krate::{Component as _, Render as _, AsyncComponent as _, AsyncRender as _};\n",
+    );
     // The caller's fills, under a name a template may actually write. `<slot>`
     // resolves against them implicitly; this is what lets a template *ask* —
     // whether a slot was filled, and where to put the answer. Shadowable on
@@ -315,10 +329,17 @@ fn emit_node(node: &Node, layout: Layout, is_last: bool, e: &mut Emit) -> Result
         // component, so the depth of the site rendering it is added here.
         Node::Render(code) => {
             require_expr(code.as_str(), "{@render … }")?;
+            let is_async = e.is_async;
             indented(layout.depth, e, |e| {
-                e.raw("__damask_krate::Render::render_into(&(");
-                e.frag(code);
-                e.raw("), &mut *__damask);\n");
+                if is_async {
+                    e.raw("__damask_krate::AsyncRender::render_into_async(&(");
+                    e.frag(code);
+                    e.raw("), &mut *__damask).await;\n");
+                } else {
+                    e.raw("__damask_krate::Render::render_into(&(");
+                    e.frag(code);
+                    e.raw("), &mut *__damask);\n");
+                }
             });
             e.at_line_start = false;
         }
@@ -452,10 +473,37 @@ fn emit_snippet(snippet: &SnippetNode, e: &mut Emit) -> Result<(), String> {
     if snippet.name.as_str().is_empty() {
         return Err("`{#snippet}` needs a name".into());
     }
+    // Whether *this* snippet's own body awaits something — independent of
+    // whether the enclosing template does. A plain `Fragment` still renders
+    // fine from inside an async template (any `Render` gets `AsyncRender` for
+    // free), so only a snippet that genuinely needs to suspend pays for the
+    // boxed-future shape.
+    let snippet_awaits = crate::awaits::nodes_need_async(&snippet.body);
+    if snippet_awaits && !snippet.params.as_str().trim().is_empty() {
+        // A parameterized snippet's closure has to stay callable more than
+        // once (it implements `Render`/`AsyncRender` by `&self`), but an
+        // `async move` block claims full ownership of everything it touches
+        // on *every* call — so a non-`Copy` parameter moved in once could not
+        // be moved in again on a second call. There is no borrow-based way
+        // around this that survives arbitrary parameter types, so it is
+        // rejected instead of miscompiling into a borrow-checker error deep
+        // in generated code.
+        return Err(format!(
+            "`{{#snippet {}(…)}}` cannot both take parameters and `.await` in its own body; \
+             move the `.await` to where it's rendered instead — `{{@render {}(some_async_call().await)}}` \
+             — and have the snippet body use the already-resolved value",
+            snippet.name.as_str(),
+            snippet.name.as_str(),
+        ));
+    }
     if snippet.params.as_str().is_empty() {
         e.raw("let ");
         e.frag(&snippet.name);
-        e.raw(" = __damask_krate::fragment(|__damask: &mut dyn __damask_krate::Renderer| {\n");
+        if snippet_awaits {
+            e.raw(" = __damask_krate::fragment_async(|__damask: &mut dyn __damask_krate::Renderer| { ::std::boxed::Box::pin(async move {\n");
+        } else {
+            e.raw(" = __damask_krate::fragment(|__damask: &mut dyn __damask_krate::Renderer| {\n");
+        }
     } else {
         e.raw("let ");
         e.frag(&snippet.name);
@@ -465,7 +513,11 @@ fn emit_snippet(snippet: &SnippetNode, e: &mut Emit) -> Result<(), String> {
     }
     e.at_line_start = false;
     emit_nodes(&snippet.body, Layout::ROOT, e)?;
-    e.raw("});\n");
+    if snippet_awaits {
+        e.raw("}) });\n");
+    } else {
+        e.raw("});\n");
+    }
     Ok(())
 }
 
@@ -639,13 +691,23 @@ fn emit_slot_placeholder(el: &Element, layout: Layout, e: &mut Emit) -> Result<(
     // slot's depth is added to it here. The fallback below is this template's
     // own markup and already carries that depth, so the two cannot share one
     // bracket: `Slots::render` applies the depth to whichever it takes.
-    e.raw(&format!(
-        "__damask_slots.render({name:?}, &mut *__damask, {}, |__damask: &mut dyn __damask_krate::Renderer| {{\n",
-        layout.depth
-    ));
-    e.at_line_start = false;
-    emit_nodes(&el.children, layout.same(), e)?;
-    e.raw("});\n");
+    if e.is_async {
+        e.raw(&format!(
+            "__damask_slots.render_async({name:?}, &mut *__damask, {}, |__damask: &mut dyn __damask_krate::Renderer| {{ ::std::boxed::Box::pin(async move {{\n",
+            layout.depth
+        ));
+        e.at_line_start = false;
+        emit_nodes(&el.children, layout.same(), e)?;
+        e.raw("}) }).await;\n");
+    } else {
+        e.raw(&format!(
+            "__damask_slots.render({name:?}, &mut *__damask, {}, |__damask: &mut dyn __damask_krate::Renderer| {{\n",
+            layout.depth
+        ));
+        e.at_line_start = false;
+        emit_nodes(&el.children, layout.same(), e)?;
+        e.raw("});\n");
+    }
     e.at_line_start = false;
     Ok(())
 }
@@ -894,12 +956,36 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
         .iter()
         .any(|n| !matches!(n, Node::Text(t) if t.as_str().trim().is_empty()));
 
+    // A slot fill travels to the callee as a plain `&dyn Render` (see `Slot`),
+    // so it cannot itself contain `.await` — there is no async-shaped fill to
+    // hand across that boundary. This is a narrower restriction than the rest
+    // of the template: compute the value first (`{let x = foo().await}` above
+    // this tag) and pass `{x}` instead.
+    if default.iter().any(|n| crate::awaits::node_needs_async(n)) {
+        return Err(format!(
+            "`.await` is not supported inside `<{}>`'s default slot content; \
+             compute the value in a `{{ let x = … }}` above this tag and pass `{{x}}` instead",
+            el.tag.as_str()
+        ));
+    }
+    for (name, body) in &named {
+        if crate::awaits::nodes_need_async(body) {
+            return Err(format!(
+                "`.await` is not supported inside `<{}>`'s `slot=\"{name}\"` content; \
+                 compute the value in a `{{ let x = … }}` above this tag and pass `{{x}}` instead",
+                el.tag.as_str()
+            ));
+        }
+    }
+
     // The fills borrow temporaries that live to the end of this statement, so
     // slot content stays on the stack and can borrow the enclosing scope.
-    let method = if has_default || !named.is_empty() {
-        "render_slots"
-    } else {
-        "render_into"
+    let has_slots = has_default || !named.is_empty();
+    let (trait_name, method) = match (e.is_async, has_slots) {
+        (false, false) => ("Render", "render_into"),
+        (false, true) => ("Render", "render_slots"),
+        (true, false) => ("AsyncRender", "render_into_async"),
+        (true, true) => ("AsyncRender", "render_slots_async"),
     };
     // The component's markup is laid out from its own root, so the depth of
     // this call site is what places it. The bracket spans the whole statement
@@ -909,7 +995,7 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
     if layout.depth > 0 {
         e.raw(&format!("__damask.push_indent({});\n", layout.depth));
     }
-    e.raw(&format!("__damask_krate::Render::{method}(&("));
+    e.raw(&format!("__damask_krate::{trait_name}::{method}(&("));
     // Built through the derive's hidden builder rather than as a struct literal:
     // the props named here are the ones the author wrote, and only the derive
     // knows which of the rest may be skipped and what they default to. A prop
@@ -993,8 +1079,12 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
 
     e.raw(".__damask_build()), &mut *__damask");
 
-    if method == "render_into" {
-        e.raw(");\n");
+    if !has_slots {
+        e.raw(")");
+        if e.is_async {
+            e.raw(".await");
+        }
+        e.raw(";\n");
         e.at_line_start = false;
         if layout.depth > 0 {
             e.raw(&format!("__damask.pop_indent({});\n", layout.depth));
@@ -1003,6 +1093,12 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
     }
 
     e.raw(", __damask_krate::Slots::new(&[\n");
+    // A slot fill is always a plain sync `Fragment` — checked `.await`-free
+    // above — regardless of whether the *enclosing* template is async, so an
+    // unrelated await elsewhere in this template cannot leak `.await` into a
+    // closure that cannot contain it.
+    let outer_is_async = e.is_async;
+    e.is_async = false;
     if has_default {
         e.raw("__damask_krate::Slot::new(__damask_krate::DEFAULT_SLOT, &__damask_krate::fragment(|__damask: &mut dyn __damask_krate::Renderer| {\n");
         e.at_line_start = false;
@@ -1019,7 +1115,12 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
         emit_nodes(body, Layout::ROOT, e)?;
         e.raw("})),\n");
     }
-    e.raw("]));\n");
+    e.is_async = outer_is_async;
+    e.raw("]))");
+    if e.is_async {
+        e.raw(".await");
+    }
+    e.raw(";\n");
     e.at_line_start = false;
     if layout.depth > 0 {
         e.raw(&format!("__damask.pop_indent({});\n", layout.depth));
@@ -1632,6 +1733,150 @@ mod tests {
         let out = body("<div>\n  <p>\n    <slot/>\n  </p>\n</div>");
         assert!(
             out.contains("__damask_slots.render(\"\", &mut *__damask, 2,"),
+            "{out}"
+        );
+    }
+
+    // Async lowering: a template with `.await` anywhere switches every render
+    // call it makes to the async, awaited form. A template with none of that
+    // stays on today's plain sync path — asserted throughout this file above.
+
+    #[test]
+    fn a_plain_expr_tag_awaits_inline_without_changing_call_forms() {
+        let out = body("{self.fetch().await}");
+        assert!(out.contains("write_escaped(::damask::as_display(&(self.fetch().await)))"));
+    }
+
+    #[test]
+    fn render_tag_awaits_in_an_async_template() {
+        let out = body("{self.other().await}{@render self.child}");
+        assert!(
+            out.contains(
+                "::damask::AsyncRender::render_into_async(&(self.child), &mut *__damask).await;"
+            ),
+            "{out}"
+        );
+        assert!(!out.contains("::damask::Render::render_into("), "{out}");
+    }
+
+    #[test]
+    fn render_tag_stays_sync_with_no_await_anywhere() {
+        let out = body("{@render self.child}");
+        assert!(out.contains("::damask::Render::render_into(&(self.child), &mut *__damask);"));
+    }
+
+    #[test]
+    fn component_element_awaits_in_an_async_template() {
+        let out = body("{self.other().await}<Card/>");
+        assert!(
+            out.contains(
+                "::damask::AsyncRender::render_into_async(&(Card::__damask_props()
+.__damask_build()), &mut *__damask).await;"
+            ),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn component_element_with_slots_awaits_in_an_async_template() {
+        let out = body("{self.other().await}<Card><p>hi</p></Card>");
+        assert!(
+            out.contains("::damask::AsyncRender::render_slots_async("),
+            "{out}"
+        );
+        assert!(out.contains("])).await;"), "{out}");
+        // The fill itself stays a plain sync `Fragment`, never an awaited call.
+        assert!(out.contains("::damask::fragment(|__damask"));
+        assert!(!out.contains("Box::pin"), "{out}");
+    }
+
+    #[test]
+    fn slot_placeholder_awaits_in_an_async_template() {
+        let out = body("{self.other().await}<div><slot>fallback</slot></div>");
+        assert!(
+            out.contains("__damask_slots.render_async(\"\", &mut *__damask, 1,"),
+            "{out}"
+        );
+        assert!(out.contains("::std::boxed::Box::pin(async move"), "{out}");
+        assert!(out.contains(".await;"), "{out}");
+    }
+
+    #[test]
+    fn a_snippet_that_itself_awaits_becomes_an_async_fragment() {
+        // No params: nothing here is moved into the inner `async move` block
+        // except `self`'s own reference (`Copy`), so this is safe to call
+        // more than once, as `Render`/`AsyncRender` require.
+        let out = body("{#snippet item()}{self.other().await}{/snippet}{@render item()}");
+        assert!(out.contains("::damask::fragment_async("), "{out}");
+        assert!(out.contains("::std::boxed::Box::pin(async move"), "{out}");
+    }
+
+    #[test]
+    fn snippet_stays_a_plain_fragment_with_no_await_anywhere() {
+        let out = body("{#snippet item(x)}{x}{/snippet}{@render item(1)}");
+        assert!(out.contains("::damask::fragment(move"), "{out}");
+        assert!(!out.contains("fragment_async"), "{out}");
+    }
+
+    /// A parameterized snippet that does *not* itself await stays a plain
+    /// `Fragment` even inside an otherwise-async template: `{@render}`-ing it
+    /// still goes through the awaited `AsyncRender` call (every `Render` gets
+    /// that for free), but the snippet's own closure needs no future of its
+    /// own — which is what keeps a non-`Copy` parameter movable into it on
+    /// every call.
+    #[test]
+    fn a_parameterized_snippet_with_no_await_of_its_own_stays_sync_in_an_async_template() {
+        let out = body(
+            "{self.other().await}{#snippet item(x: String)}{x}{/snippet}{@render item(self.other().await)}",
+        );
+        assert!(out.contains("::damask::fragment(move"), "{out}");
+        assert!(!out.contains("fragment_async"), "{out}");
+        assert!(
+            out.contains("::damask::AsyncRender::render_into_async(&(item(self.other().await)), &mut *__damask).await;"),
+            "{out}"
+        );
+    }
+
+    #[test]
+    fn a_parameterized_snippet_that_awaits_is_a_clear_error() {
+        let err = lower(
+            &crate::parse(
+                "{#snippet item(x: String)}{compute(x).await}{/snippet}{@render item(1)}",
+            )
+            .unwrap(),
+        )
+        .unwrap_err();
+        assert!(err.contains("item"), "{err}");
+        assert!(err.contains("parameters"), "{err}");
+    }
+
+    #[test]
+    fn await_in_default_slot_fill_is_a_clear_error() {
+        let err = lower(&crate::parse("<Card>{self.fetch().await}</Card>").unwrap()).unwrap_err();
+        assert!(err.contains("default slot"), "{err}");
+        assert!(err.contains("Card"), "{err}");
+    }
+
+    #[test]
+    fn await_in_named_slot_fill_is_a_clear_error() {
+        let err = lower(
+            &crate::parse(r#"<Card><p slot="foot">{self.fetch().await}</p></Card>"#).unwrap(),
+        )
+        .unwrap_err();
+        assert!(err.contains("slot=\"foot\""), "{err}");
+    }
+
+    /// An unrelated await elsewhere in the template must not leak `.await`
+    /// into a slot fill's closure, which cannot contain it — a nested
+    /// component inside the fill still renders through the plain sync call.
+    #[test]
+    fn a_slot_fill_stays_sync_even_when_the_template_is_otherwise_async() {
+        let out = body("{self.other().await}<Card><Inner/></Card>");
+        assert!(
+            out.contains(
+                "::damask::Render::render_into(&(Inner::__damask_props()
+.__damask_build()), &mut *__damask);"
+            ),
             "{out}"
         );
     }
