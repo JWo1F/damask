@@ -6,6 +6,8 @@ All notable changes to Damask are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-08-30
+
 ### Added
 
 - **Async templates.** Write `.await` anywhere a `.dmk` holds Rust — `{ … }`,
