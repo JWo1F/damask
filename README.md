@@ -314,6 +314,7 @@ executor.
 | [`damask`](crates/damask)        | the facade: traits, the HTML renderer, and the derive |
 | [`damask-macros`](crates/damask-macros) | the `Component` derive + template resolution |
 | [`damask-template`](crates/damask-template) | the `.dmk` parser (shared by macro + LSP) |
+| [`tree-sitter-damask`](crates/tree-sitter-damask) | the vendored Tree-sitter grammar, for the website |
 | [`damask-lsp`](tools/damask-lsp) | language server (diagnostics + completion)          |
 | [`editors/zed`](editors/zed) | Zed extension (highlighting + LSP)                |
 | [`skills/damask`](skills/damask) | agent skill for authoring components                |
@@ -329,8 +330,15 @@ cargo clippy --workspace --all-targets -- -D warnings
 
 The Tree-sitter grammar lives in its own repository,
 [tree-sitter-damask](https://github.com/JWo1F/tree-sitter-damask), because Zed
-clones a grammar from a repository root. The Zed extension pins it by revision
-in [extension.toml](editors/zed/extension.toml).
+clones a grammar from a repository root. It is pinned by revision in two
+places, which have to move together: [extension.toml](editors/zed/extension.toml),
+which Zed clones from, and [crates/tree-sitter-damask](crates/tree-sitter-damask),
+which vendors the generated parser so the website can compile it.
+
+The website highlights `.dmk` with that grammar and with the extension's own
+queries in [editors/zed/languages/damask](editors/zed/languages/damask) — so a
+snippet looks the same on the site as it does in an editor, and editing a query
+changes both.
 
 ## License
 

@@ -4,6 +4,7 @@ members = [
     "crates/damask",
     "crates/damask-macros",
     "crates/damask-template",
+    "crates/tree-sitter-damask",
     "tools/damask-lsp",
     "examples/showcase",
     "examples/dashboard",
@@ -24,6 +25,7 @@ rust-version = "1.88"
 damask = { path = "crates/damask", version = "0.5.0" }
 damask-macros = { path = "crates/damask-macros", version = "0.5.0" }
 damask-template = { path = "crates/damask-template", version = "0.5.0" }
+tree-sitter-damask = { path = "crates/tree-sitter-damask" }
 
 proc-macro2 = "1"
 quote = "1"

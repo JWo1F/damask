@@ -557,28 +557,29 @@
   }
   .code-scroll:hover::-webkit-scrollbar-thumb { background: var(--ink-faint); }
 
-  /* Syntect emits every scope atom as a class, so these are the ones worth
-     naming and everything else inherits the body colour. Ordered
-     least-to-most specific: a later rule wins where a token carries two. */
+  /* One class per token, assigned in site/src/highlight.rs — which is where
+     the mapping from a grammar's capture names to these lives, and the only
+     place that needs editing to recolour a kind of token. Anything the
+     highlighter does not name inherits the body colour. */
   .tok-comment { color: var(--tok-comment); font-style: italic; }
-  .tok-punctuation { color: var(--tok-punct); }
-  .tok-keyword, .tok-storage { color: var(--tok-keyword); }
+  .tok-punct { color: var(--tok-punct); }
+  .tok-keyword { color: var(--tok-keyword); }
   .tok-string { color: var(--tok-string); }
-  .tok-numeric, .tok-constant { color: var(--tok-number); }
-  .tok-type, .tok-class, .tok-support { color: var(--tok-type); }
+  .tok-number { color: var(--tok-number); }
+  .tok-type { color: var(--tok-type); }
   .tok-function { color: var(--tok-function); }
   .tok-variable { color: var(--ink); }
-
-  /* Markup wins over the generic scopes above: an HTML attribute name is
-     `entity other attribute-name`, which would otherwise take the type colour
-     from `.tok-entity`'s neighbours. */
   .tok-tag { color: var(--tok-tag); }
-  .tok-attribute-name { color: var(--tok-attr); }
+  .tok-attr { color: var(--tok-attr); }
 
-  /* Damask's own brace tags: the embedded region is tinted so a template reads
-     as markup with Rust set into it, which is what it is. */
-  .tok-damask.tok-embedded { color: var(--tok-keyword); }
-  .tok-language { color: var(--tok-function); font-style: italic; }
+  /* `self`, and a shell's builtins: a name the language supplies rather than
+     one the author chose. Italic so it reads as given rather than declared. */
+  .tok-builtin { color: var(--tok-function); font-style: italic; }
+
+  /* Damask's brace tags, and a shell's `$( … )`. Both mark the seam where one
+     language is set into another, and the accent is what makes a template read
+     as markup with Rust in it — which is what it is. */
+  .tok-brace { color: var(--tok-keyword); }
 
   /* The copy button, attached to the rail by site.js. Always visible, rather
      than revealed on hover: the affordance is the point, and a control that

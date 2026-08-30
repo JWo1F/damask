@@ -1,0 +1,28 @@
+[package]
+name = "tree-sitter-damask"
+description = "The Tree-sitter grammar for Damask templates, vendored for the website generator."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+# Not a release artifact: this crate exists so the site can highlight `.dmk`
+# with the same grammar the editors use. The grammar's own home is
+# https://github.com/JWo1F/tree-sitter-damask.
+publish = false
+
+[dependencies]
+tree-sitter-language = "0.1"
+
+[build-dependencies]
+cc = "1"
+
+# `[lints] workspace = true` is deliberately absent. The workspace forbids
+# `unsafe_code`, and the one thing this crate does — name the `extern "C"`
+# constructor that `parser.c` defines — cannot be written without it. Isolating
+# that declaration here is the reason the crate exists rather than the site
+# calling into the parser directly.
+
+[dev-dependencies]
+tree-sitter = "0.26"

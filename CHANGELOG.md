@@ -34,7 +34,97 @@ All notable changes to Damask are documented here. The format follows
   number of features: a last row of one reads as the end of a table rather than
   as an orphan, which the old grid could not do.
 
+### Changed
+
+- **The website highlights code with Tree-sitter.** Syntect and the
+  hand-written `damask.sublime-syntax` beside it are gone; the site now parses
+  each fenced block with the same Tree-sitter grammar the editors use
+  (`crates/tree-sitter-damask` vendors the generated parser at the revision
+  `editors/zed/extension.toml` pins) and colours it with the Zed extension's own
+  `highlights.scm` and `injections.scm`, read straight out of `editors/zed/`.
+  A `.dmk` snippet in the documentation is therefore coloured by the rules that
+  colour the file it was taken from, and there is one place to fix it when it
+  looks wrong rather than two that drift.
+
+  The other fences moved with it — Rust, HTML, CSS, TOML and shell are upstream
+  grammars now. Two things worth naming:
+
+  - The `json`, `js`, `yaml`, `md` and `markdown` fence aliases no longer
+    highlight. Nothing in the content used them; each would mean carrying
+    another grammar, and adding one back is a dependency and a table row.
+  - Every `.dmk` block on the site now parses, bar the two that are *meant*
+    to: *Brace tags* and *The template language* both show `<input {#if …}>`
+    to say that control flow cannot appear in attribute position, and the
+    grammar agreeing with the compiler is the point. Getting there took a
+    grammar fix and a documentation fix, both below.
+
+  Token classes were renamed with the vocabulary they come from: `.tok-punct`,
+  `.tok-attr`, `.tok-number`, `.tok-brace` and `.tok-builtin` replace the
+  Syntect scope atoms `.tok-punctuation`, `.tok-attribute-name`, `.tok-numeric`,
+  `.tok-damask.tok-embedded` and `.tok-language`. The palette is unchanged —
+  `site/src/highlight.rs` maps every capture name onto it, and is the only file
+  to edit to recolour a kind of token.
+
+- **The landing page's first example shows a named slot, and stops opening on
+  an alarm.** The hero says *components with real slots* and the example under
+  it filled one anonymous `<slot/>` — the named slots, the fallback content and
+  the forwarding the lede promises were nowhere in the first thing a reader
+  sees. `card.dmk` now declares a `meta` slot with fallback beside the default
+  one, and the rendered panel shows that fallback standing in, which is the
+  whole mechanism in three lines.
+
+  Its subject changed with it. The page used to open on a disk filling up —
+  *Disk almost full*, *3% left on /dev/sda1* — which is a strange first
+  impression for a library that has nothing to do with monitoring, and a bleak
+  one to lead a landing page with. It is a release note now. The two panels
+  also came out the same height, which the compiles-to rule between them was
+  always asking for.
+
 ### Fixed
+
+- **`data` takes the `class` forms, and a prefix no longer eats a name.**
+  Upstream in [tree-sitter-damask][tsd], so the editor gains both too. The
+  grammar knew `class=[…]` and `class={…}` but not `data=`, though the compiler
+  parses them into the same value — so every snippet showing a `data` list or
+  map fell out of the tree below the attribute.
+
+  Adding `data` to the prefix token alone would have made it worse. The token
+  carried `prec(1)`, and explicit token precedence is settled *before* match
+  length, so the prefix beat a longer attribute name: `classy` and `class-foo`
+  already parsed as `class` followed by an error, and `data` would have done the
+  same to every `data-*` attribute there is. The precedence moved to the
+  directive form, whose token now carries its own colon — `class:` — which is
+  narrow enough that it cannot bite a name, and long enough to win against an
+  `attribute_name` that accepts colons. The bare prefix keeps no precedence at
+  all and wins on being a literal rather than a pattern.
+
+  [tsd]: https://github.com/JWo1F/tree-sitter-damask
+
+- **Two documentation snippets did not compile.** *Class lists* and *Data
+  attributes* each opened with a multi-line element whose attributes were
+  labelled by trailing `<!-- … -->` comments — and a comment cannot sit inside
+  an open tag, in Damask or in HTML. `damask_template::parse` rejects both with
+  *expected an attribute name*. The labels moved into the sentence above each
+  block, which the headings below already spell out in full.
+
+- **Rust inside a `class` value had no colour, in the editor as well as on the
+  site.** `injections.scm` captured `class_expr`, `class_code` and
+  `class_condition`, each of which is wholly covered by the `code` node it
+  wraps — and an injection defaults to the bytes a node owns *itself*, once its
+  children are removed. That left an empty region to inject into, so
+  `class=[self.tone.skin()]` and `class={ "on": self.busy }` came back plain.
+  The same default was cutting string literals out of an injected tag, which is
+  why `{ "hi".len() }` highlighted everything except the `"hi"`. Every pattern
+  now sets `injection.include-children`, which is also what keeps a nested brace
+  group part of the expression around it rather than a hole in it.
+
+- **A trailing comment's own words were painted as attribute names.** The old
+  Sublime syntax popped its attribute context on the first `>` it met, and the
+  `-->` ending a comment is one, so on *Class lists* the words inside
+  `<!-- quoted, interpolating -->` came out coloured as if they were attributes
+  and the following lines lost their colouring. The grammar reads the comment
+  as a comment and recovers the lines below it, as far as it can — see above
+  for the part of that block it still cannot parse.
 
 - **Documentation: the install snippets said `0.2`.** Five of them, across the
   README, the landing page, two book chapters and the renderers reference — all

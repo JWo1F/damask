@@ -20,9 +20,11 @@
 (attribute_name) @attribute
 (attribute "=" @operator)
 
-; `class`, and the `class:name` directive whose suffix *is* a class name.
+; `class` and `data`, and the `class:name` directive whose suffix *is* a class
+; name. The directive's prefix is one token with its colon in it — that is what
+; keeps `attribute_name`, which accepts colons, from swallowing the whole of
+; `class:is-loading` — so there is no separate `:` to colour here.
 (directive_prefix) @attribute
-(class_directive_name ":" @punctuation.delimiter)
 (class_name) @string.special
 (class_attribute "=" @operator)
 (class_directive "=" @operator)
@@ -37,8 +39,10 @@
 (class_list "," @punctuation.delimiter)
 (class_brace "{" @punctuation.bracket)
 (class_brace "}" @punctuation.bracket)
+(class_brace "," @punctuation.delimiter)
 (class_map "{" @punctuation.bracket)
 (class_map "}" @punctuation.bracket)
+(class_map "," @punctuation.delimiter)
 (class_pair ":" @punctuation.delimiter)
 
 ; A class name — a map's key, or a quoted entry in a list. Not Rust: it is the

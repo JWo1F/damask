@@ -41,13 +41,17 @@ dmk = '''
 <article class=["card", self.tone.skin()]>
   <h3>{self.title}</h3>
   <slot/>
+  <footer>
+    <slot name="meta">Just now</slot>
+  </footer>
 </article>
 '''
 out_name = "rendered"
 out = '''
-<article class="card card--warn">
-  <h3>Disk almost full</h3>
-  <p>3% left on /dev/sda1.</p>
+<article class="card card--note">
+  <h3>Damask 0.5</h3>
+  <p>Templates can await.</p>
+  <footer>Just now</footer>
 </article>
 '''
 

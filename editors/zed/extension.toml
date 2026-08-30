@@ -11,7 +11,7 @@ repository = "https://github.com/jwo1f/damask"
 # here. Bump `rev` to adopt grammar changes.
 [grammars.damask]
 repository = "https://github.com/JWo1F/tree-sitter-damask"
-rev = "db4e656afe1c8f8c2a7e96b31c33a4454442b354"
+rev = "30406e9d412da0a6d005fea865f9705baa34db93"
 
 [language_servers.damask-lsp]
 name = "Damask Language Server"

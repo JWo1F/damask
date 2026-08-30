@@ -1,52 +1,162 @@
 //! Build-time syntax highlighting for fenced code blocks.
 //!
-//! Syntect is driven in its *classed* mode rather than its themed one: it emits
-//! `<span class="tok-keyword …">` and the colours live in `ui/app.css`. Inline
-//! styles would hard-code one theme into the markup, and this site has two — a
-//! reader on a dark screen would get a light theme's syntax colours baked into
-//! the HTML, with no stylesheet able to reach them.
+//! Tree-sitter parses each block and the classed spans it produces are coloured
+//! by `ui/app.css`. Inline styles would hard-code one theme into the markup, and
+//! this site has two — a reader on a dark screen would get a light theme's
+//! syntax colours baked into the HTML, with no stylesheet able to reach them.
+//!
+//! Damask is highlighted by the same grammar and the same queries the editors
+//! use: `crates/tree-sitter-damask` vendors the parser, and the queries are read
+//! straight out of the Zed extension. A `.dmk` snippet therefore looks the same
+//! on this site as it does in an editor, and there is one place to fix it when
+//! it looks wrong.
 
 use std::collections::HashMap;
 
-use syntect::html::{ClassStyle, ClassedHTMLGenerator};
-use syntect::parsing::{SyntaxReference, SyntaxSet};
-use syntect::util::LinesWithEndings;
+use tree_sitter_highlight::{Highlight, HighlightConfiguration, HtmlRenderer};
 
-/// Prefixed so the token classes cannot collide with a Tailwind utility.
-const CLASS_STYLE: ClassStyle = ClassStyle::SpacedPrefixed { prefix: "tok-" };
-
-/// Info-string aliases: what an author writes, the name Syntect knows the
-/// syntax by, and what the block is labelled with on the page.
+/// Every capture name the bundled queries use, paired with the class it becomes.
 ///
-/// `dmk` is the exception that justifies the table: it is a real syntax shipped
-/// in `syntaxes/`, not an alias for HTML. Highlighting a Damask template as
-/// plain HTML would leave every brace tag — the only part of the language that
-/// is *not* HTML, and the reason the block is on the page — unstyled.
+/// This is the whole vocabulary: a capture the table does not name is left
+/// unhighlighted, and `configure` below is what enforces that. Several names
+/// share a class deliberately — the site's palette has nine syntax colours, and
+/// splitting them further would mean inventing distinctions a reader cannot see.
 ///
-/// The third column exists because the middle one is Syntect's vocabulary, not
-/// a reader's: `sh` would otherwise be labelled "Bourne Again Shell (bash)".
-const ALIASES: &[(&str, &str, &str)] = &[
-    ("rs", "Rust", "Rust"),
-    ("rust", "Rust", "Rust"),
-    ("dmk", "Damask", "Damask"),
-    ("damask", "Damask", "Damask"),
-    ("html", "HTML", "HTML"),
-    ("css", "CSS", "CSS"),
-    ("toml", "TOML", "TOML"),
-    ("json", "JSON", "JSON"),
-    ("js", "JavaScript", "JavaScript"),
-    ("sh", "Bourne Again Shell (bash)", "Shell"),
-    ("bash", "Bourne Again Shell (bash)", "Bash"),
-    ("shell", "Bourne Again Shell (bash)", "Shell"),
-    ("console", "Bourne Again Shell (bash)", "Console"),
-    ("yaml", "YAML", "YAML"),
-    ("md", "Markdown", "Markdown"),
-    ("markdown", "Markdown", "Markdown"),
+/// Tree-sitter resolves a capture against the longest matching prefix, so
+/// `@comment.documentation` finds `comment` without being listed.
+const CLASSES: &[(&str, &str)] = &[
+    ("attribute", "tok-attr"),
+    ("boolean", "tok-number"),
+    // CSS at-rules. Each is its own capture upstream, and each is a keyword.
+    ("charset", "tok-keyword"),
+    ("comment", "tok-comment"),
+    ("constant", "tok-number"),
+    // A capitalised path segment or an enum variant: a name for a type.
+    ("constructor", "tok-type"),
+    // The `$( … )` and `${ … }` of a shell substitution. Only the wrapper takes
+    // this class — what is captured inside it nests, and wins.
+    ("embedded", "tok-brace"),
+    ("escape", "tok-number"),
+    ("function", "tok-function"),
+    ("import", "tok-keyword"),
+    ("keyframes", "tok-keyword"),
+    ("keyword", "tok-keyword"),
+    // A Rust lifetime.
+    ("label", "tok-keyword"),
+    ("media", "tok-keyword"),
+    ("namespace", "tok-keyword"),
+    ("number", "tok-number"),
+    ("operator", "tok-punct"),
+    // A field, a shell variable, a TOML key, a CSS property — a member name.
+    ("property", "tok-attr"),
+    ("punctuation.bracket", "tok-punct"),
+    ("punctuation.delimiter", "tok-punct"),
+    // A Damask `{`, `}` or `{#`: the one part of a template that is not HTML,
+    // and the reason the block is on the page. It takes the accent colour.
+    ("punctuation.special", "tok-brace"),
+    ("string", "tok-string"),
+    // A class name in a Damask `class` list or map. It is not Rust and not a
+    // plain string, but it reads as the literal it is.
+    ("string.special", "tok-string"),
+    ("supports", "tok-keyword"),
+    ("tag", "tok-tag"),
+    ("type", "tok-type"),
+    ("variable", "tok-variable"),
+    // `self`.
+    ("variable.builtin", "tok-builtin"),
+    ("variable.parameter", "tok-variable"),
 ];
 
+/// Info-string aliases: what an author writes, the grammar it selects, and what
+/// the block is labelled with on the page.
+///
+/// The grammar column doubles as the name an injection asks for — a Damask tag
+/// asks for `rust`, a `<style>` asks for `css` — so one table answers both.
+///
+/// The third column exists because a reader is not owed the grammar's name:
+/// `sh` and `bash` are one grammar and two labels.
+const ALIASES: &[(&str, &str, &str)] = &[
+    ("rs", "rust", "Rust"),
+    ("rust", "rust", "Rust"),
+    ("dmk", "damask", "Damask"),
+    ("damask", "damask", "Damask"),
+    ("html", "html", "HTML"),
+    ("css", "css", "CSS"),
+    ("toml", "toml", "TOML"),
+    ("sh", "bash", "Shell"),
+    ("bash", "bash", "Bash"),
+    ("shell", "bash", "Shell"),
+    ("console", "bash", "Console"),
+];
+
+/// The grammars, their queries, and the name an injection knows them by.
+///
+/// Damask's queries are the Zed extension's, read from the source tree rather
+/// than copied here: two copies of a highlight query drift, and the drift shows
+/// up as a snippet that is coloured one way in an editor and another way on the
+/// page documenting it.
+fn grammars() -> Vec<(&'static str, HighlightConfiguration)> {
+    let sources: [(&str, tree_sitter::Language, &str, &str); 6] = [
+        (
+            "damask",
+            tree_sitter_damask::LANGUAGE.into(),
+            include_str!("../../editors/zed/languages/damask/highlights.scm"),
+            include_str!("../../editors/zed/languages/damask/injections.scm"),
+        ),
+        (
+            "rust",
+            tree_sitter_rust::LANGUAGE.into(),
+            tree_sitter_rust::HIGHLIGHTS_QUERY,
+            tree_sitter_rust::INJECTIONS_QUERY,
+        ),
+        (
+            "html",
+            tree_sitter_html::LANGUAGE.into(),
+            tree_sitter_html::HIGHLIGHTS_QUERY,
+            tree_sitter_html::INJECTIONS_QUERY,
+        ),
+        (
+            "css",
+            tree_sitter_css::LANGUAGE.into(),
+            tree_sitter_css::HIGHLIGHTS_QUERY,
+            "",
+        ),
+        (
+            "toml",
+            tree_sitter_toml_ng::LANGUAGE.into(),
+            tree_sitter_toml_ng::HIGHLIGHTS_QUERY,
+            "",
+        ),
+        (
+            "bash",
+            tree_sitter_bash::LANGUAGE.into(),
+            tree_sitter_bash::HIGHLIGHT_QUERY,
+            "",
+        ),
+    ];
+
+    let names: Vec<&str> = CLASSES.iter().map(|(name, _)| *name).collect();
+
+    sources
+        .into_iter()
+        .map(|(name, language, highlights, injections)| {
+            let mut config =
+                HighlightConfiguration::new(language, name, highlights, injections, "")
+                    .unwrap_or_else(|error| {
+                        panic!("compile the {name} highlight queries: {error}")
+                    });
+
+            // Binds each capture to its index in `CLASSES`; anything the table
+            // does not name stops producing a span at all.
+            config.configure(&names);
+            (name, config)
+        })
+        .collect()
+}
+
 pub struct Highlighter {
-    syntaxes: SyntaxSet,
-    /// Info string → index into `syntaxes`, resolved once at startup so a page
+    grammars: Vec<(&'static str, HighlightConfiguration)>,
+    /// Info string → index into `grammars`, resolved once at startup so a page
     /// with forty code blocks does not do forty linear scans by name.
     by_alias: HashMap<&'static str, usize>,
     /// Info string → the label the rail shows.
@@ -54,27 +164,12 @@ pub struct Highlighter {
 }
 
 impl Highlighter {
-    /// Loads the bundled syntaxes plus the Damask one in `syntaxes/`.
     pub fn new() -> Self {
-        let mut builder = SyntaxSet::load_defaults_newlines().into_builder();
-
-        // Bundled with the generator rather than read from disk: the binary is
-        // run from wherever, and a highlighter that silently degrades to plain
-        // text because the working directory moved is the kind of failure that
-        // ships.
-        let damask = syntect::parsing::SyntaxDefinition::load_from_str(
-            include_str!("../syntaxes/damask.sublime-syntax"),
-            true,
-            None,
-        )
-        .expect("parse the bundled Damask syntax definition");
-        builder.add(damask);
-
-        let syntaxes = builder.build();
+        let grammars = grammars();
         let by_alias = ALIASES
             .iter()
-            .filter_map(|(alias, name, _)| {
-                let index = syntaxes.syntaxes().iter().position(|s| s.name == *name)?;
+            .filter_map(|(alias, grammar, _)| {
+                let index = grammars.iter().position(|(name, _)| name == grammar)?;
                 Some((*alias, index))
             })
             .collect();
@@ -84,15 +179,15 @@ impl Highlighter {
             .collect();
 
         Self {
-            syntaxes,
+            grammars,
             by_alias,
             labels,
         }
     }
 
-    fn syntax(&self, language: &str) -> Option<&SyntaxReference> {
+    fn config(&self, language: &str) -> Option<&HighlightConfiguration> {
         let index = *self.by_alias.get(language.to_ascii_lowercase().as_str())?;
-        self.syntaxes.syntaxes().get(index)
+        Some(&self.grammars[index].1)
     }
 
     /// Renders one fenced block as a bare `<pre>`, for callers that draw their
@@ -104,8 +199,8 @@ impl Highlighter {
         // as a gap between the last line of code and the block's bottom edge.
         let code = code.strip_suffix('\n').unwrap_or(code);
 
-        let body = match self.syntax(language) {
-            Some(syntax) => self.tokenize(syntax, code),
+        let body = match self.config(language) {
+            Some(config) => self.tokenize(config, code).unwrap_or_else(|| escape(code)),
             None => escape(code),
         };
 
@@ -150,23 +245,38 @@ impl Highlighter {
         )
     }
 
-    fn tokenize(&self, syntax: &SyntaxReference, code: &str) -> String {
-        let mut generator =
-            ClassedHTMLGenerator::new_with_class_style(syntax, &self.syntaxes, CLASS_STYLE);
+    /// `None` when the block cannot be highlighted, which the caller renders as
+    /// escaped text. A snippet the grammar chokes on is not worth failing a
+    /// build over: it loses its colour and keeps its content.
+    fn tokenize(&self, config: &HighlightConfiguration, code: &str) -> Option<String> {
+        // Built per block rather than held on `self`: the engine needs `&mut`
+        // to run, `Highlighter` is shared as `&` by every caller, and a build
+        // that highlights a couple of hundred blocks does not notice the
+        // allocation. Interior mutability would buy nothing but a `RefCell`.
+        let mut engine = tree_sitter_highlight::Highlighter::new();
 
-        for line in LinesWithEndings::from(code) {
-            // A malformed line is not worth failing a build over, and Syntect
-            // leaves the generator usable: the block simply loses colour from
-            // here on rather than taking the site down with it.
-            if generator
-                .parse_html_for_line_which_includes_newline(line)
-                .is_err()
-            {
-                return escape(code);
-            }
-        }
+        let source = code.as_bytes();
+        let events = engine
+            // A grammar may inject a language the site does not carry —
+            // `<script>` asks for JavaScript. The lookup returns `None` and
+            // that region stays plain text inside an otherwise coloured block,
+            // which is what an unknown fence already does.
+            .highlight(config, source, None, |name| self.config(name))
+            .ok()?;
 
-        generator.finalize()
+        let mut renderer = HtmlRenderer::new();
+        renderer
+            .render(events, source, &|Highlight(index), out| {
+                out.extend_from_slice(b"class=\"");
+                out.extend_from_slice(CLASSES[index].1.as_bytes());
+                out.push(b'"');
+            })
+            .ok()?;
+
+        // The renderer terminates its output with a newline whether or not the
+        // source had one. Dropped for the same reason the source's is above.
+        let html: String = renderer.lines().collect();
+        Some(html.strip_suffix('\n').unwrap_or(&html).to_string())
     }
 }
 
@@ -182,4 +292,128 @@ fn escape(text: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Highlighter;
+
+    /// The classes a block is made of, in order, so a test can assert about
+    /// what was highlighted without pinning the exact markup around it.
+    ///
+    /// Spans nest — a grammar may capture a node and its parent — so `tokens`
+    /// below reads leaves. Assert against a token nothing else encloses.
+    fn classes(html: &str) -> Vec<&str> {
+        html.match_indices("class=\"tok-")
+            .map(|(at, _)| {
+                let rest = &html[at + "class=\"".len()..];
+                &rest[..rest.find('"').expect("a closed class attribute")]
+            })
+            .collect()
+    }
+
+    fn tokens<'a>(html: &'a str, class: &str) -> Vec<&'a str> {
+        let open = format!("<span class=\"{class}\">");
+        html.match_indices(&open)
+            .map(|(at, _)| {
+                let rest = &html[at + open.len()..];
+                &rest[..rest.find("</span>").expect("a closed span")]
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_template_is_markup_with_rust_in_it() {
+        let html = Highlighter::new().pre("dmk", "<p class=\"lead\">{ self.name }</p>");
+
+        assert_eq!(tokens(&html, "tok-tag"), ["p", "p"]);
+        assert_eq!(tokens(&html, "tok-attr"), ["class", "name"]);
+        // The braces carry the accent: they are the part that is not HTML.
+        assert_eq!(tokens(&html, "tok-brace"), ["{", "}"]);
+        // `self` is Rust, which means the injection fired.
+        assert_eq!(tokens(&html, "tok-builtin"), ["self"]);
+    }
+
+    /// Every `{ … }` region injects Rust, and injects it *whole*. Both halves
+    /// have been wrong: a string literal inside a tag was cut out of the
+    /// injected range, and a class value injected an empty range and so got no
+    /// colour at all. See `editors/zed/languages/damask/injections.scm`.
+    #[test]
+    fn every_expression_injects_whole() {
+        let highlighter = Highlighter::new();
+
+        for template in [
+            r#"<p>{ "hi".len() }</p>"#,
+            r#"<p>{#if "hi".len() > self.n}x{/if}</p>"#,
+            r#"<div class={ "on": "hi".len() > self.n }>"#,
+            r#"<div class=["a", "hi".len()]>"#,
+            r#"<div class:on={ "hi".len() > self.n }>"#,
+            r#"<Card {..."hi".len()}/>"#,
+        ] {
+            let html = highlighter.pre("dmk", template);
+            assert!(
+                tokens(&html, "tok-function").contains(&"len"),
+                "no Rust injected into {template}: {html}"
+            );
+            assert!(
+                tokens(&html, "tok-string").contains(&"&quot;hi&quot;"),
+                "the literal fell outside the injection in {template}: {html}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_other_grammars_load() {
+        let highlighter = Highlighter::new();
+
+        for (language, code, class, token) in [
+            ("rust", "let n = 1;", "tok-keyword", "let"),
+            ("html", "<b>hi</b>", "tok-tag", "b"),
+            ("css", ".a { color: red; }", "tok-attr", "color"),
+            ("toml", "n = 1", "tok-number", "1"),
+            ("sh", "# note", "tok-comment", "# note"),
+        ] {
+            let html = highlighter.pre(language, code);
+            assert!(
+                tokens(&html, class).contains(&token),
+                "{language} did not highlight {token:?}: {html}"
+            );
+        }
+    }
+
+    /// A fence the site has no grammar for keeps its content and loses only its
+    /// colour, which is also what a block the parser chokes on falls back to.
+    #[test]
+    fn an_unknown_fence_is_escaped_plain_text() {
+        let html = Highlighter::new().pre("text", "a <b> & \"c\"");
+
+        assert!(classes(&html).is_empty(), "{html}");
+        assert!(html.contains("a &lt;b&gt; &amp; &quot;c&quot;"), "{html}");
+    }
+
+    /// The rail labels a block for a reader, not for the parser: `sh` and
+    /// `bash` are one grammar and two labels, and an unknown fence is labelled
+    /// with whatever the author wrote.
+    #[test]
+    fn the_rail_carries_the_label() {
+        let highlighter = Highlighter::new();
+
+        for (language, label) in [("sh", "Shell"), ("bash", "Bash"), ("nix", "nix")] {
+            let html = highlighter.block(language, "x");
+            assert!(
+                html.contains(&format!("<span class=\"code-lang\">{label}</span>")),
+                "{language} was not labelled {label}: {html}"
+            );
+        }
+    }
+
+    /// The renderer terminates its output with a newline of its own; kept, it
+    /// would show as a blank line under the last line of every block.
+    #[test]
+    fn a_block_does_not_end_in_a_blank_line() {
+        let html = Highlighter::new().pre("rust", "let n = 1;\n");
+
+        assert!(html.ends_with("</code></pre>"), "{html}");
+        assert!(!html.contains("\n</code>"), "{html}");
+    }
 }

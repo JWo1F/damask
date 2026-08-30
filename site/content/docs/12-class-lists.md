@@ -8,10 +8,13 @@ section = "Templates"
 templates do most. ([`data`](/docs/data-attributes/) has its own set, borrowing
 this grammar for a different job: a list and a map, no directive.)
 
+All of them combine on one element — a quoted value that interpolates, then a
+list with a map inside it, then a directive:
+
 ```dmk
-<div class="card shadow"                                   <!-- quoted, interpolating -->
-     class=[self.extra, "base", { "is-open": self.open }]  <!-- list -->
-     class:is-loading={self.busy}>                         <!-- directive -->
+<div class="card shadow"
+     class=[self.extra, "base", { "is-open": self.open }]
+     class:is-loading={self.busy}>
 ```
 
 ## List

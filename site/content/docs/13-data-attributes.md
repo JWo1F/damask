@@ -8,10 +8,12 @@ section = "Templates"
 one string from parts, `data` expands **one value into a run of attributes** —
 the thing a Rails view does with `data: { … }`.
 
+Its three forms — any `DataItem`, a list of them, and a map of literal keys:
+
 ```dmk
-<div data={self.wiring}                                    <!-- any DataItem -->
-     data=[self.base(), self.extra]                        <!-- list -->
-     data={ "controller": "modal", "index": self.i }>      <!-- map -->
+<div data={self.wiring}
+     data=[self.base(), self.extra]
+     data={ "controller": "modal", "index": self.i }>
 ```
 
 Each key becomes `data-<key>`, so the map above writes:

@@ -13,8 +13,15 @@ publish = false
 comrak = { version = "0.54", default-features = false }
 damask = { workspace = true, features = ["pretty"] }
 serde = { version = "1.0.229", features = ["derive"] }
-syntect = { version = "5", default-features = false, features = ["default-syntaxes", "parsing", "regex-fancy", "html", "yaml-load"] }
 toml = "1"
+tree-sitter = "0.26"
+tree-sitter-bash = "0.25"
+tree-sitter-css = "0.25"
+tree-sitter-damask.workspace = true
+tree-sitter-highlight = "0.26"
+tree-sitter-html = "0.23"
+tree-sitter-rust = "0.24"
+tree-sitter-toml-ng = "0.7"
 
 [lints]
 workspace = true

@@ -31,9 +31,9 @@ editors/zed/
 ├── Cargo.toml, src/lib.rs    # the extension (wasm) that launches damask-lsp
 ├── languages/damask/
 │   ├── config.toml           # file association (*.dmk), brackets, indent rules
-│   ├── highlights.scm        # delimiter / comment highlighting
-│   ├── indents.scm           # indentation for nested brace groups
-│   └── injections.scm        # Rust into tags, host language into text
+│   ├── highlights.scm        # delimiter / comment highlighting   ─┐ also read
+│   ├── indents.scm           # indentation for nested brace groups │ by the
+│   └── injections.scm        # Rust into tags, host language into text ┘ website
 └── dev-setup.sh              # keeps the installed language server current
 ```
 
@@ -82,7 +82,18 @@ from a previous run: `rm -rf editors/zed/grammars/damask` (or re-run
 
 Grammar work happens in
 [tree-sitter-damask](https://github.com/JWo1F/tree-sitter-damask). Push there,
-then bump `rev` under `[grammars.damask]` in `extension.toml` to adopt it.
+then bump `rev` under `[grammars.damask]` in `extension.toml` to adopt it — and
+re-vendor `crates/tree-sitter-damask/grammar/` at the same revision, which is
+where the website compiles the parser from. The two pins are the same grammar
+and drifting them apart is how the editor and the site start disagreeing.
+
+### Changing the queries
+
+`highlights.scm` and `injections.scm` are read by the website's generator as
+well as by Zed — see `site/src/highlight.rs`. That is deliberate: a `.dmk`
+snippet in the documentation is coloured by the same rules that colour the file
+it was taken from. It also means a query change shows up in `cargo test -p
+damask-site`, which is the cheapest way to see whether one did what you meant.
 
 ## `zed_extension_api` version
 

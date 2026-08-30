@@ -47,6 +47,10 @@ alongside the server. The Tree-sitter grammar lives in its own repository,
 [tree-sitter-damask](https://github.com/JWo1F/tree-sitter-damask), because Zed
 clones a grammar from a repository root; `extension.toml` pins it by revision.
 
+Every `.dmk` snippet on this site is highlighted by that grammar and by the
+extension's own queries, so what you are reading here is what your editor shows
+you.
+
 Block tags are flat in the grammar — `{#if}`, its body and `{/if}` are siblings —
 so block indentation is carried by regex rather than by a tree-sitter query,
 while HTML elements indent from the injected HTML layer.
