@@ -130,6 +130,16 @@ All notable changes to Damask are documented here. The format follows
   README, the landing page, two book chapters and the renderers reference — all
   now `0.5`. Pasting `0.2` got you a version with no async in it at all.
 
+- **The site's header overflowed every page sideways on a phone.** The row wants
+  425px of wordmark, sections, search and two icon buttons; a 375px screen
+  offers 335px, so every page on the site scrolled horizontally — including ones
+  with nothing wide in them. The wordmark is now `sr-only` below `sm`, which is
+  the 90px that did it: `hidden` would have taken the home link's only text and
+  left it with no accessible name, while `sr-only` keeps it in the accessibility
+  tree and out of the layout. Gaps and the section links' padding tighten a
+  little below `sm` alongside it. Below 360px the GitHub icon steps out too — it
+  is the one control up there that the footer also carries on every page.
+
 ## [0.5.0] - 2026-08-30
 
 ### Added

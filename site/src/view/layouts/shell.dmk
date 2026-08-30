@@ -13,18 +13,25 @@
   {# The rule under the header is the only thing holding it to the page; a shadow
      would lift it off the paper, which is the opposite of what this site is. #}
   <header class="sticky top-0 z-40 border-b border-rule bg-paper/85 backdrop-blur-md">
-    <div class=["mx-auto flex h-16 items-center gap-6 px-5 sm:px-8", self.width()]>
+    <div class=["mx-auto flex h-16 items-center gap-3 px-5 sm:gap-6 sm:px-8", self.width()]>
 
+      {# The wordmark is `sr-only` rather than `hidden` below `sm`: a phone has
+         no room for it beside the sections, the search and the two icons — 425px
+         of header in a 335px row — but it is also the only text in this link, so
+         hiding it outright would leave the home link with no accessible name at
+         all. `sr-only` takes it out of the layout and leaves it in the
+         accessibility tree, which is the difference that matters here. #}
       <a href={self.chrome.home()} class="group flex items-center gap-2.5">
-        <Mark class="h-7 w-7 text-madder transition-transform duration-500 group-hover:rotate-45"/>
-        <span class="font-display text-[1.32rem] font-medium tracking-[-0.015em] text-ink">Damask</span>
+        <Mark class="h-7 w-7 shrink-0 text-madder transition-transform duration-500 group-hover:rotate-45"/>
+        <span class="sr-only font-display text-[1.32rem] font-medium tracking-[-0.015em]
+                     text-ink sm:not-sr-only">Damask</span>
       </a>
 
       <nav class="ml-auto flex items-center gap-1" aria-label="Sections">
         {#for item in &self.chrome.nav}
           <a href={item.href}
              aria-current={if item.here == self.chrome.here { Some("page") } else { None }}
-             class=["rounded-md px-3 py-1.5 text-[0.83rem] font-medium transition-colors",
+             class=["rounded-md px-2.5 py-1.5 text-[0.83rem] font-medium transition-colors sm:px-3",
                     { "text-madder": item.here == self.chrome.here,
                       "text-ink-soft hover:bg-ink/[0.045] hover:text-ink": item.here != self.chrome.here }]>
             {item.label}
@@ -45,10 +52,16 @@
                aria-hidden="true">/</kbd>
         </button>
 
-        <span class="mx-2 h-5 w-px bg-rule" aria-hidden="true"></span>
+        <span class="mx-1 h-5 w-px bg-rule sm:mx-2" aria-hidden="true"></span>
 
+        {# Below 360px — an iPhone SE and not much else — even the trimmed row is
+           a few pixels over, and this is the one control here that is not the
+           only way to reach what it points at: the footer carries the same link
+           on every page. `max-[359px]` rather than `sm` so that every phone
+           wider than that keeps it. #}
         <a href={Chrome::REPO} rel="noreferrer noopener"
-           class="rounded-md p-2 text-ink-soft transition-colors hover:bg-ink/[0.045] hover:text-ink"
+           class="rounded-md p-2 text-ink-soft transition-colors hover:bg-ink/[0.045]
+                  hover:text-ink max-[359px]:hidden"
            aria-label="Damask on GitHub">
           <i class="hgi-stroke hgi-github-01 icon" aria-hidden="true"></i>
         </a>
