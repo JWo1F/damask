@@ -52,16 +52,88 @@ use std::pin::Pin;
 pub mod attr;
 pub mod props;
 pub mod renderers;
+pub mod trusted;
 
 pub use attr::{
     Attr, AttrSpread, ClassItem, ClassList, DataItem, DataSet, DataValue, is_attr_name_safe,
 };
 pub use renderers::{HtmlRenderer, Whitespace};
+pub use trusted::{Content, Sink, ToTrusted, Trusted, Value, splice};
 
 /// Derive macro that generates a [`Component`] impl from a struct's paired
 /// `.dmk` template. Shares its name with the trait (like `serde::Serialize`), so
 /// `use damask::Component;` brings both into scope.
 pub use damask_macros::Component;
+
+/// Implementation detail of [`tag!`](crate::tag); not to be invoked directly.
+#[doc(hidden)]
+pub use damask_macros::__tag;
+
+/// Build one element as [`Trusted`] markup, in Rust.
+///
+/// The counterpart to a `.dmk` for the markup a template is the wrong shape
+/// for: a helper in a service, a fragment a handler assembles, a `<style>`
+/// element whose stylesheet is full of the `{` a template reserves.
+///
+/// ```
+/// use damask::tag;
+///
+/// let flagged = true;
+/// let markup = tag!(div #summary, class: ["card", flagged.then_some("is-flagged")], {
+///     (
+///         tag!(span, "Total"),
+///         tag!(b, "1 < 2"),
+///     )
+/// });
+/// assert_eq!(
+///     markup.as_str(),
+///     r#"<div id="summary" class="card is-flagged"><span>Total</span><b>1 &lt; 2</b></div>"#
+/// );
+/// ```
+///
+/// The element comes first. After it come `name: value` attributes in any
+/// order, and last, with no name, what goes inside. A `&str` child is escaped
+/// and a [`Trusted`] one is spliced, so `tag!(p, user_name)` is safe and
+/// `tag!(p, tag!(b, "x"))` is markup, neither of them by saying so.
+///
+/// An id may also be written in the head, CSS-style — but with a space, as
+/// `tag!(div #main)`, because `div#main` is not Rust: `ident#` has been a
+/// reserved prefix since edition 2021, so those tokens never reach a macro at
+/// all. `id: "main"` is the ordinary way to say it and reads better than the
+/// space does.
+///
+/// `class:` and `data:` take the forms they take in a template, through the
+/// same [`ClassList`] and [`DataSet`]:
+///
+/// ```
+/// use damask::tag;
+/// # let active = true;
+/// tag!(div, class: "a b");                       // a list in one string
+/// tag!(div, class: ["a", active.then_some("b")]); // entries, each deciding
+/// tag!(div, class: { "active": active });         // a name and its condition
+/// tag!(div, data: { controller: "modal", open: active });
+/// ```
+///
+/// So `data: { open: true }` writes a bare `data-open` and `open: false` writes
+/// nothing at all, which is what a boolean attribute means in HTML and what
+/// Damask has always done with one. A data key is taken as written — quote it
+/// to spell a hyphen, since `data-user_id` is a key Damask deliberately does
+/// not rewrite. An attribute name written as an ident has its underscores
+/// turned into hyphens (`aria_label`), and anything an ident cannot spell is
+/// quoted (`"http-equiv"`).
+///
+/// A void element takes no content, and saying otherwise is a compile error
+/// rather than a closing tag nobody asked for.
+///
+/// [`Trusted`]: crate::Trusted
+/// [`ClassList`]: crate::ClassList
+/// [`DataSet`]: crate::DataSet
+#[macro_export]
+macro_rules! tag {
+    ($($tt:tt)*) => {
+        $crate::__tag!(($crate) $($tt)*)
+    };
+}
 
 /// A sink that accumulates rendered output and owns the escaping policy.
 ///

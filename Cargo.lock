@@ -95,7 +95,7 @@ dependencies = [
 
 [[package]]
 name = "damask"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "damask-macros",
  "trybuild",
@@ -103,14 +103,14 @@ dependencies = [
 
 [[package]]
 name = "damask-dashboard"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "damask",
 ]
 
 [[package]]
 name = "damask-lsp"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "damask-template",
  "proc-macro2",
@@ -123,7 +123,7 @@ dependencies = [
 
 [[package]]
 name = "damask-macros"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "damask-template",
  "proc-macro2",
@@ -133,7 +133,7 @@ dependencies = [
 
 [[package]]
 name = "damask-showcase"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "damask",
  "trybuild",
@@ -141,7 +141,7 @@ dependencies = [
 
 [[package]]
 name = "damask-site"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "comrak",
  "damask",
@@ -159,7 +159,7 @@ dependencies = [
 
 [[package]]
 name = "damask-template"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "proc-macro2",
 ]
@@ -1087,7 +1087,7 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-damask"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "cc",
  "tree-sitter",

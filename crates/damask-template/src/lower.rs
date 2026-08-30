@@ -365,7 +365,14 @@ fn indented(depth: usize, e: &mut Emit, body: impl FnOnce(&mut Emit)) {
 }
 
 /// A `{ … }` block: splice it as a statement (no output) if it's a binding or
-/// ends in `;`, otherwise print its value (escaped).
+/// ends in `;`, otherwise print its value — escaped, unless it is
+/// [`Trusted`](damask::Trusted) markup.
+///
+/// Which of the two it is belongs to the *value*: `damask::splice` hands it to
+/// `Value`, whose `Trusted` impl writes markup through and whose blanket impl
+/// escapes everything else. A generic function rather than a method call, so a
+/// value whose type is not settled yet — a `{#snippet}` parameter — still
+/// infers from wherever the snippet is rendered.
 fn emit_expr(code: &Spanned, e: &mut Emit) {
     // The parser trims tag bodies, so `code.text` is already trimmed; the map
     // therefore aligns with the fragment exactly.
@@ -383,15 +390,15 @@ fn emit_expr(code: &Spanned, e: &mut Emit) {
     } else if trimmed.contains(';') {
         // Multiple statements ending in an expression need a block; the block's
         // value is a temporary, so borrowing it is fine.
-        e.raw("__damask.write_escaped(__damask_krate::as_display(&({ ");
+        e.raw("__damask_krate::splice(&({ ");
         e.frag(code);
-        e.raw(" })));\n");
+        e.raw(" }), &mut *__damask);\n");
     } else {
         // A plain expression: borrow it directly (no block) so field access
         // like `self.name` borrows rather than moves out of `&self`.
-        e.raw("__damask.write_escaped(__damask_krate::as_display(&(");
+        e.raw("__damask_krate::splice(&(");
         e.frag(code);
-        e.raw(")));\n");
+        e.raw("), &mut *__damask);\n");
     }
     // A `{use}` or `{let}` writes nothing, so it cannot have moved the line —
     // and a template's header of `{use}` tags is otherwise a run of blank lines
@@ -1191,7 +1198,7 @@ mod tests {
     fn text_and_expression() {
         let b = body("Hi {self.name}!");
         assert!(b.contains(r#"__damask.write_text("Hi ")"#));
-        assert!(b.contains("__damask.write_escaped(::damask::as_display(&(self.name)))"));
+        assert!(b.contains("::damask::splice(&(self.name), &mut *__damask)"));
         assert!(b.contains(r#"__damask.write_text("!")"#));
     }
 
@@ -1204,9 +1211,7 @@ mod tests {
         assert!(!is_statement("self.name"));
         assert!(!is_statement("letter")); // not the `let` keyword
         assert!(body("{let x = 5}").contains("let x = 5;"));
-        assert!(
-            body("{2 + 3; 10}").contains("write_escaped(::damask::as_display(&({ 2 + 3; 10 })))")
-        );
+        assert!(body("{2 + 3; 10}").contains("::damask::splice(&({ 2 + 3; 10 }), &mut *__damask)"));
     }
 
     #[test]
@@ -1744,7 +1749,7 @@ mod tests {
     #[test]
     fn a_plain_expr_tag_awaits_inline_without_changing_call_forms() {
         let out = body("{self.fetch().await}");
-        assert!(out.contains("write_escaped(::damask::as_display(&(self.fetch().await)))"));
+        assert!(out.contains("::damask::splice(&(self.fetch().await), &mut *__damask)"));
     }
 
     #[test]
@@ -1811,9 +1816,21 @@ mod tests {
         assert!(out.contains("::std::boxed::Box::pin(async move"), "{out}");
     }
 
+    /// A snippet parameter carries no type, and needs none: `splice` is a
+    /// generic function, so the value's type arrives from wherever the snippet
+    /// is rendered and picks its own `Value` impl there.
+    #[test]
+    fn an_untyped_snippet_parameter_is_spliced_like_anything_else() {
+        let out = body("{#snippet item(x)}{x}{/snippet}{@render item(1)}");
+        assert!(
+            out.contains("::damask::splice(&(x), &mut *__damask)"),
+            "{out}"
+        );
+    }
+
     #[test]
     fn snippet_stays_a_plain_fragment_with_no_await_anywhere() {
-        let out = body("{#snippet item(x)}{x}{/snippet}{@render item(1)}");
+        let out = body("{#snippet item(x: u8)}{x}{/snippet}{@render item(1)}");
         assert!(out.contains("::damask::fragment(move"), "{out}");
         assert!(!out.contains("fragment_async"), "{out}");
     }

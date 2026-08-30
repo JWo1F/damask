@@ -8,6 +8,7 @@ use syn::{DeriveInput, parse_macro_input};
 
 mod codegen;
 mod props;
+mod tag;
 
 /// Derive `damask::Component` for a struct, generating its `render_into` from the
 /// paired `.dmk` template.
@@ -47,4 +48,13 @@ pub fn derive_component(input: TokenStream) -> TokenStream {
     // to a crate scan when the span has no local file.
     let source_file = parsed.ident.span().unwrap().local_file();
     codegen::expand(parsed, source_file).into()
+}
+
+/// Build one element. Written by `damask::tag!`, which supplies the path to
+/// Damask ahead of the element; never invoked directly.
+#[proc_macro]
+#[doc(hidden)]
+pub fn __tag(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as tag::TagInput);
+    tag::expand(parsed).into()
 }

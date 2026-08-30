@@ -4,9 +4,34 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.6.0] - 2026-08-31
 
 ### Added
+
+- **`Trusted`, and the `tag!` macro that builds one.** Markup that is already
+  safe to write, and a way to build an element in Rust rather than in a
+  template — for a helper in a service, a fragment a handler assembles, or a
+  `<style>` element whose stylesheet is full of the `{` a template reserves.
+
+  ```rust
+  tag!(div #summary, class: ["card", urgent.then_some("is-urgent")], {
+      (tag!(span, "Total"), tag!(b, user_supplied))
+  })
+  ```
+
+  The element comes first, then `name: value` attributes in any order, then the
+  content with no name. `class:` and `data:` take the forms a template takes
+  and go through the same `ClassList` and `DataSet`, so `data: { open: true }`
+  writes a bare `data-open` here exactly as `data={…}` does there. A `&str`
+  child is escaped and a `Trusted` one is spliced, which is what makes
+  `tag!(p, user_name)` safe and `tag!(p, tag!(b, "x"))` markup without either
+  saying so. A void element takes no content, and saying otherwise is a
+  compile error.
+
+  An id may be written in the head, but needs a space — `tag!(div #main)` —
+  because `div#main` is not Rust: `ident#` has been a reserved prefix since
+  edition 2021, so those tokens never reach a macro. `id: "main"` is the
+  ordinary way to write it.
 
 - **Documentation: async templates on the site.** The feature shipped in 0.4.0
   with nothing about it outside the changelog and the agent skill. Now there is
@@ -35,6 +60,21 @@ All notable changes to Damask are documented here. The format follows
   as an orphan, which the old grid could not do.
 
 ### Changed
+
+- **`{ … }` writes markup through and escapes everything else.** It used to
+  escape whatever it was given, so a helper returning markup could only be
+  spliced by `{@html …}` — a tag that splices *anything*, and therefore cannot
+  tell "markup I built" from "a string I have decided to trust". Now the value
+  decides: `Trusted` writes through, everything else escapes exactly as before.
+  No template changes, and `{@html …}` is unaffected.
+
+  This works because `Trusted` deliberately implements **neither `Display` nor
+  `ToString`**. A blanket impl over `Display` may sit beside a specific impl
+  for `Trusted` only because `Trusted` is local to this crate and `Display` is
+  `std`'s, so rustc can see no other crate is allowed to write the impl that
+  would make the two overlap. Adding `impl Display for Trusted` would break
+  the `Value` trait, which is why markup is read back with `Trusted::as_str`
+  rather than through `format!`.
 
 - **The website highlights code with Tree-sitter.** Syntect and the
   hand-written `damask.sublime-syntax` beside it are gone; the site now parses
@@ -482,7 +522,8 @@ All notable changes to Damask are documented here. The format follows
 Damask is HTML-only: there is no per-language host extension, and `{ … }` always
 HTML-escapes.
 
-[Unreleased]: https://github.com/jwo1f/damask/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/jwo1f/damask/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/jwo1f/damask/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/jwo1f/damask/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jwo1f/damask/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/jwo1f/damask/compare/v0.3.1...v0.3.2

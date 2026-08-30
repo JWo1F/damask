@@ -18,6 +18,7 @@ pub mod menu;
 pub mod notice;
 pub mod page;
 pub mod panel;
+pub mod receipt;
 pub mod shell;
 pub mod tagged;
 pub mod theme;

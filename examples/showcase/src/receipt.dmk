@@ -1,0 +1,12 @@
+<div class="receipt">
+  {#snippet row(content)}<li class="row">{content}</li>{/snippet}
+  {#snippet said(words)}<li class="said">{words}</li>{/snippet}
+  {self.badge}
+  <p>{self.note}</p>
+  <ul>
+{#for line in &self.lines}
+    {@render row(line)}
+{/for}
+    {@render said(&self.note)}
+  </ul>
+</div>

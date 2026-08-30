@@ -476,3 +476,41 @@ fn board() -> String {
     }
     .render()
 }
+
+/// A `{ … }` writes markup through and escapes everything else, decided by the
+/// value's type rather than by which tag the template used.
+#[test]
+fn trusted_markup_is_spliced_and_data_is_escaped() {
+    use damask_showcase::receipt::Receipt;
+
+    let out = Receipt {
+        note: "paid <in cash> & signed".into(),
+        badge: Receipt::badge("urgent", true),
+        lines: vec![
+            Receipt::line("Coffee & cake", 3.5),
+            Receipt::line("<Rent>", 900.0),
+        ],
+    }
+    .render();
+
+    assert!(
+        out.contains(r#"<span class="badge badge--urgent">urgent</span>"#),
+        "markup should be spliced whole: {out}"
+    );
+    assert!(
+        out.contains("<p>paid &lt;in cash&gt; &amp; signed</p>"),
+        "a string should be escaped: {out}"
+    );
+    assert!(
+        out.contains(r#"<li class="row"><span><b>Coffee &amp; cake</b> — 3.5</span></li>"#),
+        "markup through an untyped snippet parameter is still markup: {out}"
+    );
+    assert!(
+        out.contains(r#"<li class="row"><span><b>&lt;Rent&gt;</b> — 900</span></li>"#),
+        "and what it was built from stays escaped: {out}"
+    );
+    assert!(
+        out.contains(r#"<li class="said">paid &lt;in cash&gt; &amp; signed</li>"#),
+        "while a string through an untyped parameter is escaped: {out}"
+    );
+}
