@@ -80,7 +80,10 @@ attributes and rendered. Attributes carry Rust: `attr={expr}`, `attr="literal"`,
 or bare `attr` (boolean). Omitting a required field is a compile error naming
 it; a field whose type is `Option<_>` may be omitted and arrives as `None`, and
 `#[component(default)]` on the struct makes every field skippable, filling the
-omitted ones from its `Default`.
+omitted ones from its `Default`. A framework that re-exports Damask instead of
+having its users depend on it names its own path with
+`#[component(crate = my_framework::view)]`, since the default `::damask` resolves
+only where `damask` is a direct dependency.
 
 Quoted values interpolate, and on an HTML element `attr={expr}` asks the value's
 type how to appear — a `bool` renders a bare attribute or none at all, an

@@ -6,6 +6,12 @@ All notable changes to Damask are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Documentation: `#[component(crate = …)]` on the site.** The derive page said
+  `default` was the only option `#[component]` takes, which stopped being true in
+  0.4.0; it now documents `crate` alongside it, as the README does.
+
 ## [0.4.0] - 2026-08-30
 
 ### Added
@@ -278,7 +284,11 @@ All notable changes to Damask are documented here. The format follows
 Damask is HTML-only: there is no per-language host extension, and `{ … }` always
 HTML-escapes.
 
-[Unreleased]: https://github.com/jwo1f/damask/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/jwo1f/damask/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/jwo1f/damask/compare/v0.3.2...v0.4.0
+[0.3.2]: https://github.com/jwo1f/damask/compare/v0.3.1...v0.3.2
+[0.3.1]: https://github.com/jwo1f/damask/compare/v0.3.0...v0.3.1
+[0.3.0]: https://github.com/jwo1f/damask/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/jwo1f/damask/compare/v0.1.2...v0.2.0
 [0.1.2]: https://github.com/jwo1f/damask/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/jwo1f/damask/compare/v0.1.0...v0.1.1

@@ -83,7 +83,35 @@ The builder starts from `Default::default()` and overwrites what the call site
 set, so each skipped prop lands on exactly what `Default` says — nothing is asked
 of the field types themselves. Worth it where the defaults are meaningful rather
 than zero values. Without it, skippability is per-prop and expressed by the type
-— see [Props](/docs/props/). `default` is the only option `#[component]` takes.
+— see [Props](/docs/props/).
+
+## `#[component(crate = …)]`
+
+Names the path the generated code reaches Damask through. It defaults to
+`::damask`, which resolves only where `damask` is a direct dependency of the
+crate being compiled — so a framework that re-exports Damask, rather than asking
+its users to depend on it by name, has to say which path to use instead.
+
+```rust
+mod framework {
+    pub use damask as view;
+}
+
+#[derive(framework::view::Component)]
+#[component(crate = crate::framework::view)]
+pub struct Aliased {
+    pub who: String,
+}
+```
+
+The value is a path, not a string, and it stands in for the crate everywhere the
+expansion mentions it: the trait impls, the prop builder, and the attribute and
+child-component calls the template lowers to. Nothing else changes — the
+component renders the same, and a call site writing `<Aliased who="Ada"/>` cannot
+tell.
+
+`default` and `crate` are the two options `#[component]` takes, and they may be
+given together.
 
 ## What is generated
 
