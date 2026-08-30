@@ -8,6 +8,18 @@ All notable changes to Damask are documented here. The format follows
 
 ## [0.5.0] - 2026-08-30
 
+### Added
+
+- **`damask_template::template_awaits`**, and template resolution moved into
+  `damask-template` alongside it (`resolve`, `Resolved`, `component_basename` —
+  it was private to `damask-macros`). A framework wrapping
+  `#[derive(Component)]` emits code of its own beside the derive's, and what a
+  component *is* now differs between the two cases: an awaiting one implements
+  `AsyncComponent` and so has no `Component` for that code to hang a response
+  impl on. A wrapper macro has no type information to tell them apart, and
+  rustc rejects an impl whose `where Self: Component` is trivially false — so
+  the question has to be answerable from the struct, which is what this does.
+
 ### Changed
 
 - **Breaking: an async render is `Send`, so it can be awaited by a server.**

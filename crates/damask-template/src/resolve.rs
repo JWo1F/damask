@@ -279,3 +279,29 @@ mod tests {
         std::fs::remove_dir_all(&dir).ok();
     }
 }
+
+/// Whether the template paired with a component contains `.await` anywhere in its
+/// own Rust — the question [`needs_async`](crate::needs_async) answers, asked from
+/// a struct rather than from an already-parsed template.
+///
+/// For a framework that wraps `#[derive(Component)]` and emits code of its own
+/// beside it: what a component *is* differs between the two cases — an awaiting
+/// one implements `AsyncComponent` and has no `Component` to hang anything on —
+/// and a wrapper macro has no type information to tell them apart.
+///
+/// A template that cannot be found or cannot be parsed answers `false`. The
+/// derive itself is about to report that failure with the span and the paths it
+/// tried; a second copy from a wrapper would bury it.
+pub fn template_awaits(
+    source_file: Option<&Path>,
+    name_snake: &str,
+    explicit: Option<&str>,
+) -> bool {
+    let Ok(resolved) = resolve(source_file, name_snake, explicit) else {
+        return false;
+    };
+    let Ok(template) = crate::parse(&resolved.source) else {
+        return false;
+    };
+    crate::needs_async(&template)
+}

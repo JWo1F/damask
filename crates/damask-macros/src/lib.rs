@@ -8,7 +8,6 @@ use syn::{DeriveInput, parse_macro_input};
 
 mod codegen;
 mod props;
-mod resolve;
 
 /// Derive `damask::Component` for a struct, generating its `render_into` from the
 /// paired `.dmk` template.

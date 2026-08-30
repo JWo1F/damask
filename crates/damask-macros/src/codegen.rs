@@ -1,5 +1,4 @@
-use crate::resolve::resolve;
-use damask_template::to_snake_case;
+use damask_template::{resolve, to_snake_case};
 use proc_macro2::{Span, TokenStream};
 use quote::quote;
 use std::path::PathBuf;
