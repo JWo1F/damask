@@ -71,7 +71,16 @@ pub use damask_macros::Component;
 /// ([`HtmlRenderer`] and friends) or a third-party one with custom escaping, a
 /// non-`String` backing store exposed through [`finish`](Renderer::finish), or
 /// streaming behavior.
-pub trait Renderer {
+///
+/// # Why `Send`
+///
+/// An [`AsyncRender`] holds `&mut dyn Renderer` across its `.await`s, and a
+/// future holding one is `Send` only if the renderer is. A server that drives
+/// a render on a work-stealing executor needs that future to be `Send` — so
+/// the alternative to this bound is that no async template can be rendered
+/// from a request handler at all. A renderer is a buffer, which is a thing
+/// that is `Send` unless it was built out of something deliberately not.
+pub trait Renderer: Send {
     /// Append text with no transformation.
     ///
     /// Tags and already-safe content go through here. A tag's bytes are never
@@ -165,15 +174,23 @@ pub const DEFAULT_SLOT: &str = "";
 
 /// One named piece of caller-supplied content, as passed to
 /// [`Render::render_slots`].
+///
+/// The content is `Sync` as well as [`Render`], because an [`AsyncRender`]
+/// holds the whole [`Slots`] it was handed across each of its `.await`s: a
+/// fill that could not be shared between threads would make that future
+/// non-`Send`, and a non-`Send` render cannot be awaited in a request handler.
+/// The bound is here rather than on `Render` itself so that a component which
+/// neither fills a slot nor awaits anything — a generic one especially — is
+/// unaffected.
 pub struct Slot<'a> {
     name: &'a str,
-    content: &'a dyn Render,
+    content: &'a (dyn Render + Sync),
 }
 
 impl<'a> Slot<'a> {
     /// Fill the slot called `name` — [`DEFAULT_SLOT`] for `<slot/>` — with
     /// `content`.
-    pub const fn new(name: &'a str, content: &'a dyn Render) -> Self {
+    pub const fn new(name: &'a str, content: &'a (dyn Render + Sync)) -> Self {
         Slot { name, content }
     }
 }
@@ -209,7 +226,7 @@ impl<'a> Slots<'a> {
     }
 
     /// The content filling `name`, if the caller supplied it.
-    pub fn get(&self, name: &str) -> Option<&'a dyn Render> {
+    pub fn get(&self, name: &str) -> Option<&'a (dyn Render + Sync)> {
         self.entries
             .iter()
             .find(|s| s.name == name)
@@ -228,7 +245,7 @@ impl<'a> Slots<'a> {
 
     /// The content filling the default slot — [`get`](Slots::get) with
     /// [`DEFAULT_SLOT`], spelled so a call site need not name the empty string.
-    pub fn get_default(&self) -> Option<&'a dyn Render> {
+    pub fn get_default(&self) -> Option<&'a (dyn Render + Sync)> {
         self.get(DEFAULT_SLOT)
     }
 
@@ -355,7 +372,13 @@ impl<T: Render> Render for Option<T> {
 ///
 /// Boxed rather than a plain `impl Future`, because `AsyncRender` has to stay
 /// object-safe the same way [`Renderer`] and [`Render`] are.
-pub type RenderFuture<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
+///
+/// `Send`, because the executors that drive a render steal work between
+/// threads: a future that is not `Send` cannot be awaited inside a request
+/// handler at all. That is what [`Renderer`]'s `Send` and [`Render`]'s `Sync`
+/// are there to make attainable — everything this future holds across an
+/// `.await` is a renderer, a slot fill, or the component itself.
+pub type RenderFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 
 /// The async counterpart of [`Render`], for content whose template genuinely
 /// `.await`s something.
@@ -375,7 +398,7 @@ pub type RenderFuture<'a> = Pin<Box<dyn Future<Output = ()> + 'a>>;
 /// hold, since a genuinely async component has no sensible `Render` to fall
 /// back to (running it would mean blocking on a future inside whatever
 /// executor is already driving the caller).
-pub trait AsyncRender {
+pub trait AsyncRender: Sync {
     /// Write this content into `r`, with no slots filled.
     fn render_into_async<'life0, 'life1, 'async_trait>(
         &'life0 self,
@@ -406,7 +429,7 @@ pub trait AsyncRender {
     }
 }
 
-impl<T: Render + ?Sized> AsyncRender for T {
+impl<T: Render + Sync + ?Sized> AsyncRender for T {
     fn render_into_async<'life0, 'life1, 'async_trait>(
         &'life0 self,
         r: &'life1 mut dyn Renderer,
@@ -472,7 +495,7 @@ pub struct AsyncFragment<F>(pub F);
 
 impl<F> AsyncRender for AsyncFragment<F>
 where
-    F: for<'r> Fn(&'r mut dyn Renderer) -> RenderFuture<'r>,
+    F: for<'r> Fn(&'r mut dyn Renderer) -> RenderFuture<'r> + Sync,
 {
     fn render_into_async<'life0, 'life1, 'async_trait>(
         &'life0 self,
@@ -589,7 +612,7 @@ pub trait AsyncComponent: AsyncRender {
     /// Render to a `String` using the [default renderer](AsyncComponent::default_renderer).
     fn render_async<'life0, 'async_trait>(
         &'life0 self,
-    ) -> Pin<Box<dyn Future<Output = String> + 'async_trait>>
+    ) -> Pin<Box<dyn Future<Output = String> + Send + 'async_trait>>
     where
         'life0: 'async_trait,
         Self: 'async_trait,
@@ -602,7 +625,7 @@ pub trait AsyncComponent: AsyncRender {
     fn render_with_async<'life0, 'life1, 'async_trait>(
         &'life0 self,
         slots: Slots<'life1>,
-    ) -> Pin<Box<dyn Future<Output = String> + 'async_trait>>
+    ) -> Pin<Box<dyn Future<Output = String> + Send + 'async_trait>>
     where
         'life0: 'async_trait,
         'life1: 'async_trait,
@@ -616,7 +639,7 @@ pub trait AsyncComponent: AsyncRender {
     }
 }
 
-impl<T: Component + ?Sized> AsyncComponent for T {
+impl<T: Component + Sync + ?Sized> AsyncComponent for T {
     fn default_renderer(&self) -> Box<dyn Renderer> {
         Component::default_renderer(self)
     }

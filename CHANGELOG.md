@@ -6,6 +6,31 @@ All notable changes to Damask are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-08-30
+
+### Changed
+
+- **Breaking: an async render is `Send`, so it can be awaited by a server.**
+  `RenderFuture` was `Pin<Box<dyn Future + 'a>>`, which meant a future awaiting
+  one was not `Send` — and a work-stealing executor cannot drive a future that
+  is not. The practical consequence was that a template written with `.await`
+  in it could not be rendered from a request handler at all, which is most of
+  what the feature is for. Three bounds make it attainable, each on the thing
+  the future actually holds across an `.await`:
+
+  - `Renderer: Send`, for the `&mut dyn Renderer` a render writes through.
+  - `Slot`'s content is `&(dyn Render + Sync)` rather than `&dyn Render`, for
+    the `Slots` an async template carries past each of its awaits. Deliberately
+    *not* a `Sync` supertrait on `Render`: a component that neither fills a slot
+    nor awaits anything — a generic one especially — is unaffected.
+  - `AsyncRender: Sync`, for the component's own `&self`. It falls out
+    automatically for a plain struct of data; a generic component that wants to
+    await names `Sync` on the parameters it holds.
+
+  A hand-written `Renderer` over a non-`Send` backing store, or a slot filled
+  with non-`Sync` content, is what this can break. Neither is affected by
+  anything the derive emits.
+
 ### Fixed
 
 - **Documentation: `#[component(crate = …)]` on the site.** The derive page said
@@ -284,7 +309,8 @@ All notable changes to Damask are documented here. The format follows
 Damask is HTML-only: there is no per-language host extension, and `{ … }` always
 HTML-escapes.
 
-[Unreleased]: https://github.com/jwo1f/damask/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/jwo1f/damask/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/jwo1f/damask/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/jwo1f/damask/compare/v0.3.2...v0.4.0
 [0.3.2]: https://github.com/jwo1f/damask/compare/v0.3.1...v0.3.2
 [0.3.1]: https://github.com/jwo1f/damask/compare/v0.3.0...v0.3.1

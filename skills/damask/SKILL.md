@@ -348,6 +348,14 @@ error naming the missing `Render` impl — the fix is to make the embedding
 template async too (add `.await` somewhere, or restructure so the async work
 happens before the `<Component/>` tag).
 
+An awaiting component is rendered by whatever executor the caller is on, and
+those steal work between threads — so its future is `Send`, and the three
+things it holds across an `.await` carry the bounds that makes possible: the
+component itself is `Sync` (automatic for a struct of data; a *generic*
+component that awaits has to name `Sync` on the parameters it holds), a
+`Renderer` is `Send`, and a slot fill is `Sync`. Nothing about a sync template
+changed.
+
 Two narrower spots don't support `.await`, both with a straightforward
 rewrite:
 
