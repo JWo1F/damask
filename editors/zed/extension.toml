@@ -1,7 +1,7 @@
 id = "damask"
 name = "Damask"
 description = "Syntax highlighting and language server for Damask templates (.dmk)"
-version = "0.1.0"
+version = "0.2.0"
 schema_version = 1
 authors = ["Damask contributors"]
 repository = "https://github.com/jwo1f/damask"

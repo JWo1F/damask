@@ -65,6 +65,14 @@ All notable changes to Damask are documented here. The format follows
   `site/src/highlight.rs` maps every capture name onto it, and is the only file
   to edit to recolour a kind of token.
 
+- **The Zed extension is 0.2.0.** Its queries and its pinned grammar both moved
+  under it — the injection fixes, `data`'s attribute forms, the prefix that no
+  longer eats a name — and the manifest still said `0.1.0`. Zed decides whether
+  an installed extension is stale by comparing that number, so every one of
+  those fixes would have sat on `master` reaching nobody. `CLAUDE.md` now
+  carries the rule, since the only way to notice the omission is to already
+  know about it.
+
 - **The landing page's first example shows a named slot, and stops opening on
   an alarm.** The hero says *components with real slots* and the example under
   it filled one anonymous `<slot/>` — the named slots, the fallback content and
