@@ -59,6 +59,11 @@ be a plain, non-empty string literal.
 </Frame>
 ```
 
+A fill **cannot contain `.await`**, because it reaches the callee as a plain
+`&dyn Render` with no async render behind it. Compute the value above the tag
+and pass the result in — the error says so, and names the rewrite. A `<slot>`'s
+own fallback body has no such limit. See [Async templates](/docs/async/).
+
 ```html
 <section>
   <h2>…</h2>
@@ -162,10 +167,16 @@ let body = fragment(|r: &mut dyn Renderer| r.write_raw("<p>hi</p>"));
 let out = Layout.render_with(Slots::new(&[Slot::new(DEFAULT_SLOT, &body)]));
 ```
 
-`Slots::new` takes a slice of `Slot`s, each pairing a name with a `&dyn Render`.
-The fills are **borrowed, not owned**: slot content stays on the caller's stack
-and can borrow the caller's data without boxing or type erasure. `Slots` is
-`Copy` and `Default`, and both constructors are `const`.
+`Slots::new` takes a slice of `Slot`s, each pairing a name with a
+`&(dyn Render + Sync)`. The fills are **borrowed, not owned**: slot content stays
+on the caller's stack and can borrow the caller's data without boxing or type
+erasure. `Slots` is `Copy` and `Default`, and both constructors are `const`.
+
+The `Sync` is there because an async template holds the whole `Slots` across
+each of its awaits, and a fill that could not be shared between threads would
+make that render future non-`Send`. It sits on `Slot` rather than on `Render`
+itself, so a component that neither fills a slot nor awaits — a generic one
+especially — is untouched.
 
 | Item | Purpose |
 |---|---|
@@ -176,6 +187,7 @@ and can borrow the caller's data without boxing or type erasure. `Slots` is
 | `Slots::get(name)` / `has(name)` | the fill for a name, if any / whether there is one |
 | `Slots::get_default()` / `has_default()` | the same for the default slot |
 | `Slots::render(name, r, indent, fallback)` | what a lowered `<slot>` calls |
+| `Slots::render_async(name, r, indent, fallback)` | the same, in an async template — the fallback hands back a future |
 
 A name repeated in the slice resolves to the **first** entry. `Slots::render` is
 the one method a template's `<slot>` compiles to: it applies `indent` to a fill,

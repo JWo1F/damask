@@ -1,6 +1,6 @@
 +++
 title = "Traits"
-summary = "`Component`, `Render`, `Renderer`, and what the derive implements."
+summary = "`Component`, `Render`, `Renderer`, their async counterparts, and what the derive implements."
 section = "Runtime"
 +++
 
@@ -50,11 +50,54 @@ Blanket impls, all forwarding both methods:
 
 `Render` is object-safe too.
 
+## `AsyncComponent` and `AsyncRender`
+
+```rust
+pub type RenderFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
+
+pub trait AsyncRender: Sync {
+    fn render_into_async<'a>(&'a self, r: &'a mut dyn Renderer) -> RenderFuture<'a>;
+    fn render_slots_async<'a>(&'a self, r: &'a mut dyn Renderer, slots: Slots<'a>)
+        -> RenderFuture<'a> { … }
+}
+
+pub trait AsyncComponent: AsyncRender {
+    fn default_renderer(&self) -> Box<dyn Renderer>;
+    fn render_async(&self) -> Pin<Box<dyn Future<Output = String> + Send + '_>> { … }
+    fn render_with_async(&self, slots: Slots<'_>)
+        -> Pin<Box<dyn Future<Output = String> + Send + '_>> { … }
+}
+```
+
+The same two traits with values replaced by boxed futures, implemented by the
+derive **instead of** `Component`/`Render` for a template that contains `.await`
+— see [Async templates](/docs/async/). Boxed because an `async fn` in a trait is
+not `dyn`-safe and these stay object-safe like the rest; that allocation is why
+the derive only reaches for them when a template actually awaits.
+
+Blanket impls run one way only:
+
+| Impl | Effect |
+|---|---|
+| `AsyncRender for T where T: Render + Sync + ?Sized` | every sync component is async-renderable — its future has nothing to poll |
+| `AsyncComponent for T where T: Component + Sync + ?Sized` | `render_async` / `render_with_async` work on a sync component too |
+
+There is no impl in the other direction: rendering an async component
+synchronously would mean blocking on a future inside the caller's own executor.
+
+`RenderFuture` is `Send` so a server executor can drive a render. That is what
+`Renderer: Send`, `AsyncRender: Sync` and a slot fill's `Sync` are for — one
+bound per thing the future holds across an await.
+
 ## `Renderer`
 
 The output buffer and the escaping policy, in one object-safe trait. Components
 are compiled against `&mut dyn Renderer`, so a component compiled once is driven
 by any renderer.
+
+`Renderer: Send`, because an async render holds `&mut dyn Renderer` across its
+awaits and a future holding one is `Send` only if the renderer is. A buffer is
+`Send` unless it was built from something deliberately not.
 
 | Method | Backs | Default |
 |---|---|---|
@@ -112,9 +155,10 @@ use damask::prelude::*;
 ```
 
 Brings in `Component` (trait and derive), `Render`, `Renderer`, `Slot`, `Slots`,
-`DEFAULT_SLOT`, `fragment`, `HtmlRenderer`, `StringRenderer`, `Whitespace`, and
-the attribute traits `Attr`, `AttrSpread`, `ClassItem`, `ClassList`, `DataItem`,
-`DataSet`, `DataValue`.
+`DEFAULT_SLOT`, `fragment`, `HtmlRenderer`, `StringRenderer`, `Whitespace`, the
+async set `AsyncComponent`, `AsyncRender`, `RenderFuture` and `fragment_async`,
+and the attribute traits `Attr`, `AttrSpread`, `ClassItem`, `ClassList`,
+`DataItem`, `DataSet`, `DataValue`.
 
 The attribute traits are documented where the syntax they back is: `Attr` and
 `AttrSpread` in [Attributes](/docs/attributes/), `ClassItem` and `ClassList` in

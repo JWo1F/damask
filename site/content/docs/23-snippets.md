@@ -35,6 +35,13 @@ rendered many times.
 A snippet's body is laid out from its own root, like a component's, and the depth
 of the `{@render}` site is added when it runs.
 
+In an async template a snippet lowers to an `AsyncFragment` instead, and a
+parameterless one may `.await` like any other markup. A snippet **with
+parameters** may not: its closure has to stay callable more than once, which an
+`async move` capturing a non-`Copy` parameter cannot guarantee. Await at the
+`{@render}` site instead — `{@render row(self.fetch().await)}` — and let the
+body use the value that arrives. See [Async templates](/docs/async/).
+
 `{@render}` renders anything that implements `Render`: a snippet, a fragment, a
 slot lookup, an `Option` of one, a `Box<dyn Render>`, or a component value. A
 component is normally written as a tag instead — `<Chip label="…"/>`.
@@ -58,6 +65,18 @@ under coherence with the per-component `impl Render`.
 
 `Fragment` uses `Render`'s default `render_slots`, which ignores the slots and
 forwards to `render_into` — a fragment has no `<slot>`s of its own.
+
+`damask::fragment_async` is the counterpart for a closure returning a
+`RenderFuture`, wrapping it as `AsyncFragment` — `AsyncRender` rather than
+`Render`:
+
+```rust
+use damask::{RenderFuture, Renderer, fragment_async};
+
+let kids = fragment_async(|r: &mut dyn Renderer| -> RenderFuture<'_> {
+    Box::pin(async move { r.write_raw("<p>hi</p>") })
+});
+```
 
 Fragments are what slot content desugars to, and how you pass children from Rust
 — see [Slots](/docs/slots/#filling-from-rust).

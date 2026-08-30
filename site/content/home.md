@@ -21,7 +21,7 @@ href = "/docs/"
 [install]
 code = '''
 [dependencies]
-damask = "0.2"
+damask = "0.5"
 '''
 note = "Rust 1.88 or newer. No build script, no configuration."
 
@@ -112,6 +112,39 @@ code = '''
 <input title="row {self.n}"
        disabled={self.locked}
        placeholder={self.hint}/>
+'''
+
+[[feature]]
+title = "Await where the data is"
+body = """
+A component whose data has not arrived yet writes `.await` in its markup, and \
+the derive compiles that template to an async render instead — no attribute, \
+nothing to configure, and no cost at all to the templates that don't. The \
+future is `Send`, so a request handler can await one, and a plain sync child \
+still drops into an awaiting parent unchanged.\
+"""
+code = '''
+<ul class="feed">
+  {#for deploy in self.store.recent(5).await}
+    <li>{deploy.service}</li>
+  {/for}
+</ul>
+'''
+
+[[feature]]
+title = "One component, any renderer"
+body = """
+`Renderer` owns the output buffer and the escaping policy, and components are \
+compiled against `&mut dyn Renderer` — so one compiled component writes through \
+the HTML renderer, a pretty-printing one, or one you wrote for a format Damask \
+has never heard of. A child always writes through its *parent's* renderer, which \
+is what makes escaping a property of the output rather than of the component.\
+"""
+lang = "rust"
+code = '''
+let mut r: Box<dyn Renderer> = Box::new(MyRenderer::new());
+component.render_into(r.as_mut());
+let out = r.finish();
 '''
 
 +++

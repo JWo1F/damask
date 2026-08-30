@@ -57,14 +57,42 @@
     </div>
   </section>
 
-  <section class="mt-24 sm:mt-32" aria-label="Why">
-    <div class="grid gap-x-10 gap-y-12 sm:grid-cols-2">
-      {#for feature in &self.features}
-        <article class="min-w-0">
-          <h2 class="font-display text-[1.35rem] font-medium tracking-[-0.015em] text-ink">{feature.title}</h2>
-          <p class="mt-2.5 font-serif text-[1rem] leading-[1.66] text-ink-soft">{@html feature.body_html}</p>
+  {#
+    The features, set as a specimen sheet rather than as a grid of cards.
+
+    Three devices, all borrowed from print and all already in this page's
+    vocabulary. A hanging mono numeral gives the section a reading order and
+    makes the count look chosen rather than however-many-there-are. A hairline
+    above each entry turns the grid into a ledger — which is also what makes an
+    odd number of features look finished instead of orphaned, since a last row
+    of one reads as the end of a table rather than as a gap. And the section
+    finally says its own name, in the mono eyebrow the hero already uses,
+    dropped to faint ink so it announces the section without competing with the
+    title above it.
+
+    No entry hover: none of this is interactive, and a card that lifts under the
+    cursor would be promising a link that isn't there.
+  #}
+  <section class="mt-24 sm:mt-32" aria-labelledby="why">
+    <h2 id="why" class="font-mono text-[0.7rem] uppercase tracking-[0.18em] text-ink-faint">Why Damask</h2>
+
+    <div class="mt-7 grid gap-x-10 sm:grid-cols-2">
+      {#for (n, feature) in self.features.iter().enumerate()}
+        {# `minmax(0, 1fr)` rather than `1fr`: a grid track's implicit minimum is
+           its content, so a code panel — which is wider than a phone and scrolls
+           inside itself — would otherwise widen the column and take the whole
+           document sideways with it. #}
+        <article class="grid min-w-0 grid-cols-[2.25rem_minmax(0,1fr)] items-baseline gap-y-2.5
+                        border-t border-rule pt-6 pb-11">
+          <span class="font-mono text-[0.7rem] tabular-nums tracking-[0.08em] text-madder"
+                aria-hidden="true">{format!("{:02}", n + 1)}</span>
+
+          <h3 class="font-display text-[1.35rem] font-medium tracking-[-0.015em] text-ink">{feature.title}</h3>
+
+          <p class="col-start-2 font-serif text-[1rem] leading-[1.66] text-ink-soft">{@html feature.body_html}</p>
+
           {#if let Some(code) = &feature.code}
-            <div class="mt-4">{@html code}</div>
+            <div class="col-start-2 mt-1.5">{@html code}</div>
           {/if}
         </article>
       {/for}

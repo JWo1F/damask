@@ -29,7 +29,7 @@ Two crate features change it, and neither alters the *rendered document* — onl
 its source:
 
 ```toml
-damask = { version = "0.2", features = ["pretty"] }
+damask = { version = "0.5", features = ["pretty"] }
 ```
 
 - **`pretty`** re-indents the output, so a page you are debugging in "view
@@ -233,5 +233,5 @@ right for a format with no metacharacters and wrong for almost everything else.
 [Renderers and escaping](/docs/renderers/) has the rest of the built-ins.
 
 helm is finished: a document, seven components, a test suite and a file you can
-open. The last chapter is about the second application — the conventions that
-keep a directory of these honest once there are forty of them.
+open. Every one of them renders from data it was handed. The next chapter is
+what happens when a component has to go and get its own.

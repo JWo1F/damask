@@ -130,6 +130,13 @@ comments all survive. Beside it the derive emits:
 The lowered template is straight-line Rust: `write_raw` over the literals,
 `write_escaped` for `{ … }`, ordinary `if` and `for` for the control flow.
 
+Where the template contains `.await` anywhere in its own Rust, the first two
+become `impl AsyncRender` and `impl AsyncComponent` instead — same methods,
+returning boxed futures — and no `Render`/`Component` impl is emitted at all.
+Nothing else about the expansion changes, including the builder. The derive
+decides this from the template, with nothing to declare; see
+[Async templates](/docs/async/).
+
 Generics come along: the builder carries the component's own parameters, so
 `struct Tagged<'a, T: Display>` takes skippable props like any other. A **tuple
 struct** gets no builder — its fields cannot be addressed by name — so it renders

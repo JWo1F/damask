@@ -6,6 +6,40 @@ All notable changes to Damask are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Documentation: async templates on the site.** The feature shipped in 0.4.0
+  with nothing about it outside the changelog and the agent skill. Now there is
+  a book chapter (*The live fleet*, chapter eight) that arrives at `.await` from
+  helm needing a store rather than a fixture, and a reference page
+  (*Async templates*) covering the detection rule, the trait pair and its
+  blanket impls, the `Send`/`Sync` bounds and what each one is for, and the two
+  places `.await` cannot go. Every compiler error quoted in either was taken
+  from a real build, and every example compiled before it was written down.
+
+  The neighbouring pages gained what belongs on them rather than repeating it:
+  `AsyncComponent`/`AsyncRender`/`RenderFuture` on Traits, the async branch of
+  the expansion on The Component derive, `Slots::render_async` and a fill's
+  `Sync` on Slots, `fragment_async` and the parameterized-snippet limit on
+  Snippets, `Renderer: Send` on Renderers. The README gained an *Async
+  templates* section of its own, since it had no mention of the feature at all.
+
+- **The landing page's feature list is set as a specimen sheet.** It gained two
+  entries — async, and the renderer seam, which the page had never made a claim
+  about — and six equal blocks in a bare two-column grid had stopped being a
+  composition. Now each entry hangs a mono numeral in its own column and sits
+  under a hairline rule, the section says its name in the mono eyebrow the hero
+  already uses, and the feature titles are `h3`s under that `h2` rather than a
+  flat run of `h2`s. The rules are also what make the layout indifferent to the
+  number of features: a last row of one reads as the end of a table rather than
+  as an orphan, which the old grid could not do.
+
+### Fixed
+
+- **Documentation: the install snippets said `0.2`.** Five of them, across the
+  README, the landing page, two book chapters and the renderers reference — all
+  now `0.5`. Pasting `0.2` got you a version with no async in it at all.
+
 ## [0.5.0] - 2026-08-30
 
 ### Added

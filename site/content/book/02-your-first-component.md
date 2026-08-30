@@ -14,7 +14,7 @@ cargo new helm
 
 ```toml
 [dependencies]
-damask = "0.2"
+damask = "0.5"
 ```
 
 Damask needs Rust 1.88 or newer. That is the whole setup: nothing to register, no

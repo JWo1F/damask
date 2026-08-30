@@ -66,17 +66,29 @@ at the end tag.
 |---|---|
 | `Component` | `render()`, `render_with(slots)`, `default_renderer()` |
 | `Render` | `render_into(r)`, `render_slots(r, slots)` |
+| `AsyncComponent` | `render_async()`, `render_with_async(slots)` |
+| `AsyncRender` | `render_into_async(r)`, `render_slots_async(r, slots)` |
+| `RenderFuture` | the boxed, `Send` future the async methods return |
 | `Renderer` | the output buffer and the escaping policy |
 | `HtmlRenderer` | the default, HTML-escaping |
 | `StringRenderer` | the `String`-backed core, with a swappable escape function |
 | `Whitespace` | `AsWritten`, `Pretty`, `Minified` |
 | `Slots`, `Slot`, `DEFAULT_SLOT` | filling slots from Rust |
 | `fragment(f)`, `Fragment` | a closure as renderable content |
+| `fragment_async(f)`, `AsyncFragment` | the same, returning a future |
 | `Attr`, `AttrSpread`, `ClassItem`, `ClassList` | how values become attributes |
 | `DataItem`, `DataValue`, `DataSet` | how one value becomes a run of `data-*` attributes |
 | `as_display` | widen a reference to `&dyn Display` |
 
 `use damask::prelude::*;` brings in the common set.
+
+## Async
+
+A template with `.await` anywhere in its own Rust implements `AsyncComponent` /
+`AsyncRender` **instead of** `Component` / `Render`, and renders with
+`.render_async().await`. Nothing to add — the derive decides from the template.
+A sync child embeds in an async parent for free; the reverse is a compile error.
+See [Async templates](/docs/async/).
 
 ## Derive attributes
 
@@ -84,6 +96,7 @@ at the end tag.
 |---|---|
 | `#[template(path = "…")]` | use this template instead of the sibling one |
 | `#[component(default)]` | every prop is skippable, filled from `Default` |
+| `#[component(crate = ::path)]` | the path generated code reaches Damask through |
 
 ## Crate features
 

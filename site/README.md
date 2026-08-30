@@ -5,7 +5,7 @@ markdown database and rendered through Damask components into static HTML.
 
 It doubles as the largest worked example in the repository: the whole site is
 built out of `.dmk` components, styled with Tailwind pointed at the view tree,
-exactly as the [book chapter on building a page](content/book/08-building-a-page.md)
+exactly as the [book chapter on building a page](content/book/09-building-a-page.md)
 describes.
 
 ## Building

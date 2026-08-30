@@ -59,7 +59,7 @@ through the policy, without a full intermediate `String`.
 features change that:
 
 ```toml
-damask = { version = "0.2", features = ["pretty"] }
+damask = { version = "0.5", features = ["pretty"] }
 ```
 
 `pretty`
@@ -144,6 +144,12 @@ Implement `write_display_raw` too if the renderer is buffer-backed, so
 `{@html … }` writes in place instead of allocating a `String` first, and the
 layout hooks if it formats. See [Traits](/docs/traits/#renderer) for what each
 one is for.
+
+`Renderer` requires `Send`, which a `String`-backed one like the above satisfies
+without saying anything. An [async render](/docs/async/) holds
+`&mut dyn Renderer` across its awaits, and a future holding one is `Send` — the
+condition for a server executor driving it — only if the renderer is. A renderer
+over a deliberately non-`Send` sink is what this rules out.
 
 ## Escaping rules of thumb
 

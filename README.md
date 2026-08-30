@@ -33,7 +33,7 @@ assert_eq!(Greeting { name: "<b>".into() }.render(), "Hello &lt;b&gt;!");
 
    ```toml
    [dependencies]
-   damask = "0.2"
+   damask = "0.5"
    ```
 
 2. Create a component as **two files that share a basename**, in the same
@@ -243,11 +243,69 @@ Layout.render_with(Slots::new(&[Slot::new(DEFAULT_SLOT, &body)]));
 The fills are borrowed, not owned, so slot content stays on the caller's stack
 and can borrow the caller's data without boxing.
 
+## Async templates
+
+Write `.await` anywhere the template holds Rust — a `{ … }` tag, an `{#if}` /
+`{#for}` condition or iterable, an attribute value, a snippet body — and the
+derive compiles that component to an async render path. There is nothing to add:
+it is decided from the template itself, and a template with no `.await` anywhere
+is compiled exactly as before, at no cost.
+
+```rust
+use damask::Component;
+
+// profile.rs  (paired with profile.dmk)
+#[derive(Component)]
+pub struct Profile<'a> {
+    pub store: &'a Store,
+    pub id: UserId,
+}
+```
+
+```html
+<!-- profile.dmk -->
+<p>{self.store.load_name(self.id).await}</p>
+```
+
+Such a component implements **`AsyncComponent` / `AsyncRender` instead of
+`Component` / `Render`**, so it renders with `.render_async().await`:
+
+```rust
+use damask::AsyncComponent;
+
+let html = Profile { store: &store, id }.render_async().await;
+```
+
+Composition is free in one direction: every sync `Render` gets an `AsyncRender`
+whose future has nothing left to poll, so an async template embeds a plain sync
+child at no real cost. The other direction is a compile error naming the missing
+`Render` — an async component has no sync fallback, because producing one would
+mean blocking on a future inside the executor already driving the caller. Make
+the enclosing template async too, or load the child's data before constructing
+it.
+
+The render future is `Send`, so a request handler can await one. Three bounds
+buy that, one per thing held across an `.await`: `Renderer: Send`, a slot fill is
+`Sync` (on `Slot`, deliberately not a `Render` supertrait), and
+`AsyncRender: Sync` — automatic for a struct of data, and something a *generic*
+component that awaits must name on the parameters it holds.
+
+> **Two places `.await` cannot go**, both with a one-line rewrite the compiler
+> spells out. A component's **slot fill** reaches the callee as a plain
+> `&dyn Render`, so compute the value in a `{ let x = … }` above the tag and pass
+> `{x}` in — a `<slot>`'s own fallback body has no such limit. And a `{#snippet}`
+> **that takes parameters** cannot `.await` in its body, since its closure has to
+> stay callable more than once; await at the call site instead, as
+> `{@render row(self.fetch().await)}`.
+
 ## Custom renderers
 
 `Renderer` is the extensibility seam — it owns the output buffer and the escaping
 policy. Implement it to change escaping or target a different sink; components are
-compiled against `&mut dyn Renderer`, so any renderer drives any component.
+compiled against `&mut dyn Renderer`, so any renderer drives any component. It
+requires `Send`, which a buffer-backed renderer satisfies without saying
+anything, and which is what lets an async render be awaited on a work-stealing
+executor.
 
 ## Workspace
 
