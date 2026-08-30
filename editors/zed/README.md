@@ -34,7 +34,7 @@ editors/zed/
 │   ├── highlights.scm        # delimiter / comment highlighting   ─┐ also read
 │   ├── indents.scm           # indentation for nested brace groups │ by the
 │   └── injections.scm        # Rust into tags, host language into text ┘ website
-└── dev-setup.sh              # keeps the installed language server current
+└── dev-setup.sh              # refreshes the language server, clears Zed's grammar clone
 ```
 
 The Tree-sitter grammar is not here: it lives in
@@ -69,14 +69,22 @@ For full intelligence `damask-lsp` shells out to downstream servers, also on
 Zed clones the grammar itself from the pinned revision in `extension.toml`, so
 there is nothing to stage first:
 
-1. Run `bash editors/zed/dev-setup.sh` to install or refresh `damask-lsp`.
+1. Run `bash editors/zed/dev-setup.sh` to refresh `damask-lsp` and clear Zed's
+   grammar clone.
 2. In Zed: `zed: install dev extension` → select this `editors/zed/` directory.
 3. Open any `.dmk` file.
 
-**If Zed says "failed to compile grammar 'damask'"** with `grammar directory …
-already exists, but is not a git clone of …`, delete the stale clone Zed made
-from a previous run: `rm -rf editors/zed/grammars/damask` (or re-run
-`dev-setup.sh`, which does this for you), then reinstall.
+**If Zed says "failed to compile grammar 'damask'"**, the clone it keeps at
+`grammars/damask/` is in its way — either `already exists, but is not a git
+clone of …`, or `Your local changes to the following files would be overwritten
+by checkout` when the pinned `rev` moves. Run `dev-setup.sh` and reinstall.
+
+Do not reach for `rm -rf grammars/damask` first. That directory is git-ignored,
+so nothing ever shows you what is in it, and it is an ordinary clone of the
+grammar — which makes it an easy place to edit the grammar by mistake and a
+silent place to lose the edit. The second error above is the clone telling you
+it holds something. `dev-setup.sh` stops and prints what, rather than deleting
+it; `DAMASK_FORCE_GRAMMAR=1` says go ahead once you have looked.
 
 ### Changing the grammar
 

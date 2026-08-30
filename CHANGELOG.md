@@ -65,6 +65,25 @@ All notable changes to Damask are documented here. The format follows
   `site/src/highlight.rs` maps every capture name onto it, and is the only file
   to edit to recolour a kind of token.
 
+- **`dev-setup.sh` refuses to delete a grammar clone that has work in it.** Zed
+  keeps its own clone of the grammar at `editors/zed/grammars/damask/`, and the
+  script cleared it unconditionally so Zed would re-clone at the pinned
+  revision. That directory is git-ignored, so nothing ever shows what is in it,
+  and it is an ordinary clone of the grammar — which makes it an easy place to
+  edit the grammar by mistake and a silent place to lose the edit.
+
+  It is not hypothetical. A correction to the grammar's README and test corpus,
+  spelling the loop `{#for p in E}` instead of the `{#each E as p}` it stopped
+  being, had been sitting there uncommitted — found only because a checkout of
+  the new revision refused to run over it, which is also what broke installing
+  the extension. It is upstream now.
+
+  The script checks three ways work can exist only there — uncommitted or
+  untracked files, stashes, and commits on no remote — and on any of them
+  prints what it found and exits rather than deleting. `DAMASK_FORCE_GRAMMAR=1`
+  deletes anyway. It still clears a directory that is not its own repository,
+  since a half-finished clone has nothing to protect.
+
 - **The Zed extension is 0.2.0.** Its queries and its pinned grammar both moved
   under it — the injection fixes, `data`'s attribute forms, the prefix that no
   longer eats a name — and the manifest still said `0.1.0`. Zed decides whether
