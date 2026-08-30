@@ -37,18 +37,18 @@
 //! (`slots.has("x")`) and place it by name (`{@render slots.get("x")}`).
 
 mod awaits;
-mod resolve;
 mod line_index;
 mod lower;
 mod parser;
+mod resolve;
 
 pub use awaits::needs_async;
-pub use resolve::{component_basename, resolve, template_awaits, Resolved};
 pub use line_index::LineIndex;
 pub use lower::{
     DEFAULT_CRATE, Mapping, SourceMap, lower, lower_mapped, lower_mapped_with, lower_with,
 };
 pub use parser::{ParseError, in_tag, is_void_element, parse, tag_spans};
+pub use resolve::{Resolved, component_basename, resolve, template_awaits};
 
 /// A half-open byte range `[start, end)` into the template source.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
