@@ -7,6 +7,29 @@ member crates inherit via `version.workspace = true`) when the change warrants
 a release — then move the `[Unreleased]` entries under a new dated version
 heading, following the pattern of the existing release headings.
 
+**A version bump is not finished until it is tagged.** Every release of the
+workspace version gets an annotated tag on the release commit, named `vX.Y.Z`
+and messaged `Damask X.Y.Z`, pushed with it:
+
+```sh
+git tag -a v0.6.0 -m "Damask 0.6.0"
+git push origin v0.6.0
+```
+
+The reason is that these crates are not published to crates.io, so a dependent
+project can only reach them over git — and a git dependency has three ways to
+say which commit it wants. A `branch` moves under the dependent without warning.
+A `rev` is a short hash that says nothing about what it contains, so nobody can
+tell from a manifest whether they are on the current release or eleven commits
+behind it, and updating means reading this repository's log. A `tag` is the
+version number, so `tag = "v0.6.0"` in somebody else's `Cargo.toml` is legible
+and is exactly as immutable as a rev. That is what `../ironstone` uses, and it
+can only do so if the tag exists.
+
+Tagging lapsed once already — the workspace reached 0.6.0 while the newest tag
+was `v0.3.2`, which is why `ironstone` was pinned to a bare `rev`. If you find
+an untagged release, tag its commit rather than skipping the number.
+
 # The Zed extension's version
 
 Any push to `master` that changes something the extension ships must bump
