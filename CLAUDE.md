@@ -16,9 +16,10 @@ git tag -a v0.6.0 -m "Damask 0.6.0"
 git push origin v0.6.0
 ```
 
-The reason is that these crates are not published to crates.io, so a dependent
-project can only reach them over git — and a git dependency has three ways to
-say which commit it wants. A `branch` moves under the dependent without warning.
+The reason is that publishing to crates.io stopped after 0.3.2 — `damask`,
+`damask-template` and `damask-macros` are all on the registry up to that version
+and no further — so anything wanting 0.4.0 or later reaches these crates over
+git, and a git dependency has three ways to say which commit it wants. A `branch` moves under the dependent without warning.
 A `rev` is a short hash that says nothing about what it contains, so nobody can
 tell from a manifest whether they are on the current release or eleven commits
 behind it, and updating means reading this repository's log. A `tag` is the
