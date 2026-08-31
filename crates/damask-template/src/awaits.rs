@@ -47,7 +47,9 @@ pub(crate) fn node_needs_async(node: &Node) -> bool {
         }
         Node::Snippet(snippet) => nodes_need_async(&snippet.body),
         Node::Element(el) => {
-            is_awaited(el) || el.attrs.iter().any(attr_needs_async) || nodes_need_async(&el.children)
+            is_awaited(el)
+                || el.attrs.iter().any(attr_needs_async)
+                || nodes_need_async(&el.children)
         }
     }
 }

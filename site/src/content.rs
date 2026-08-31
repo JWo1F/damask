@@ -225,8 +225,35 @@ pub fn load(root: &Path, urls: &Urls, highlighter: &Highlighter) -> Result<Libra
     })
 }
 
+/// What `{{version}}` stands for in `home.md`.
+///
+/// `damask-site` takes `version.workspace = true`, so its own
+/// `CARGO_PKG_VERSION` *is* the workspace version — the number the release
+/// process bumps and tags. Reading it here rather than typing it into the
+/// content is what stops the landing page advertising a release two behind the
+/// one it was built from, which is how it came to say 0.5.
+///
+/// Trimmed to `MAJOR.MINOR`, because that is the form a caller writes:
+/// `damask = "0.8"` accepts every patch of the line, and a home page that pins
+/// a patch teaches the reader to pin one too.
+fn version() -> &'static str {
+    const FULL: &str = env!("CARGO_PKG_VERSION");
+    match FULL.match_indices('.').nth(1) {
+        Some((at, _)) => &FULL[..at],
+        None => FULL,
+    }
+}
+
+/// The token `version` replaces, spelled the way a template language would.
+const VERSION_TOKEN: &str = "{{version}}";
+
 fn home(path: &Path, urls: &Urls, highlighter: &Highlighter) -> Result<Home, Error> {
-    let source = read(path)?;
+    // Substituted over the whole document, before anything reads it: the front
+    // matter, so the dependency snippet and the woven panels agree, and the body
+    // with them. Doing it per-field would mean a list of fields to keep in step
+    // with `home.md`, and the field that got left off the list would be the one
+    // that goes stale.
+    let source = read(path)?.replace(VERSION_TOKEN, version());
     let (front, body) = split(&source, path)?;
     let mut home: Home =
         toml::from_str(front).map_err(|error| format!("{}: {error}", path.display()))?;

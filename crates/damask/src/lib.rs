@@ -263,7 +263,10 @@ impl<'a> Slot<'a> {
     /// Fill the slot called `name` — [`DEFAULT_SLOT`] for `<slot/>` — with
     /// `content`.
     pub const fn new(name: &'a str, content: &'a (dyn Render + Sync)) -> Self {
-        Slot { name, content: Fill::Ready(content) }
+        Slot {
+            name,
+            content: Fill::Ready(content),
+        }
     }
 
     /// Fill it with content that has to `.await` something to render.
@@ -273,7 +276,10 @@ impl<'a> Slot<'a> {
     /// `<slot/>` the way it always did, and only the async path — the one an
     /// awaiting template is already on — can produce the markup.
     pub const fn new_async(name: &'a str, content: &'a (dyn AsyncRender + Sync)) -> Self {
-        Slot { name, content: Fill::Awaiting(content) }
+        Slot {
+            name,
+            content: Fill::Awaiting(content),
+        }
     }
 }
 
@@ -977,9 +983,7 @@ mod tests {
     /// child of one that is not.
     #[test]
     fn a_slot_may_be_filled_with_content_that_awaits() {
-        let slow = AsyncGreeting {
-            name: "Ada".into(),
-        };
+        let slow = AsyncGreeting { name: "Ada".into() };
         let entries = [Slot::new_async(DEFAULT_SLOT, &slow)];
         let slots = Slots::new(&entries);
 
@@ -1001,9 +1005,7 @@ mod tests {
     /// would skip exactly the content that was expensive to produce.
     #[test]
     fn an_awaiting_fill_counts_as_filled() {
-        let slow = AsyncGreeting {
-            name: "Ada".into(),
-        };
+        let slow = AsyncGreeting { name: "Ada".into() };
         let entries = [Slot::new_async(DEFAULT_SLOT, &slow)];
         let slots = Slots::new(&entries);
 
@@ -1018,9 +1020,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Slots::render_async")]
     fn rendering_an_awaiting_fill_synchronously_says_so() {
-        let slow = AsyncGreeting {
-            name: "Ada".into(),
-        };
+        let slow = AsyncGreeting { name: "Ada".into() };
         let entries = [Slot::new_async(DEFAULT_SLOT, &slow)];
         let slots = Slots::new(&entries);
 

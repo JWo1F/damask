@@ -1920,7 +1920,10 @@ mod tests {
     #[test]
     fn a_default_slot_fill_may_await() {
         let out = body("<Card>{self.fetch().await}</Card>");
-        assert!(out.contains("Slot::new_async(::damask::DEFAULT_SLOT"), "{out}");
+        assert!(
+            out.contains("Slot::new_async(::damask::DEFAULT_SLOT"),
+            "{out}"
+        );
         assert!(out.contains("fragment_async"), "{out}");
         assert!(out.contains("Box::pin(async move"), "{out}");
         // The fill is awaited where it is written, so the call taking it has to

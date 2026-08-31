@@ -4,6 +4,18 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **The site's landing page reads its version from `Cargo.toml`.** The hero's
+  dependency snippet and the woven "rendered" panel both had the number typed
+  into `site/content/home.md`, where it stayed at 0.5 while the workspace went
+  to 0.8. `home.md` now writes `{{version}}` and the generator substitutes the
+  workspace version — `damask-site` inherits `version.workspace = true`, so its
+  `CARGO_PKG_VERSION` is the number the release process already bumps and tags,
+  and the page cannot fall behind it again.
+
 ## [0.8.0] - 2026-09-01
 
 ### Added

@@ -21,7 +21,7 @@ href = "/docs/"
 [install]
 code = '''
 [dependencies]
-damask = "0.5"
+damask = "{{version}}"
 '''
 note = "Rust 1.88 or newer. No build script, no configuration."
 
@@ -49,7 +49,7 @@ dmk = '''
 out_name = "rendered"
 out = '''
 <article class="card card--note">
-  <h3>Damask 0.5</h3>
+  <h3>Damask {{version}}</h3>
   <p>Templates can await.</p>
   <footer>Just now</footer>
 </article>
