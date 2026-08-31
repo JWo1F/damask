@@ -963,28 +963,6 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
         .iter()
         .any(|n| !matches!(n, Node::Text(t) if t.as_str().trim().is_empty()));
 
-    // A slot fill travels to the callee as a plain `&dyn Render` (see `Slot`),
-    // so it cannot itself contain `.await` — there is no async-shaped fill to
-    // hand across that boundary. This is a narrower restriction than the rest
-    // of the template: compute the value first (`{let x = foo().await}` above
-    // this tag) and pass `{x}` instead.
-    if default.iter().any(|n| crate::awaits::node_needs_async(n)) {
-        return Err(format!(
-            "`.await` is not supported inside `<{}>`'s default slot content; \
-             compute the value in a `{{ let x = … }}` above this tag and pass `{{x}}` instead",
-            el.tag.as_str()
-        ));
-    }
-    for (name, body) in &named {
-        if crate::awaits::nodes_need_async(body) {
-            return Err(format!(
-                "`.await` is not supported inside `<{}>`'s `slot=\"{name}\"` content; \
-                 compute the value in a `{{ let x = … }}` above this tag and pass `{{x}}` instead",
-                el.tag.as_str()
-            ));
-        }
-    }
-
     // The fills borrow temporaries that live to the end of this statement, so
     // slot content stays on the stack and can borrow the enclosing scope.
     let has_slots = has_default || !named.is_empty();
@@ -1100,27 +1078,29 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
     }
 
     e.raw(", __damask_krate::Slots::new(&[\n");
-    // A slot fill is always a plain sync `Fragment` — checked `.await`-free
-    // above — regardless of whether the *enclosing* template is async, so an
-    // unrelated await elsewhere in this template cannot leak `.await` into a
-    // closure that cannot contain it.
+    // Each fill is judged on its own body, not on the enclosing template: a
+    // fill that awaits nothing stays a plain `Fragment` even inside a template
+    // that awaits elsewhere, so it costs no boxed future. Only the one that
+    // genuinely suspends becomes an `AsyncFragment`, which is a shape the
+    // callee never sees — it renders `<slot/>` the way it always did.
     let outer_is_async = e.is_async;
-    e.is_async = false;
     if has_default {
-        e.raw("__damask_krate::Slot::new(__damask_krate::DEFAULT_SLOT, &__damask_krate::fragment(|__damask: &mut dyn __damask_krate::Renderer| {\n");
+        let awaits = default.iter().any(|n| crate::awaits::node_needs_async(n));
+        e.is_async = awaits;
+        e.raw(&open_fill("__damask_krate::DEFAULT_SLOT", awaits));
         e.at_line_start = false;
         for (i, n) in default.iter().enumerate() {
             emit_node(n, Layout::ROOT, i + 1 == default.len(), e)?;
         }
-        e.raw("})),\n");
+        e.raw(close_fill(awaits));
     }
     for (name, body) in &named {
-        e.raw(&format!(
-            "__damask_krate::Slot::new({name:?}, &__damask_krate::fragment(|__damask: &mut dyn __damask_krate::Renderer| {{\n"
-        ));
+        let awaits = crate::awaits::nodes_need_async(body);
+        e.is_async = awaits;
+        e.raw(&open_fill(&format!("{name:?}"), awaits));
         e.at_line_start = false;
         emit_nodes(body, Layout::ROOT, e)?;
-        e.raw("})),\n");
+        e.raw(close_fill(awaits));
     }
     e.is_async = outer_is_async;
     e.raw("]))");
@@ -1133,6 +1113,26 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
         e.raw(&format!("__damask.pop_indent({});\n", layout.depth));
     }
     Ok(())
+}
+
+/// The opening of one slot fill: a `Slot` holding a fragment, boxed-future
+/// shaped when the markup inside it suspends.
+fn open_fill(name: &str, awaits: bool) -> String {
+    match awaits {
+        false => format!(
+            "__damask_krate::Slot::new({name}, &__damask_krate::fragment(|__damask: &mut dyn __damask_krate::Renderer| {{\n"
+        ),
+        true => format!(
+            "__damask_krate::Slot::new_async({name}, &__damask_krate::fragment_async(|__damask: &mut dyn __damask_krate::Renderer| {{ ::std::boxed::Box::pin(async move {{\n"
+        ),
+    }
+}
+
+fn close_fill(awaits: bool) -> &'static str {
+    match awaits {
+        false => "})),\n",
+        true => "}) })),\n",
+    }
 }
 
 fn require_expr(code: &str, tag: &str) -> Result<(), String> {
@@ -1867,25 +1867,40 @@ mod tests {
         assert!(err.contains("parameters"), "{err}");
     }
 
+    /// Markup between a component's tags may suspend, which is what lets an
+    /// awaiting component be the child of a wrapper — `<Card><Slow/></Card>`,
+    /// and anything built on that shape, a cached fragment included.
     #[test]
-    fn await_in_default_slot_fill_is_a_clear_error() {
-        let err = lower(&crate::parse("<Card>{self.fetch().await}</Card>").unwrap()).unwrap_err();
-        assert!(err.contains("default slot"), "{err}");
-        assert!(err.contains("Card"), "{err}");
+    fn a_default_slot_fill_may_await() {
+        let out = body("<Card>{self.fetch().await}</Card>");
+        assert!(out.contains("Slot::new_async(::damask::DEFAULT_SLOT"), "{out}");
+        assert!(out.contains("fragment_async"), "{out}");
+        assert!(out.contains("Box::pin(async move"), "{out}");
+        // The fill is awaited where it is written, so the call taking it has to
+        // be the async one.
+        assert!(out.contains("render_slots_async"), "{out}");
     }
 
     #[test]
-    fn await_in_named_slot_fill_is_a_clear_error() {
-        let err = lower(
-            &crate::parse(r#"<Card><p slot="foot">{self.fetch().await}</p></Card>"#).unwrap(),
-        )
-        .unwrap_err();
-        assert!(err.contains("slot=\"foot\""), "{err}");
+    fn a_named_slot_fill_may_await() {
+        let out = body(r#"<Card><p slot="foot">{self.fetch().await}</p></Card>"#);
+        assert!(out.contains("Slot::new_async(\"foot\""), "{out}");
+        assert!(out.contains("fragment_async"), "{out}");
     }
 
-    /// An unrelated await elsewhere in the template must not leak `.await`
-    /// into a slot fill's closure, which cannot contain it — a nested
-    /// component inside the fill still renders through the plain sync call.
+    /// Only the fill that genuinely suspends pays for the boxed future: one
+    /// awaiting fill beside a plain one leaves the plain one a `Fragment`.
+    #[test]
+    fn a_fill_that_does_not_await_stays_a_plain_fragment() {
+        let out = body(r#"<Card><p slot="foot">{self.fetch().await}</p>plain</Card>"#);
+        assert!(out.contains("Slot::new(::damask::DEFAULT_SLOT"), "{out}");
+        assert!(out.contains("Slot::new_async(\"foot\""), "{out}");
+    }
+
+    /// An await elsewhere in the template does not make a fill async: what
+    /// decides is the fill's own body, so a nested component inside one that
+    /// suspends nowhere still renders through the plain sync call and costs no
+    /// boxed future.
     #[test]
     fn a_slot_fill_stays_sync_even_when_the_template_is_otherwise_async() {
         let out = body("{self.other().await}<Card><Inner/></Card>");

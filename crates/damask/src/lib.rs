@@ -256,14 +256,84 @@ pub const DEFAULT_SLOT: &str = "";
 /// unaffected.
 pub struct Slot<'a> {
     name: &'a str,
-    content: &'a (dyn Render + Sync),
+    content: Fill<'a>,
 }
 
 impl<'a> Slot<'a> {
     /// Fill the slot called `name` — [`DEFAULT_SLOT`] for `<slot/>` — with
     /// `content`.
     pub const fn new(name: &'a str, content: &'a (dyn Render + Sync)) -> Self {
-        Slot { name, content }
+        Slot { name, content: Fill::Ready(content) }
+    }
+
+    /// Fill it with content that has to `.await` something to render.
+    ///
+    /// What a template lowers `<Card><Slow/></Card>` to when the markup between
+    /// the tags suspends. The callee decides nothing differently: it renders its
+    /// `<slot/>` the way it always did, and only the async path — the one an
+    /// awaiting template is already on — can produce the markup.
+    pub const fn new_async(name: &'a str, content: &'a (dyn AsyncRender + Sync)) -> Self {
+        Slot { name, content: Fill::Awaiting(content) }
+    }
+}
+
+/// One slot's content, and whether producing it suspends.
+///
+/// Two shapes rather than one because there is no way to run a future to
+/// completion from inside a synchronous render: an awaiting fill can only be
+/// written by a caller that is itself awaiting. Which of the two a fill is, is
+/// decided where the markup was written and is not something the component
+/// consuming it has to know — `<slot/>` lowers to
+/// [`Slots::render`](Slots::render) in a synchronous template and to
+/// [`render_async`](Slots::render_async) in an awaiting one, and the second
+/// handles both.
+///
+/// # Rendering one directly
+///
+/// [`Render`] is implemented, so `{@render slots.get("footer")}` still works —
+/// and **panics on an awaiting fill**, naming the fix, because there is nothing
+/// else it could honestly do. Use `<slot name="footer"/>` instead, which is the
+/// form that has an async path. The panic is unreachable from a synchronous
+/// template: a fill that awaits makes its whole enclosing template await.
+#[derive(Clone, Copy)]
+pub enum Fill<'a> {
+    /// Markup that is already there.
+    Ready(&'a (dyn Render + Sync)),
+    /// Markup that has to suspend to be produced.
+    Awaiting(&'a (dyn AsyncRender + Sync)),
+}
+
+impl<'a> Fill<'a> {
+    /// Write this fill into `r`, suspending if it has to.
+    ///
+    /// Not [`AsyncRender`]: that trait has a blanket impl over every [`Render`],
+    /// which this type is — so an impl here would either conflict with it or,
+    /// worse, resolve to it and take the panicking synchronous path for exactly
+    /// the fills that needed the other one.
+    pub fn render_async<'r>(self, r: &'r mut dyn Renderer) -> RenderFuture<'r>
+    where
+        'a: 'r,
+    {
+        match self {
+            Fill::Ready(content) => {
+                content.render_into(r);
+                Box::pin(async {})
+            }
+            Fill::Awaiting(content) => content.render_into_async(r),
+        }
+    }
+}
+
+impl Render for Fill<'_> {
+    fn render_into(&self, r: &mut dyn Renderer) {
+        match self {
+            Fill::Ready(content) => content.render_into(r),
+            Fill::Awaiting(_) => panic!(
+                "this slot was filled with markup that `.await`s, and it is being rendered \
+                 synchronously. Render it with `<slot/>` from a template that awaits, or with \
+                 `Slots::render_async`."
+            ),
+        }
     }
 }
 
@@ -298,7 +368,7 @@ impl<'a> Slots<'a> {
     }
 
     /// The content filling `name`, if the caller supplied it.
-    pub fn get(&self, name: &str) -> Option<&'a (dyn Render + Sync)> {
+    pub fn get(&self, name: &str) -> Option<Fill<'a>> {
         self.entries
             .iter()
             .find(|s| s.name == name)
@@ -317,7 +387,7 @@ impl<'a> Slots<'a> {
 
     /// The content filling the default slot — [`get`](Slots::get) with
     /// [`DEFAULT_SLOT`], spelled so a call site need not name the empty string.
-    pub fn get_default(&self) -> Option<&'a (dyn Render + Sync)> {
+    pub fn get_default(&self) -> Option<Fill<'a>> {
         self.get(DEFAULT_SLOT)
     }
 
@@ -367,7 +437,7 @@ impl<'a> Slots<'a> {
         match self.get(name) {
             Some(content) => Box::pin(async move {
                 r.push_indent(indent);
-                content.render_into_async(r).await;
+                content.render_async(r).await;
                 r.pop_indent(indent);
             }),
             None => fallback(r),
@@ -900,5 +970,60 @@ mod tests {
             r.finish()
         });
         assert_eq!(fallback, "fallback");
+    }
+
+    /// The capability the whole `Fill` split exists for: a wrapper's slot may
+    /// be filled with markup that suspends, so an awaiting component can be the
+    /// child of one that is not.
+    #[test]
+    fn a_slot_may_be_filled_with_content_that_awaits() {
+        let slow = AsyncGreeting {
+            name: "Ada".into(),
+        };
+        let entries = [Slot::new_async(DEFAULT_SLOT, &slow)];
+        let slots = Slots::new(&entries);
+
+        let out = block_on(async {
+            let mut r: Box<dyn Renderer> = Box::new(HtmlRenderer::new());
+            slots
+                .render_async(DEFAULT_SLOT, r.as_mut(), 0, |r| {
+                    Box::pin(async { r.write_raw("fallback") })
+                })
+                .await;
+            r.finish()
+        });
+
+        assert_eq!(out, "Hello Ada!");
+    }
+
+    /// An awaiting fill is a fill: everything that asks *whether* a slot was
+    /// filled has to say yes, or a wrapper drawn only around real content
+    /// would skip exactly the content that was expensive to produce.
+    #[test]
+    fn an_awaiting_fill_counts_as_filled() {
+        let slow = AsyncGreeting {
+            name: "Ada".into(),
+        };
+        let entries = [Slot::new_async(DEFAULT_SLOT, &slow)];
+        let slots = Slots::new(&entries);
+
+        assert!(slots.has_default());
+        assert!(slots.get_default().is_some());
+    }
+
+    /// There is nothing else it could do: a future cannot be run to completion
+    /// from inside a synchronous render. Unreachable from a template — a fill
+    /// that awaits makes its whole enclosing template await — so what this pins
+    /// is that a hand-built `Slots` says so rather than rendering nothing.
+    #[test]
+    #[should_panic(expected = "Slots::render_async")]
+    fn rendering_an_awaiting_fill_synchronously_says_so() {
+        let slow = AsyncGreeting {
+            name: "Ada".into(),
+        };
+        let entries = [Slot::new_async(DEFAULT_SLOT, &slow)];
+        let slots = Slots::new(&entries);
+
+        let _ = rendered(slots.get_default());
     }
 }

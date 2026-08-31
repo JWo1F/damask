@@ -4,6 +4,46 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.7.0] - 2026-09-01
+
+### Added
+
+- **A slot fill may `.await`.** Markup written between a component's tags can
+  now suspend, so an awaiting component can be the child of one that is not:
+
+  ```html
+  <Card>
+    <Slow/>
+  </Card>
+  ```
+
+  Previously this was refused at lowering — "`.await` is not supported inside
+  `<Card>`'s default slot content" — because a fill travelled to the callee as
+  a plain `&dyn Render` and there was no async-shaped fill to hand across that
+  boundary. Now there is one, and the callee is unchanged: it renders `<slot/>`
+  exactly as before, and only the async path can produce the markup.
+
+  Each fill is judged on its own body rather than on the enclosing template, so
+  a fill that suspends nowhere stays a plain `Fragment` and costs no boxed
+  future even when something else in the same template awaits.
+
+- **`Fill`**, the content of one slot and whether producing it suspends, with
+  `Slot::new_async` for building the second kind.
+
+### Changed
+
+- **`Slots::get` and `Slots::get_default` return `Option<Fill<'a>>`** rather
+  than `Option<&dyn Render + Sync>`. `{@render slots.get("footer")}` still
+  works — `Fill` is `Render` — and now **panics on a fill that awaits**, naming
+  `Slots::render_async` and the `<slot name="footer"/>` form that has an async
+  path. The panic is unreachable from a template, since a fill that awaits
+  makes its whole enclosing template await; it is what a hand-built `Slots`
+  gets instead of silently rendering nothing.
+
+  Code that only writes `<slot/>` and passes fills through the macro needs no
+  change. Code calling `Slots::get` and holding the result as a
+  `&dyn Render` does.
+
 ## [0.6.0] - 2026-08-31
 
 ### Added
