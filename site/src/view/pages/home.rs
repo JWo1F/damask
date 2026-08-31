@@ -23,9 +23,11 @@ pub struct Home {
     pub features: Vec<Feature>,
     /// The dependency snippet, highlighted.
     pub install: String,
-    /// The hero's three panels, highlighted.
+    /// The hero's four panels, highlighted.
     pub rs: String,
     pub dmk: String,
+    /// The call site — what a caller writes to use the component.
+    pub call: String,
     pub out: String,
     /// Where "read the book" goes, for the closing invitation.
     pub book_href: String,

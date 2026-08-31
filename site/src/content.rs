@@ -162,8 +162,14 @@ pub struct Install {
     pub note: String,
 }
 
-/// The hero's three panels: the two files an author writes, and what they
-/// compile to. The site's one argument, made in the space of a screen.
+/// The hero's four panels: the two files that declare a component, the call
+/// that uses it, and the markup those three produce. The site's one argument,
+/// made in the space of a screen.
+///
+/// The call is here rather than left to the reader's imagination because the
+/// output panel cannot be read without it — the card's body and its footer come
+/// from the caller and from a slot's fallback respectively, and with no call on
+/// the page both look like things the template invented.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Weave {
@@ -171,6 +177,8 @@ pub struct Weave {
     pub rs: String,
     pub dmk_name: String,
     pub dmk: String,
+    pub call_name: String,
+    pub call: String,
     pub out_name: String,
     pub out: String,
 }

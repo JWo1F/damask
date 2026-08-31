@@ -46,6 +46,12 @@ dmk = '''
   </footer>
 </article>
 '''
+call_name = "page.dmk"
+call = '''
+<Card title="Damask {{version}}" tone={Tone::Note}>
+  <p>Templates can await.</p>
+</Card>
+'''
 out_name = "rendered"
 out = '''
 <article class="card card--note">

@@ -30,30 +30,58 @@
   </section>
 
   {#
-    The weave. Two files on the left, the compiled output on the right, and the
-    grid is the argument: the site's whole claim is that those two files *are*
-    the third one, produced at build time rather than at request time.
+    The weave. The component on the left — the struct and the template that share
+    its name — and on the right the call that uses it above the markup it
+    produced. The grid is the argument: the site's whole claim is that those
+    files *are* that last panel, produced at build time rather than at request
+    time.
 
-    It stacks below `lg` rather than scrolling sideways — three columns of code
-    on a phone is three columns of nothing legible.
+    The call earns its place by making the output panel readable. The card's body
+    comes from the caller and its footer from a slot's fallback, so with no call
+    on the page both look like things the template invented — the two `<slot>`s
+    in `card.dmk` pay off only once there is something filling one of them and
+    something leaving the other alone.
+
+    Which is also why "compiles to" sits between the call and the output rather
+    than between the columns: that is the pair it is true of. Between the columns
+    the relation is *declares* and *uses*, which the filenames already say.
+
+    The two columns hold different amounts of code, so the right one would end
+    short and leave the block looking unfinished. Both are stretched to the
+    taller, and the right one gives its slack to the two panels rather than to
+    the gaps: `grow` on each lets them keep their natural size as a floor and
+    share whatever is left over, so all four panels are of a size and the
+    divider stays the fixed thing between them.
+
+    The extra height is not dead space — `.code-scroll` carries the panel's own
+    surface and its edge shadows, so a panel that grew simply has more of the
+    same page under its last line.
+
+    It stacks below `lg` rather than scrolling sideways — two columns of code on
+    a phone is two columns of nothing legible — and the stacked order still reads
+    declare, declare, call, output.
   #}
   <section class="mt-16 sm:mt-20" aria-label="What a component is">
-    <div class="grid items-stretch gap-4 lg:grid-cols-[1fr_auto_1fr]">
-      <div class="grid min-w-0 gap-4">
+    <div class="grid items-stretch gap-4 lg:grid-cols-2">
+      <div class="flex min-w-0 flex-col gap-4">
         <Panel name={self.content.weave.rs_name.clone()} code={self.rs.clone()} derived={false} class=""/>
         <Panel name={self.content.weave.dmk_name.clone()} code={self.dmk.clone()} derived={false} class=""/>
       </div>
 
-      <div class="flex items-center justify-center lg:flex-col">
-        <span class="h-px w-10 bg-rule lg:h-16 lg:w-px" aria-hidden="true"></span>
-        <span class="mx-3 shrink-0 rounded-full border border-rule bg-surface px-3 py-1
-                     font-mono text-[0.68rem] uppercase tracking-[0.14em] text-ink-faint lg:mx-0 lg:my-3">
-          compiles to
-        </span>
-        <span class="h-px w-10 bg-rule lg:h-16 lg:w-px" aria-hidden="true"></span>
-      </div>
+      <div class="flex min-w-0 flex-col gap-4">
+        <Panel name={self.content.weave.call_name.clone()} code={self.call.clone()} derived={false} class="grow"/>
 
-      <Panel name={self.content.weave.out_name.clone()} code={self.out.clone()} derived={true} class="min-w-0"/>
+        <div class="flex items-center justify-center">
+          <span class="h-px w-10 bg-rule" aria-hidden="true"></span>
+          <span class="mx-3 shrink-0 rounded-full border border-rule bg-surface px-3 py-1
+                       font-mono text-[0.68rem] uppercase tracking-[0.14em] text-ink-faint">
+            compiles to
+          </span>
+          <span class="h-px w-10 bg-rule" aria-hidden="true"></span>
+        </div>
+
+        <Panel name={self.content.weave.out_name.clone()} code={self.out.clone()} derived={true} class="grow"/>
+      </div>
     </div>
   </section>
 

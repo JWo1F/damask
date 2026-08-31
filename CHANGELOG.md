@@ -16,6 +16,16 @@ All notable changes to Damask are documented here. The format follows
   `CARGO_PKG_VERSION` is the number the release process already bumps and tags,
   and the page cannot fall behind it again.
 
+### Changed
+
+- **The landing page's hero shows the call site.** The woven example was a
+  struct, a template and the markup they produce, with nothing on the page
+  saying what was rendered — so the card's body, which comes from the caller,
+  and its footer, which comes from a slot's fallback, both read as things the
+  template invented. A fourth panel, `page.dmk`, holds the `<Card …>` that
+  produced the output panel, and `compiles to` moved to sit between those two,
+  which is the pair it is true of.
+
 ## [0.8.0] - 2026-09-01
 
 ### Added

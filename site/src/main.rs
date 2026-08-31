@@ -251,6 +251,7 @@ fn home(library: &Library, urls: &Urls, highlighter: &Highlighter) -> String {
         install: highlighter.block("toml", &home.install.code),
         rs: highlighter.pre("rust", &weave.rs),
         dmk: highlighter.pre("dmk", &weave.dmk),
+        call: highlighter.pre("dmk", &weave.call),
         out: highlighter.pre("html", &weave.out),
         content: home.clone(),
         features,
