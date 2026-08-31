@@ -546,6 +546,17 @@ fn flush_raw(raw: &mut String, e: &mut Emit) {
 }
 
 fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), String> {
+    // Refused rather than written out as an attribute called `await`, which is what an author who
+    // put the marker on the wrong tag would otherwise get: a page that renders and a component
+    // above it that still will not compile.
+    if crate::awaits::is_awaited(el) {
+        return Err(format!(
+            "`await` marks a *component* that renders asynchronously, and `<{}>` is an HTML \
+             element",
+            el.tag.as_str()
+        ));
+    }
+
     let mut raw = String::new();
     raw.push('<');
     raw.push_str(el.tag.as_str());
@@ -995,6 +1006,13 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
     e.raw("::__damask_props()\n");
 
     for attr in &el.attrs {
+        // The `await` marker is not a prop: it is the author telling this pass what it cannot
+        // see — that this component renders asynchronously — so that the call goes through the
+        // async path. `await` is a keyword, so it could not name a prop in any case.
+        if attr.name.as_str() == "await" && matches!(attr.value, AttrValue::Boolean) {
+            continue;
+        }
+
         match &attr.value {
             AttrValue::Expr(code) => {
                 require_expr(code.as_str(), "attribute value")?;
@@ -1865,6 +1883,35 @@ mod tests {
         .unwrap_err();
         assert!(err.contains("item"), "{err}");
         assert!(err.contains("parameters"), "{err}");
+    }
+
+    /// The marker that makes an async-only child usable: nothing about
+    /// `<Slow/>` says whether it renders asynchronously, because it is a type
+    /// and this pass sees markup.
+    #[test]
+    fn an_awaited_component_takes_the_async_path() {
+        let out = body("<Slow await/>");
+        assert!(out.contains("render_into_async"), "{out}");
+        assert!(out.contains(".await"), "{out}");
+        // And it is not passed on as a prop, which would not compile: `await`
+        // is a keyword.
+        assert!(!out.contains(".await("), "{out}");
+    }
+
+    #[test]
+    fn an_awaited_component_with_slots_takes_the_async_path() {
+        let out = body("<Card await><p>hi</p></Card>");
+        assert!(out.contains("render_slots_async"), "{out}");
+    }
+
+    /// The marker on an HTML element is a mistake worth naming: silently
+    /// writing `await` into the markup would leave the component above it
+    /// failing to compile with nothing to point at.
+    #[test]
+    fn the_await_marker_on_an_html_element_is_a_clear_error() {
+        let err = lower(&crate::parse("<div await></div>").unwrap()).unwrap_err();
+        assert!(err.contains("component"), "{err}");
+        assert!(err.contains("div"), "{err}");
     }
 
     /// Markup between a component's tags may suspend, which is what lets an

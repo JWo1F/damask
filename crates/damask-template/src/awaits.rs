@@ -2,11 +2,15 @@
 //!
 //! A template is async exactly when one of its own Rust fragments contains
 //! `.await` — text tags, `{#if}`/`{#for}` conditions and iterators,
-//! attribute/class/data expressions, and snippet bodies (recursively).
-//! Detection does not look at nested components: a `<Card/>` that turns out to
-//! be async-only is a normal Rust compile error at the call site (the
-//! generated code no longer implements the trait the caller expects), not
-//! something this scan can see across a macro-expansion boundary.
+//! attribute/class/data expressions, and snippet bodies (recursively) — or
+//! when a component element is marked `await`.
+//!
+//! That marker exists because detection cannot look inside a nested component:
+//! a `<Card/>` is a type, and whether it renders asynchronously is something
+//! rustc knows and this scan cannot, on the other side of a macro-expansion
+//! boundary. Without a way to say so, an async-only child was unusable unless
+//! the enclosing template happened to await something else — so `<Card await/>`
+//! is the author saying what only they can know.
 //!
 //! Detection walks the parsed [`Template`] rather than the generated Rust
 //! string, and tokenizes each fragment with `proc_macro2` rather than
@@ -43,9 +47,16 @@ pub(crate) fn node_needs_async(node: &Node) -> bool {
         }
         Node::Snippet(snippet) => nodes_need_async(&snippet.body),
         Node::Element(el) => {
-            el.attrs.iter().any(attr_needs_async) || nodes_need_async(&el.children)
+            is_awaited(el) || el.attrs.iter().any(attr_needs_async) || nodes_need_async(&el.children)
         }
     }
+}
+
+/// Whether this element carries the bare `await` marker.
+pub(crate) fn is_awaited(el: &crate::Element) -> bool {
+    el.attrs
+        .iter()
+        .any(|attr| attr.name.as_str() == "await" && matches!(attr.value, AttrValue::Boolean))
 }
 
 fn attr_needs_async(attr: &Attr) -> bool {

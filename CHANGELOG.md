@@ -4,6 +4,24 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.8.0] - 2026-09-01
+
+### Added
+
+- **`<Card await/>`, the marker that makes an async-only child usable.** A
+  template could not call a component whose own template awaits unless the
+  enclosing template happened to await something else — the scan that decides
+  which render path to emit sees markup, and whether `<Card/>` is asynchronous
+  is a property of a *type*, on the other side of a macro-expansion boundary.
+  So the child was a compile error at the call site with nothing to do about it
+  but add a dummy `.await`.
+
+  `await` on a component element says what only the author can know. It is not
+  a prop — `await` is a keyword and could not name one — and it makes the
+  enclosing template asynchronous, exactly as a real `.await` in it would. On an
+  HTML element it is refused, rather than written out as an attribute nobody
+  meant.
+
 ## [0.7.0] - 2026-09-01
 
 ### Added
