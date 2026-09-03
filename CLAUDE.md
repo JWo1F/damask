@@ -16,10 +16,12 @@ git tag -a v0.6.0 -m "Damask 0.6.0"
 git push origin v0.6.0
 ```
 
-The reason is that publishing to crates.io stopped after 0.3.2 — `damask`,
-`damask-template` and `damask-macros` are all on the registry up to that version
-and no further — so anything wanting 0.4.0 or later reaches these crates over
-git, and a git dependency has three ways to say which commit it wants. A `branch` moves under the dependent without warning.
+The reason is that the registry lags the tags. Publishing lapsed after 0.3.2 and
+was picked up again at 0.8.0, so what is on crates.io is whatever was last pushed
+there rather than the current release — check before assuming
+(`curl -s https://crates.io/api/v1/crates/damask | jq -r .crate.max_version`).
+Anything wanting a version that never reached it comes over git, and a git
+dependency has three ways to say which commit it wants. A `branch` moves under the dependent without warning.
 A `rev` is a short hash that says nothing about what it contains, so nobody can
 tell from a manifest whether they are on the current release or eleven commits
 behind it, and updating means reading this repository's log. A `tag` is the
@@ -30,6 +32,20 @@ can only do so if the tag exists.
 Tagging lapsed once already — the workspace reached 0.6.0 while the newest tag
 was `v0.3.2`, which is why `ironstone` was pinned to a bare `rev`. If you find
 an untagged release, tag its commit rather than skipping the number.
+
+**`damask-lsp` is distributed only through the registry.** There is no prebuilt
+binary, and the Zed extension, both READMEs and the tooling docs all say
+`cargo install damask-lsp` — so a release that leaves it behind hands readers a
+language server older than the templates it is asked to read. Publishing it
+means publishing `damask-template` first, which it depends on:
+
+```sh
+cargo publish -p damask-template
+cargo publish -p damask-lsp
+```
+
+`damask` and `damask-macros` are published the same way, in that order after
+`damask-template`, for anyone reaching them from crates.io rather than git.
 
 # The Zed extension's version
 
