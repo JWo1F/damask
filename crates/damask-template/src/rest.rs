@@ -8,13 +8,22 @@
 //!
 //! So the decision is deferred to method resolution, which sees both. For every
 //! attribute whose name *could* be a prop, lowering emits the setter call it
-//! always emitted, and next to it a one-method trait of the same name with a
-//! blanket impl that routes to the component's bag. Rust prefers an inherent
-//! method to a trait one, so a declared prop takes its own setter and only a
-//! name the builder has no setter for reaches the trait. A component with no
+//! always emitted, and next to it a one-method trait of the same name whose
+//! impl routes to the component's bag. Rust prefers an inherent method to a
+//! trait one, so a declared prop takes its own setter and only a name the
+//! builder has no setter for reaches the trait. A component with no
 //! `#[prop(rest)]` field does not implement [`Rest`](damask::props::Rest) at
-//! all, and the trait bound is what refuses the attribute — which is how a
-//! typo is still a build failure.
+//! all, and the bound is what refuses the attribute — which is how a typo is
+//! still a build failure.
+//!
+//! That bound is on the **impl**, `impl<T: Rest>` rather than a blanket impl
+//! with a `where Self: Rest` on each method, and the difference is what the
+//! rest of the template sees: a setter takes `self` by value, so the fallback
+//! does too, and a by-value candidate is picked ahead of an autoref one — so an
+//! unbounded impl was chosen over an inherent `&self` method of the same name
+//! anywhere in the same template. Bounding the impl leaves the fallback
+//! inapplicable to anything that is not a props builder, which is exactly the
+//! set it was written for.
 //!
 //! The names this leaves behind are the ones that could not be a method in the
 //! first place: everything hyphenated (`data-cover-target`, `aria-label`), and
@@ -124,27 +133,40 @@ fn collect(nodes: &[Node], names: &mut Vec<String>) {
     }
 }
 
-/// The fallback trait for one name, defined and blanket-implemented.
+/// The fallback trait for one name, defined and implemented for every builder.
 ///
 /// Emitted inside the render function's own block, so it is scoped to this one
 /// template: two templates in the same module cannot collide over a name, and
 /// nothing leaks into the crate that wrote them.
+///
+/// **The bound is on the impl and not on the methods**, which is what keeps the
+/// fallback out of the way of the template's own code. A setter takes `self` by
+/// value, so this one must too — and a by-value candidate is picked before an
+/// autoref one, so a blanket impl would win against an inherent `&self` method
+/// of the same name anywhere in the template: a `<Icon class="…"/>` somewhere
+/// in the file made `{link.class()}` on a plain `<a>` resolve to a setter for a
+/// bag, and reported it as three errors about a component nobody wrote. Bounding
+/// the impl makes the candidate inapplicable to a type that is not a props
+/// builder, so method resolution never considers it and the inherent method is
+/// found. The diagnostic is unchanged: the message still comes from `Rest`'s
+/// `on_unimplemented`, as an unsatisfied bound on the impl rather than on the
+/// method.
 pub(crate) fn fallback_trait(name: &str, krate: &str) -> String {
     format!(
         "#[allow(non_camel_case_types)]\n\
          trait __DamaskRest_{name} {{\n\
-         fn {name}<__DamaskValue: {krate}::attr::IntoAttrValue>(self, value: __DamaskValue) -> Self where Self: {krate}::props::Rest;\n\
-         fn __damask_literal_{name}(self, text: &'static str) -> Self where Self: {krate}::props::Rest;\n\
-         fn __damask_text_{name}(self, text: ::std::string::String) -> Self where Self: {krate}::props::Rest;\n\
+         fn {name}<__DamaskValue: {krate}::attr::IntoAttrValue>(self, value: __DamaskValue) -> Self;\n\
+         fn __damask_literal_{name}(self, text: &'static str) -> Self;\n\
+         fn __damask_text_{name}(self, text: ::std::string::String) -> Self;\n\
          }}\n\
-         impl<__DamaskAny> __DamaskRest_{name} for __DamaskAny {{\n\
-         fn {name}<__DamaskValue: {krate}::attr::IntoAttrValue>(self, value: __DamaskValue) -> Self where Self: {krate}::props::Rest {{\n\
+         impl<__DamaskAny: {krate}::props::Rest> __DamaskRest_{name} for __DamaskAny {{\n\
+         fn {name}<__DamaskValue: {krate}::attr::IntoAttrValue>(self, value: __DamaskValue) -> Self {{\n\
          {krate}::props::Rest::__damask_rest(self, {name:?}, value)\n\
          }}\n\
-         fn __damask_literal_{name}(self, text: &'static str) -> Self where Self: {krate}::props::Rest {{\n\
+         fn __damask_literal_{name}(self, text: &'static str) -> Self {{\n\
          {krate}::props::Rest::__damask_rest_static(self, {name:?}, text)\n\
          }}\n\
-         fn __damask_text_{name}(self, text: ::std::string::String) -> Self where Self: {krate}::props::Rest {{\n\
+         fn __damask_text_{name}(self, text: ::std::string::String) -> Self {{\n\
          {krate}::props::Rest::__damask_rest(self, {name:?}, text)\n\
          }}\n\
          }}\n"

@@ -1543,9 +1543,12 @@ mod tests {
                 b.contains(&format!("trait __DamaskRest_{name}")),
                 "{name}: {b}"
             );
+            // The bound sits on the impl, so the fallback is not a candidate
+            // for anything but a props builder — a template's own
+            // `{link.class()}` has to keep resolving to its inherent method.
             assert!(
                 b.contains(&format!(
-                    "impl<__DamaskAny> __DamaskRest_{name} for __DamaskAny"
+                    "impl<__DamaskAny: ::damask::props::Rest> __DamaskRest_{name} for __DamaskAny"
                 )),
                 "{name}: {b}"
             );

@@ -120,6 +120,13 @@ fn the_call_sites_render_as_written() {
     );
     // A set assembled in Rust, spread the way one is onto an element.
     assert!(html.contains(r#"data-campaign="spring""#), "{html}");
+    // And `{row.class()}` still reaches `Row::class`, not the fallback trait
+    // `class="field"` above put in this template's scope.
+    assert_eq!(
+        html.matches(r#"<label class="row required">"#).count(),
+        2,
+        "{html}"
+    );
 }
 
 #[test]

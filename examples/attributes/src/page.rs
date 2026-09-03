@@ -18,3 +18,35 @@ pub struct Page {
     /// from state belongs.
     pub tracking: Vec<(String, String)>,
 }
+
+impl Page {
+    pub fn row(&self) -> Row {
+        Row {
+            label: "Email address",
+            required: true,
+        }
+    }
+}
+
+/// A value the template calls a method on, named after an attribute a component
+/// tag in the same template writes.
+///
+/// `class="field"` on the `<Passthrough/>` above is what puts a fallback trait
+/// called `class` in this template's scope, and `{row.class()}` on a plain
+/// `<label>` has to keep reaching *this* method. It did not while the fallback's
+/// bound was on its methods rather than on its impl: a setter takes `self` by
+/// value, a by-value candidate is picked before an autoref one, so a blanket
+/// impl beat an inherent `&self` method — and said so as errors about a
+/// component nobody had written. A reference was unaffected, which is what made
+/// it worth a test: the same call compiled or not depending on whether the
+/// template held the value or borrowed it.
+pub struct Row {
+    pub label: &'static str,
+    pub required: bool,
+}
+
+impl Row {
+    pub fn class(&self) -> &'static str {
+        if self.required { "row required" } else { "row" }
+    }
+}

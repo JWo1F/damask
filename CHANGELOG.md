@@ -4,6 +4,32 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.2] - 2026-09-03
+
+### Fixed
+
+- **A `#[prop(rest)]` fallback no longer shadows a template's own method of the
+  same name.** An attribute on a component tag brings a one-method trait of that
+  name into the render function's scope, and it was blanket-implemented — so a
+  `class="field"` written on any component made `{row.class()}` elsewhere in the
+  same template resolve to *that* rather than to `Row::class`, and report it as
+  errors about a component nobody wrote. A setter takes `self` by value, so the
+  fallback does too, and a by-value candidate is picked ahead of an autoref one:
+  an inherent `fn class(&self)` lost.
+
+  The bound moved from the methods (`where Self: Rest`) onto the impl
+  (`impl<T: Rest>`), which leaves the fallback inapplicable to anything that is
+  not a props builder — the set it was written for — so method resolution never
+  considers it for a value of the template's own. The refusal a component
+  without a bag gets is unchanged in wording and now an `E0599`;
+  `examples/attributes` has the case as `Row`, and both compile-fail snapshots
+  are in `tests/ui`.
+
+  What made this hard to see is that a **borrowed** receiver was never affected:
+  `{#for row in &rows}` reached the inherent method, so the same call compiled or
+  not depending on whether the template held the value or a reference to it.
+
+
 ## [0.10.1] - 2026-09-03
 
 ### Fixed

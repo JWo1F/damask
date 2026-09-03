@@ -77,6 +77,12 @@ method resolution choose between them. An inherent setter — a declared prop �
 wins; a name with no setter falls through. The cost is a trait definition per
 distinct attribute name, scoped to the one render function.
 
+That fallback is implemented for props builders and nothing else, so a template
+whose own code calls a method named after an attribute — `{row.class()}` beside a
+`<Icon class="…"/>` — still reaches its own method. The bound is on the impl for
+exactly that reason: a setter takes `self` by value, and a by-value candidate is
+picked before a `&self` one.
+
 **A name that could not be a method is a bag attribute on sight.** That is every
 hyphenated name (`data-cover-target`, `aria-label`, `x-on:click`) and every Rust
 keyword (`type`, `for`, `async`), since no struct field could be called either.

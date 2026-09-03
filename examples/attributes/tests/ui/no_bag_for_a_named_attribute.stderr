@@ -1,0 +1,32 @@
+error[E0599]: this component takes only the props it declares
+  --> tests/ui/no_bag_for_a_named_attribute.rs:24:6
+   |
+23 |     let _ = damask_attributes::strict::Strict::__damask_props()
+   |  ___________-
+24 | |     .__damask_literal_class("field")
+   | |     -^^^^^^^^^^^^^^^^^^^^^^ there is no `#[prop(rest)]` field to carry an attribute the component does not name
+   | |_____|
+   |
+   |
+  ::: src/strict.rs
+   |
+   |   #[derive(Component, Default)]
+   |            --------- doesn't satisfy `_: Rest` or `_: __DamaskRest_class`
+   |
+note: the following trait bounds were not satisfied:
+      `&damask_attributes::strict::__DamaskPropsStrict: Rest`
+      `&mut damask_attributes::strict::__DamaskPropsStrict: Rest`
+      `damask_attributes::strict::__DamaskPropsStrict: Rest`
+  --> tests/ui/no_bag_for_a_named_attribute.rs:16:9
+   |
+16 | impl<T: damask::props::Rest> __DamaskRest_class for T {
+   |         ^^^^^^^^^^^^^^^^^^^  ------------------     -
+   |         |
+   |         unsatisfied trait bound introduced here
+   = note: give the component one — `#[prop(rest)] pub attrs: damask::Attrs` — and spread it in its template with `{...self.attrs}`
+   = help: items from traits can only be used if the trait is implemented and in scope
+note: `__DamaskRest_class` defines an item `__damask_literal_class`, perhaps you need to implement it
+  --> tests/ui/no_bag_for_a_named_attribute.rs:12:1
+   |
+12 | trait __DamaskRest_class {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^

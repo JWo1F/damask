@@ -1,4 +1,15 @@
+{ let row = self.row() }
+{ let rows = vec![self.row()] }
 <form class="signup" data-controller="signup">
+  <!-- `class` is written on a component below, so this template carries a
+       fallback trait of that name — and this call has to keep reaching `Row`'s
+       own method. Both spellings, because only the value one ever broke: a
+       borrowed receiver reached the inherent method either way. -->
+  <label class="{row.class()}">{row.label}</label>
+  {#for borrowed in &rows}
+    <label class="{borrowed.class()}">{borrowed.label}</label>
+  {/for}
+
   <!-- `kind` and `value` are props Passthrough declares and reads. Everything
        else here it has never heard of: two hyphenated names, an ordinary one,
        and a bare flag. All four reach the `<input>` anyway. -->
