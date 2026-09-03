@@ -4,6 +4,17 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Fixed
+
+- **The Zed extension pins the grammar revision it was released with.** The
+  grammar moved into this repository in 0.11.0, and `extension.toml` was
+  committed with a placeholder `rev`, which no editor can clone — the revision
+  has to exist on `master` before it can be named, so it could only be filled in
+  afterwards. It now names the commit that carries the grammar, and the
+  extension is 0.3.1.
+
 ## [0.11.0] - 2026-09-04
 
 ### Changed

@@ -1,7 +1,7 @@
 id = "damask"
 name = "Damask"
 description = "Syntax highlighting and language server for Damask templates (.dmk)"
-version = "0.3.0"
+version = "0.3.1"
 schema_version = 1
 authors = ["Damask contributors"]
 repository = "https://github.com/jwo1f/damask"
@@ -16,7 +16,7 @@ repository = "https://github.com/jwo1f/damask"
 # fetch. Grammar change first, then the rev bump that adopts it.
 [grammars.damask]
 repository = "https://github.com/JWo1F/damask"
-rev = "0000000000000000000000000000000000000000"
+rev = "e57de9f5beb7a2b190824c89f50ac2282a4e852e"
 path = "crates/tree-sitter-damask/grammar"
 
 [language_servers.damask-lsp]
