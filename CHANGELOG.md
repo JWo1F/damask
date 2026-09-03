@@ -4,6 +4,23 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.1] - 2026-09-03
+
+### Fixed
+
+- **A `#[prop(rest)]` bag seeded by `Default` is no longer thrown away by a call
+  site.** With `#[component(default)]` the builder starts from the struct's
+  `Default` and overwrites each prop the call site set — which is right for a
+  prop and wrong for a bag, since a bag is a collection a call site *adds* to.
+  A component whose `Default` put `class="btn"` in it lost that the moment any
+  attribute was written at the call site, silently. The two are now merged, with
+  a name written in both taking the call site's value and keeping the default's
+  position — `Attrs`' own rule, and what overriding a default means for every
+  other prop. `examples/attributes` has the case as `Seeded`.
+
+  The non-defaulted path was never affected: it builds the struct field by
+  field, so there is no default bag there to lose.
+
 ## [0.10.0] - 2026-09-03
 
 ### Added
@@ -712,7 +729,8 @@ All notable changes to Damask are documented here. The format follows
 Damask is HTML-only: there is no per-language host extension, and `{ … }` always
 HTML-escapes.
 
-[Unreleased]: https://github.com/jwo1f/damask/compare/v0.10.0...HEAD
+[Unreleased]: https://github.com/jwo1f/damask/compare/v0.10.1...HEAD
+[0.10.1]: https://github.com/jwo1f/damask/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/jwo1f/damask/compare/v0.9.0...v0.10.0
 [0.8.1]: https://github.com/jwo1f/damask/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/jwo1f/damask/compare/v0.7.0...v0.8.0

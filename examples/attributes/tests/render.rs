@@ -3,7 +3,7 @@
 
 use damask::{Attrs, Component};
 use damask_attributes::page::Page;
-use damask_attributes::passthrough::Passthrough;
+use damask_attributes::passthrough::{Passthrough, Seeded};
 use damask_attributes::strict::Strict;
 
 fn attrs(pairs: &[(&'static str, &'static str)]) -> Attrs {
@@ -128,4 +128,30 @@ fn a_component_without_a_bag_renders_its_own_props() {
         title: Some("Sign up".into()),
     };
     assert_eq!(strict.render().trim_end(), "<h1>Sign up</h1>");
+}
+
+/// A bag is a collection, so a call site adds to what `Default` seeded rather
+/// than replacing it. The alternative loses a component's own defaults the
+/// moment a call site writes any attribute at all, with nothing saying so.
+#[test]
+fn a_call_site_adds_to_a_bag_its_default_seeded() {
+    let mut written = Attrs::new();
+    written.insert_static("class", "btn danger");
+    written.insert_static("data-turbo-frame", "_top");
+
+    let seeded = Seeded::__damask_props().attrs(written).__damask_build();
+
+    assert_eq!(
+        seeded.render().trim_end(),
+        r#"<button class="btn danger" data-role="button" data-turbo-frame="_top"></button>"#
+    );
+}
+
+/// And with nothing written, the default is what it always was.
+#[test]
+fn a_seeded_bag_is_untouched_when_a_call_site_writes_nothing() {
+    assert_eq!(
+        Seeded::default().render().trim_end(),
+        r#"<button class="btn" data-role="button"></button>"#
+    );
 }

@@ -1,6 +1,6 @@
 use damask::Component;
 
-use crate::passthrough::Passthrough;
+use crate::passthrough::{Passthrough, Seeded};
 use crate::strict::Strict;
 use crate::wrapper::Wrapper;
 

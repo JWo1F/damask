@@ -21,6 +21,11 @@
   <!-- A set assembled in Rust, spread the way one is onto an element. -->
   <Passthrough {...&self.tracking}/>
 
+  <!-- Seeded's own `Default` puts `class` and `data-role` in the bag. A call site
+       adds to that rather than replacing it, and a name written in both takes the
+       call site's value while keeping the default's position. -->
+  <Seeded data-turbo-frame="_top" class="btn danger">Sign up</Seeded>
+
   <!-- Strict declares no bag, so it takes `title` and nothing else. Adding
        `data-anything` here would not compile — see `tests/ui`. -->
   <Strict title="Sign up"/>

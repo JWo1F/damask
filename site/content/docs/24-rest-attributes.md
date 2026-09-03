@@ -47,8 +47,18 @@ a passed-through attribute from a misspelled prop, so the typo above would be
 rendered into the page instead of reported.
 
 A struct has at most one such field, and its type is
-[`Attrs`](#what-is-in-the-bag). It is never required, whatever
-`#[component(default)]` says: a bag nothing was put into is an empty bag.
+[`Attrs`](#what-is-in-the-bag). It is never required: a bag nothing was put into
+is an empty bag, so there is nothing for a call site to forget. That holds
+without `#[component(default)]`, which a component needs only for the reason it
+always did — to fill its *other* props from `Default`.
+
+Where a component does have one, a `Default` that seeds the bag is **merged with**
+what the call site wrote, not replaced by it. A bag is a collection, and a call
+site adds to it rather than writing the field; the alternative loses a
+component's own defaults the moment a call site writes any attribute at all,
+with nothing saying so. A name written in both takes the call site's value and
+keeps the default's position, which is what "a call site overrides a default"
+means for every other prop.
 
 ## Which attributes are props
 

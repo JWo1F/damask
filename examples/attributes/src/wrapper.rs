@@ -8,7 +8,6 @@ use crate::passthrough::Passthrough;
 /// inside it with `{...self.attrs}`, which is how a component that is really a
 /// thin layer over another one stays transparent.
 #[derive(Component, Default)]
-#[component(default)]
 pub struct Wrapper {
     #[prop(rest)]
     pub attrs: Attrs,

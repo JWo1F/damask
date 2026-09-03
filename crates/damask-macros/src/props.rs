@@ -309,16 +309,36 @@ pub fn expand(input: &DeriveInput, options: &Options) -> TokenStream {
         // struct's own `Default`. Overwriting in place keeps each prop's default
         // exactly what `Default` says it is, and asks nothing of the field types
         // themselves.
+        //
+        // The bag is the exception, and has to be: it is a *collection*, and a
+        // call site does not write it, it adds to it — a component whose
+        // `Default` seeds `class="btn"` would otherwise lose it the moment the
+        // call site wrote any attribute at all, silently. So the two are merged,
+        // with the call site's entries added to the default's. A name in both
+        // takes the call site's value and the default's position, which is
+        // `Attrs`' own rule and is what "a call site overrides a default" means
+        // for every other prop.
+        let fills = props.iter().map(|prop| {
+            let ident = prop.ident;
+            match prop.rest {
+                true => quote! {
+                    if let ::core::option::Option::Some(__damask_value) = __damask_store.#ident {
+                        __damask_out.#ident.merge(&__damask_value);
+                    }
+                },
+                false => quote! {
+                    if let ::core::option::Option::Some(__damask_value) = __damask_store.#ident {
+                        __damask_out.#ident = __damask_value;
+                    }
+                },
+            }
+        });
         (
             quote!(where #name #comp_ty: ::core::default::Default),
             quote! {
                 let __damask_store = self.__damask_store;
                 let mut __damask_out = <#name #comp_ty as ::core::default::Default>::default();
-                #(
-                    if let ::core::option::Option::Some(__damask_value) = __damask_store.#names {
-                        __damask_out.#names = __damask_value;
-                    }
-                )*
+                #(#fills)*
                 __damask_out
             },
         )
