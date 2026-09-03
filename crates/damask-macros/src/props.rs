@@ -12,10 +12,14 @@
 //! is spelled `bool` — the type is where a call site reads whether it has to
 //! pass anything.
 //!
-//! A setter takes its prop's type exactly, as assigning to the field did, so
-//! that coercion and integer inference still work at a call site. The conversion
-//! a quoted value needs happens on the value side instead — `damask::props` has the
-//! argument, and it is why `detail="…"` reaches an `Option<String>` prop.
+//! A *required* prop's setter takes its type exactly, as assigning to the field
+//! did, so that coercion and integer inference still work at a call site. A
+//! *skippable* one takes `impl Into<Option<T>>` instead, so that a call site
+//! writes the value and not the `Some` around it — the prop's type has already
+//! said that leaving it out is allowed, and saying it a second time at every
+//! call site was noise. The conversion a quoted value needs still happens on the
+//! value side — `damask::props` has the argument, and it is why `detail="…"`
+//! reaches an `Option<String>` prop.
 //!
 //! Every other prop is required, and carries a type parameter on the builder
 //! that starts as a marker named after it and flips to `damask::props::Set` when
@@ -175,21 +179,73 @@ pub fn expand(input: &DeriveInput, options: &Options) -> TokenStream {
             })
             .collect();
         let returns = builder_args(&reached);
-        // The parameter is the prop's type exactly, which is what a struct
-        // literal field was: an argument position with a known type coerces
-        // (`&Vec<T>` to `&[T]`), infers an integer literal to the prop's own
-        // integer type, and pins a generic component's parameter. A generic
-        // `impl Into<…>` parameter would give up all three, so the conversion a
-        // quoted value needs is done on the *value* side instead — see
-        // `damask::props::literal`.
+        // A *required* prop's parameter is its type exactly, which is what a
+        // struct literal field was: an argument position with a known type
+        // coerces (`&Vec<T>` to `&[T]`), infers an integer literal to the prop's
+        // own integer type, and pins a generic component's parameter. A generic
+        // `impl Into<…>` parameter gives up all three.
+        //
+        // A *skippable* one takes `impl Into<Option<T>>`, which keeps none of
+        // that and buys the thing a call site actually writes: `rows={4}` and
+        // `of={form}` rather than `rows={Some(4)}` and `of={Some(form)}`. The
+        // `Some` was never information — the prop's own type already said the
+        // value may be absent, so writing it again said nothing and read as
+        // noise on every optional prop of every component. Both spellings still
+        // compile, since `Option<T>` reaches `Option<T>` reflexively.
+        //
+        // What it costs is inference where the value alone does not say what it
+        // is: `class={None}` no longer knows which `None`, and is written
+        // `class={None::<String>}` or, better, left out.
+        let parameter = match is_skippable(ty) {
+            true => quote!(impl ::core::convert::Into<#ty>),
+            false => quote!(#ty),
+        };
+
+        // The quoted form of the same prop: `title="…"`, which is static text
+        // rather than a value and reaches the prop through `props::literal`.
+        //
+        // It is a setter of its own because `literal` infers what to build from
+        // where it is going, and an `impl Into<…>` parameter is not a
+        // destination — it is a set of them. Here the prop's type is written
+        // down, so the inference has exactly one answer whatever the setter
+        // above accepts.
+        let literal = format_ident!("__damask_literal_{ident}");
+        let interpolated = format_ident!("__damask_text_{ident}");
         quote! {
             #[doc(hidden)]
-            #field_vis fn #ident(mut self, __damask_value: #ty) -> #returns {
-                self.__damask_store.#ident = ::core::option::Option::Some(__damask_value);
+            #field_vis fn #ident(mut self, __damask_value: #parameter) -> #returns {
+                self.__damask_store.#ident =
+                    ::core::option::Option::Some(__damask_value.into());
                 #builder {
                     __damask_store: self.__damask_store,
                     __damask_state: ::core::marker::PhantomData,
                 }
+            }
+
+            #[doc(hidden)]
+            #field_vis fn #literal<__DamaskLiteral>(
+                self,
+                __damask_text: &'static str,
+            ) -> #returns
+            where
+                #ty: #krate::props::FromLiteral<__DamaskLiteral>,
+            {
+                let __damask_value: #ty =
+                    #krate::props::FromLiteral::from_literal(__damask_text);
+                self.#ident(__damask_value)
+            }
+
+            #[doc(hidden)]
+            #field_vis fn #interpolated<__DamaskLiteral>(
+                self,
+                __damask_text: ::std::string::String,
+            ) -> #returns
+            where
+                #ty: #krate::props::FromInterpolated<__DamaskLiteral>,
+            {
+                let __damask_value: #ty =
+                    #krate::props::FromInterpolated::from_interpolated(__damask_text);
+                self.#ident(__damask_value)
             }
         }
     });

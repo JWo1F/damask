@@ -111,3 +111,34 @@ impl<T: FromText> FromLiteral<Wrapped> for Option<T> {
 pub fn literal<M, T: FromLiteral<M>>(text: &'static str) -> T {
     T::from_literal(text)
 }
+
+/// How the assembled text of an *interpolating* quoted attribute becomes a prop.
+///
+/// The same shape as [`FromLiteral`] and for the same reason: the value arrives
+/// as a `String`, and the prop it is going to is either that type or an `Option`
+/// of it. `M` is what keeps those two cases from overlapping.
+#[diagnostic::on_unimplemented(
+    message = "an interpolated attribute value cannot become `{Self}`",
+    label = "no conversion from text to this prop's type",
+    note = "an interpolated value needs `From<String>` for the prop's type (or for what its `Option` wraps); pass a `{{ … }}` value instead"
+)]
+pub trait FromInterpolated<M>: Sized {
+    fn from_interpolated(text: String) -> Self;
+}
+
+// [`FromText`] rather than `From<String>` alone, and for the same reason
+// `FromLiteral` asks for it: `Option<String>` converts from a `String` — that is
+// `From<T> for Option<T>` — so a bound of `From<String>` here would let an
+// `Option` prop match this impl as readily as the one below, and neither would
+// win. No `Option` converts from static text, which is what tells the two apart.
+impl<T: FromText> FromInterpolated<Direct> for T {
+    fn from_interpolated(text: String) -> Self {
+        T::from(text)
+    }
+}
+
+impl<T: From<String>> FromInterpolated<Wrapped> for Option<T> {
+    fn from_interpolated(text: String) -> Self {
+        Some(T::from(text))
+    }
+}

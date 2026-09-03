@@ -4,6 +4,44 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.9.0] - 2026-09-03
+
+### Changed
+
+- **A skippable prop's setter takes the value, not the `Some` around it.** A
+  prop typed `Option<T>` has already said that leaving it out is allowed, and a
+  call site saying it a second time added nothing:
+
+  ```html
+  <Notice detail={self.detail} dismissible/>
+  <Card rows={4} of={form}/>
+  ```
+
+  Those used to be `detail={Some(..)}`, `rows={Some(4)}` and `of={Some(form)}`.
+  The setter for a skippable prop is now `impl Into<Option<T>>`, so both
+  spellings compile — `Option<T>` still reaches `Option<T>` reflexively — and
+  the noisier one is no longer the only one. A **required** prop's setter is
+  unchanged and still takes its type exactly, which is what keeps coercion
+  (`&Vec<T>` to a `&[T]` prop), integer inference, and the pinning of a generic
+  component's parameter.
+
+  What it costs is inference where the value alone does not say what it is:
+  `class={None}` no longer knows which `None`, and is written `class={None::<String>}`
+  or, better, left out.
+
+- **A quoted attribute reaches its prop through a setter of its own.**
+  `title="Deploy finished"` now lowers to `__damask_literal_title("…")` and
+  `detail="row {self.n}"` to `__damask_text_detail(format!(…))`, both generated
+  per prop beside the setter they belong to. `props::literal` infers what to
+  build from where it is going, and an `impl Into<…>` parameter is not one
+  destination but a set of them — so the conversion moved to where the prop's
+  type is written down. `props::FromInterpolated` is the new half of that, and
+  the mirror of `FromLiteral` for a value that arrives as a `String`.
+
+  This is internal machinery: templates are unchanged, and a `#[doc(hidden)]`
+  setter is not something a call site names. It is listed because the generated
+  surface is what a `Component` derive *is*.
+
 ## [0.8.1] - 2026-09-01
 
 ### Fixed

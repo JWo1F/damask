@@ -1034,22 +1034,27 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
             // from the prop.
             AttrValue::Literal(parts) => {
                 let interpolating = !matches!(parts.as_slice(), [AttrPart::Text(_)]);
-                e.raw(".");
+                // Static text goes to the prop's *literal* setter, which knows
+                // what it is converting into; an interpolated value is already a
+                // `String` and reaches the ordinary one.
+                e.raw(if interpolating {
+                    ".__damask_text_"
+                } else {
+                    ".__damask_literal_"
+                });
                 e.frag(&attr.name);
                 e.raw("(");
-                if !interpolating {
-                    e.raw("__damask_krate::props::literal(");
-                }
                 emit_literal_string(parts, e)?;
-                e.raw(if interpolating { ".into())\n" } else { "))\n" });
+                e.raw(")\n");
             }
-            // `.into()` for the same reason a quoted value has one: the bare
-            // form is how `flag` and `flag={true}` are written, and it should
-            // reach an `Option<bool>` prop as readily as a `bool` one.
+            // Bare `flag`, which is how `flag={true}` is written when the value
+            // is the point. A skippable prop's setter takes the value or its
+            // `Option`, so this reaches an `Option<bool>` prop as readily as a
+            // `bool` one with nothing written around it.
             AttrValue::Boolean => {
                 e.raw(".");
                 e.frag(&attr.name);
-                e.raw("(true.into())\n");
+                e.raw("(true)\n");
             }
             // A class list assembles markup, and a component prop is a value.
             // `class={…}` with an ordinary expression is the way to pass one.
@@ -1285,11 +1290,14 @@ mod tests {
     /// owned `String` expression and not a borrow of one — the class-list path
     /// wraps its argument in `&(…)` itself, and an extra one there was absorbed
     /// by the blanket impl rather than reported.
+    ///
+    /// It goes to the prop's own text setter rather than through `Into`, which
+    /// is what tells `Option<String>` from `String` — see `props`.
     #[test]
     fn interpolating_value_on_a_component_prop_is_owned() {
         let b = body(r#"<Comp class="a {self.x} b"/>"#);
         assert!(
-            b.contains(r#".class(::std::format!("a {} b", self.x).into())"#),
+            b.contains(r#".__damask_text_class(::std::format!("a {} b", self.x))"#),
             "{b}"
         );
     }
@@ -1419,7 +1427,7 @@ mod tests {
         let b = body(r#"<Card title={2 + 8} tag="h1">body<p slot="foot">f</p></Card>"#);
         assert!(b.contains("::damask::Render::render_slots(&(Card::__damask_props()"));
         assert!(b.contains(".title((2 + 8))"));
-        assert!(b.contains(r#".tag(::damask::props::literal("h1"))"#));
+        assert!(b.contains(r#".__damask_literal_tag("h1")"#));
         assert!(b.contains(".__damask_build())"));
         assert!(b.contains("::damask::Slot::new(::damask::DEFAULT_SLOT, &::damask::fragment("));
         assert!(b.contains(r#"::damask::Slot::new("foot", &::damask::fragment("#));
