@@ -21,6 +21,11 @@ cargo install --path tools/damask-lsp   # from a checkout
 | Go to definition | |
 | Diagnostics | published on change |
 
+Damask's own syntax is answered here rather than downstream, because no other
+server has heard of it: `@` in an attribute value completes to `@tokens(…)` and
+`@attrs(…)`, and hovering either explains what it builds and what its entries
+mean.
+
 It reimplements neither Rust nor HTML. The Rust inside `{ … }` tags is lowered —
 by `damask-template`, the same crate and the same function the derive uses — and
 appended to the component's paired `.rs` file, which is fed to a child
@@ -43,9 +48,10 @@ field and method lookup.
 ## Zed
 
 The extension in `editors/zed` supplies highlighting, injections and indentation
-alongside the server. The Tree-sitter grammar lives in its own repository,
-[tree-sitter-damask](https://github.com/JWo1F/tree-sitter-damask), because Zed
-clones a grammar from a repository root; `extension.toml` pins it by revision.
+alongside the server. The Tree-sitter grammar lives in the same repository, under
+`crates/tree-sitter-damask/grammar`; `extension.toml` pins a revision and points
+Zed's `path` at it, so the grammar, the queries and the compiler that agree about
+`{@tokens(…)}` all move in one commit.
 
 Every `.dmk` snippet on this site is highlighted by that grammar and by the
 extension's own queries, so what you are reading here is what your editor shows

@@ -33,7 +33,7 @@ is recognised as the token and not as text.
 | `{#if cond.await}` / `{:else if …}` | yes |
 | `{#for pat in iter.await}` | yes |
 | `attr={expr.await}`, `attr="text {expr.await}"` | yes |
-| `class=[…]`, `class={ … }`, `data=…`, `{...spread}` | yes |
+| `attr={@tokens(…)}`, `attr={@attrs(…)}`, `{...spread}` | yes |
 | a `{#snippet}` body, and markup nested at any depth | yes |
 | `{ "user.await" }` — inside a string literal | **no** |
 | a child component that is itself async | **no** — see below |

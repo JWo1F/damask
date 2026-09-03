@@ -96,45 +96,52 @@ type how to appear — a `bool` renders a bare attribute or none at all, an
 `disabled` appears only when `locked`, because in HTML the *presence* of the
 attribute is what disables the control — `disabled="false"` disables it too.
 
-### Class lists
+### `@tokens` — one value from many parts
 
-`class` takes three further forms, and a `class:` directive overrules them all:
+`{@tokens(…)}` builds a space-separated value, on whatever attribute it is
+written. A `class:` directive still overrules a `class` built this way:
 
 ```html
-<div class=[self.extra, "base", { "is-open": self.open }] class:base={!self.bare}>
+<div class={@tokens(self.extra, "base", "is-open": self.open)} class:base={!self.bare}>
+<a rel={@tokens("noopener", external: self.away)}>
 ```
 
-Entries may be strings, `Option`s of them, or a map of conditional names; a
-literal `None` is dropped at compile time (a bare `None` has no type to infer).
-Names are deduplicated and keep their first-mention order, and an empty result
-omits the attribute.
+A positional entry is a name, a list of them, or an `Option` — a literal `None`
+is dropped at compile time (a bare `None` has no type to infer). A `name: cond`
+entry is there while `cond` holds; the name is a bare identifier or, for
+anything an identifier cannot spell, a string: `"md:px-3": cond`. Names are
+deduplicated and keep their first-mention order, and an empty result omits the
+attribute.
 
 > **CSS scanners and `class:`.** A directive puts the class name in the
 > *attribute name* (`class:animate-pulse`), where Tailwind and friends do not
 > look — the rule gets compiled out of your stylesheet. When a class has to be
-> discoverable by a scanner, use the map form, whose names are ordinary strings:
-> `class={ "animate-pulse": cond }`.
+> discoverable by a scanner, write it in a helper, whose names are ordinary
+> strings: `class={@tokens("animate-pulse": cond)}`.
 
-### Data attributes
+### `@attrs` — many attributes from one
 
-`data` expands one value into a run of `data-*` attributes, the way a Rails view
-does with `data: { … }`, and takes the same three forms:
+`{@attrs(…)}` expands into a run of `<name>-*` attributes, the way a Rails view
+does with `data: { … }` — and, since the prefix is the attribute it was written
+on, the same helper serves `aria` and anything else shaped that way:
 
 ```html
-<div data={self.hooks()}                                  <!-- any DataItem -->
-     data=[self.base(), { "open": self.open }]            <!-- list, later wins -->
-     data={ "controller": "modal", "index": self.i }>     <!-- map -->
+<div data={@attrs(self.hooks(), controller: "modal", index: self.i)}
+     aria={@attrs(label: self.title)}>
 ```
 
-A key becomes `data-<key>` verbatim — `"user_id"` is `data-user_id`. Values
-follow the `Attr` rules one level down, so a `bool` renders a bare `data-open` or
-nothing, and an `Option` renders nothing when `None`. `DataItem` is implemented
-for pair lists, `HashMap`, `BTreeMap`, `Option` of any of them, and whatever you
-implement it for.
+A key becomes `<name>-<key>` verbatim — `user_id` is `data-user_id` — and is a
+bare identifier or a string, checked when the template compiles, because a name
+is not something escaping can make safe. A positional entry contributes whole
+pairs and a later one overrides an earlier, keeping the first mention's
+position. Values follow the `Attr` rules one level down, so a `bool` renders a
+bare `data-open` or nothing, and an `Option` renders nothing when `None`.
+`AttrSet` is implemented for pair lists, `HashMap`, `BTreeMap`, `Attrs`,
+`Option` of any of them, and whatever you implement it for.
 
-> **A quoted `data="…"` is untouched**, which is what leaves `<object
-> data="movie.swf">` working. Only `data={…}` and `data=[…]` expand; a dynamic
-> `<object>` source is written `data="{self.url}"`.
+> **No attribute is special.** `data="movie.swf"` and `data={self.url}` are the
+> ordinary attribute they look like, on `<object>` as anywhere else; it is the
+> helper that expands, not the name.
 
 ### Spreading attributes
 
@@ -353,12 +360,12 @@ cargo test --workspace          # runtime, macro, parser, LSP, examples, trybuil
 cargo clippy --workspace --all-targets -- -D warnings
 ```
 
-The Tree-sitter grammar lives in its own repository,
-[tree-sitter-damask](https://github.com/JWo1F/tree-sitter-damask), because Zed
-clones a grammar from a repository root. It is pinned by revision in two
-places, which have to move together: [extension.toml](editors/zed/extension.toml),
-which Zed clones from, and [crates/tree-sitter-damask](crates/tree-sitter-damask),
-which vendors the generated parser so the website can compile it.
+The Tree-sitter grammar lives in
+[crates/tree-sitter-damask/grammar](crates/tree-sitter-damask/grammar), with the
+Rust binding the website reads it through in the crate around it. Zed reads the
+same directory: [extension.toml](editors/zed/extension.toml) pins a revision of
+this repository and points `path` at it, so a grammar change is one commit — and
+reaches editors when that commit is pushed and the `rev` is bumped to name it.
 
 The website highlights `.dmk` with that grammar and with the extension's own
 queries in [editors/zed/languages/damask](editors/zed/languages/damask) — so a

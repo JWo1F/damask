@@ -85,13 +85,13 @@ Half of that method is about the space between the names, and when both
 conditions are false it returns `""` — which, dropped into `class={…}`, renders
 `class=""`: an attribute that says nothing, on every second row.
 
-## The fix: a class map
+## The fix: `@tokens`
 
-`class` — and only `class` — takes a **map of name to condition**, as many pairs
-as the element needs:
+`{@tokens(…)}` takes **names paired with conditions**, as many as the element
+needs — on `class` here, though nothing about the helper is `class`'s:
 
 ```dmk
-<tr class={ "alt": i % 2 == 1, "breach": svc.breaches_slo(self.slo_target) }>
+<tr class={@tokens("alt": i % 2 == 1, "breach": svc.breaches_slo(self.slo_target))}>
 ```
 
 Each name appears when its condition holds. They are joined with the space you
@@ -99,17 +99,16 @@ did not have to write, and when nothing holds the attribute is omitted
 entirely — not emitted empty. Delete `row_class`; nothing else needs it.
 
 That last property is why this beats a helper returning a `String`. The helper
-cannot decline to be an attribute; the map can.
+cannot decline to be an attribute; `@tokens` can.
 
-Where some names are unconditional, `class` takes a **list** instead, whose
-entries may be strings, `Option`s of strings, or a map. The badge at the end of
-this chapter is one:
+Unconditional names go in the same call, as plain entries — a string, an
+`Option` of one, a list of them. The badge at the end of this chapter is one:
 
 ```dmk
-<span class=["badge", self.status.slug()]>
+<span class={@tokens("badge", self.status.slug())}>
 ```
 
-Names across a list are deduplicated and keep their first-mention order.
+Names are deduplicated across the whole call and keep their first-mention order.
 
 ## The table
 
@@ -134,7 +133,7 @@ pub struct ServiceTable<'a> {
   </thead>
   <tbody>
     {#for (i, svc) in self.services.iter().enumerate()}
-      <tr class={ "alt": i % 2 == 1, "breach": svc.breaches_slo(self.slo_target) }>
+      <tr class={@tokens("alt": i % 2 == 1, "breach": svc.breaches_slo(self.slo_target))}>
         <td><div class="svc">{svc.name}</div><div class="owner">{svc.owner}</div></td>
         <td>{svc.status}</td>
         <td>{svc.uptime()}</td>
@@ -194,26 +193,27 @@ you are passing a value.
 ## Directives
 
 A **directive**, `class:name={cond}`, adds or removes one name and takes
-precedence over whatever the map or list produced. A bare `class:name` is always
+precedence over whatever the helper produced. It is the last attribute whose
+*name* means anything. A bare `class:name` is always
 on. `Control`, in the repository's `examples/showcase`, puts every form in one
 tag:
 
 ```dmk
 <input disabled={self.disabled}
        placeholder={self.placeholder}
-       class=[self.extra, "base", { "invalid": self.invalid }]
+       class={@tokens(self.extra, "base", "invalid": self.invalid)}
        class:compact={self.compact}
        class:base={!self.invalid}/>
 ```
 
-`base` is in the list and also under a directive, and the directive wins — an
+`base` is in the helper and also under a directive, and the directive wins — an
 invalid control loses `base` however the list was assembled.
 
 > [!CAUTION]
 > A directive puts the class name in the *attribute name*, where Tailwind and
 > other CSS scanners do not look — the rule gets compiled out of your stylesheet.
-> When a class must be discoverable by a scanner, use the map form, whose names
-> are ordinary strings: `class={ "animate-pulse": self.busy }`.
+> When a class must be discoverable by a scanner, put it in the helper, where
+> names are ordinary strings: `class={@tokens("animate-pulse": self.busy)}`.
 
 ## The problem: a row full of `data-`
 
@@ -233,20 +233,21 @@ retyped on every element that wants it, and a group that should travel together 
 "everything the controller needs" — is four separate facts the template holds
 apart. If the controller grows a fifth, every row template has to hear about it.
 
-## The fix: `data` takes a value
+## The fix: `@attrs`
 
-`data` is the other attribute with forms of its own. Where `class` assembles one
-string from parts, `data` expands **one value into a run of attributes** — the
-thing a Rails view does with `data: { … }`. The map form writes the same four:
+`{@attrs(…)}` is the other helper, and it goes the other way. Where `@tokens`
+assembles one value from parts, this expands **one set into a run of
+attributes** — the thing a Rails view does with `data: { … }`. It writes the same
+four:
 
 ```dmk
-<tr data={ "controller": "service-row",
-           "service": svc.name.clone(),
-           "status": svc.status.slug(),
-           "slow": svc.is_slow() }>
+<tr data={@attrs(controller: "service-row",
+                 service: svc.name.clone(),
+                 status: svc.status.slug(),
+                 slow: svc.is_slow())}>
 ```
 
-Each key becomes `data-<key>`, written verbatim — `"user_id"` is `data-user_id`,
+Each key becomes `data-<key>`, written verbatim — `user_id` is `data-user_id`,
 not `data-user-id`. Values answer the same question `attr={…}` does, one level
 down: `slow` is a `bool`, so a fast service gets no `data-slow` at all, exactly
 as the longhand did.
@@ -268,25 +269,26 @@ impl Service {
 ```
 
 ```dmk
-<tr data={svc.hooks()}>
+<tr data={@attrs(svc.hooks())}>
 ```
 
-Anything implementing `DataItem` fits there — a `Vec` of pairs, a `HashMap` or
+Anything implementing `AttrSet` fits there — a `Vec` of pairs, a `HashMap` or
 `BTreeMap`, an `Option` of any of them for a group that is sometimes absent, or a
-type of your own. And a **list** merges several sources, with a later mention of
-a key overriding an earlier one:
+type of your own. Entries **merge**, with a later mention of a key overriding an
+earlier one:
 
 ```dmk
-<tr data=[svc.hooks(), { "slow": svc.is_slow() }]>
+<tr data={@attrs(svc.hooks(), slow: svc.is_slow())}>
 ```
 
 That is the shape to reach for when a component takes a data map from its caller
 and adds its own: the caller's group first, yours after, and yours wins.
 
-> [!WARNING]
-> A **quoted** `data="…"` is an ordinary attribute and stays one — which is what
-> leaves `<object data="movie.swf">` working. It is `data={…}` and `data=[…]`
-> that expand. A dynamic `<object>` source is written `data="{self.url}"`.
+> [!NOTE]
+> Nothing here is `data`'s. The prefix is whatever attribute the helper is
+> written on, so `aria={@attrs(label: self.title)}` writes `aria-label`, and an
+> attribute with no helper on it — `data="movie.swf"`, `data={self.url}` — is
+> the ordinary attribute it looks like.
 
 ## Attributes you cannot name
 
@@ -312,8 +314,8 @@ once, from the tag — a duplicate attribute is not valid HTML, and the browser
 would settle it by a rule you were not thinking about.
 
 helm needs none of this, and most components never will.
-[Attributes](/docs/attributes/), [Class lists](/docs/class-lists/) and
-[Data attributes](/docs/data-attributes/) have the exhaustive rules. Spreading
+[Attributes](/docs/attributes/), [Token lists](/docs/token-lists/) and
+[Attribute groups](/docs/attribute-groups/) have the exhaustive rules. Spreading
 onto a *component* is a different thing and belongs to the next chapter — see
 [Attributes the component never heard of](/book/composition/#attributes-the-component-never-heard-of).
 
@@ -324,7 +326,7 @@ its text:
 
 ```dmk
 <!-- src/status_badge.dmk -->
-<span class=["badge", self.status.slug()] data-status={self.status.slug()}>{self.status}</span>
+<span class={@tokens("badge", self.status.slug())} data-status={self.status.slug()}>{self.status}</span>
 ```
 
 ## Running it

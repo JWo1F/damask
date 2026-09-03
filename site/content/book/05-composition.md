@@ -97,7 +97,7 @@ and one spread says where they land:
 
 ```dmk
 <!-- src/status_badge.dmk -->
-<span class=["badge", self.status.slug()] {...self.attrs}>{self.status}</span>
+<span class={@tokens("badge", self.status.slug())} {...self.attrs}>{self.status}</span>
 ```
 
 Now a caller writes attributes, and they are attributes:
@@ -218,7 +218,7 @@ impl SiteHeader<'_> {
       <div class="brand">helm <span>/ fleet status</span></div>
       <nav>
         {#for entry in &self.nav}
-          <a href={self.href(entry)} class={ "active": *entry == self.current }>{entry}</a>
+          <a href={self.href(entry)} class={@tokens("active": *entry == self.current)}>{entry}</a>
         {/for}
       </nav>
     </div>

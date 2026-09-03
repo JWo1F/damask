@@ -55,8 +55,8 @@ pub mod renderers;
 pub mod trusted;
 
 pub use attr::{
-    Attr, AttrSet, AttrSpread, AttrValue, Attrs, ClassItem, ClassList, DataItem, DataSet,
-    DataValue, IntoAttrValue, is_attr_name_safe,
+    Attr, AttrSet, AttrSpread, AttrValue, Attrs, IntoAttrValue, TokenItem, TokenList,
+    is_attr_name_safe,
 };
 pub use renderers::{HtmlRenderer, Whitespace};
 pub use trusted::{Content, Sink, ToTrusted, Trusted, Value, splice};
@@ -80,7 +80,7 @@ pub use damask_macros::__tag;
 /// use damask::tag;
 ///
 /// let flagged = true;
-/// let markup = tag!(div #summary, class: ["card", flagged.then_some("is-flagged")], {
+/// let markup = tag!(div #summary, class: @tokens("card", flagged.then_some("is-flagged")), {
 ///     (
 ///         tag!(span, "Total"),
 ///         tag!(b, "1 < 2"),
@@ -103,20 +103,20 @@ pub use damask_macros::__tag;
 /// all. `id: "main"` is the ordinary way to say it and reads better than the
 /// space does.
 ///
-/// `class:` and `data:` take the forms they take in a template, through the
-/// same [`ClassList`] and [`DataSet`]:
+/// The two attribute helpers are written here as they are in a template, on any
+/// attribute, through the same [`TokenList`] and [`Attrs`]:
 ///
 /// ```
 /// use damask::tag;
 /// # let active = true;
-/// tag!(div, class: "a b");                       // a list in one string
-/// tag!(div, class: ["a", active.then_some("b")]); // entries, each deciding
-/// tag!(div, class: { "active": active });         // a name and its condition
-/// tag!(div, data: { controller: "modal", open: active });
+/// tag!(div, class: "a b");                                // a list in one string
+/// tag!(div, class: @tokens("a", active.then_some("b"))); // entries, each deciding
+/// tag!(div, class: @tokens("active": active));           // a name and its condition
+/// tag!(div, data: @attrs(controller: "modal", open: active));
 /// ```
 ///
-/// So `data: { open: true }` writes a bare `data-open` and `open: false` writes
-/// nothing at all, which is what a boolean attribute means in HTML and what
+/// So `data: @attrs(open: true)` writes a bare `data-open` and `open: false`
+/// writes nothing at all, which is what a boolean attribute means in HTML and what
 /// Damask has always done with one. A data key is taken as written — quote it
 /// to spell a hyphen, since `data-user_id` is a key Damask deliberately does
 /// not rewrite. An attribute name written as an ident has its underscores
@@ -127,8 +127,8 @@ pub use damask_macros::__tag;
 /// rather than a closing tag nobody asked for.
 ///
 /// [`Trusted`]: crate::Trusted
-/// [`ClassList`]: crate::ClassList
-/// [`DataSet`]: crate::DataSet
+/// [`TokenList`]: crate::TokenList
+/// [`Attrs`]: crate::Attrs
 #[macro_export]
 macro_rules! tag {
     ($($tt:tt)*) => {
@@ -799,8 +799,7 @@ impl<T: Component + Sync + ?Sized> AsyncComponent for T {
 /// `Component` here is both the trait and its derive macro.
 pub mod prelude {
     pub use crate::attr::{
-        Attr, AttrSet, AttrSpread, AttrValue, Attrs, ClassItem, ClassList, DataItem, DataSet,
-        DataValue, IntoAttrValue,
+        Attr, AttrSet, AttrSpread, AttrValue, Attrs, IntoAttrValue, TokenItem, TokenList,
     };
     pub use crate::renderers::{HtmlRenderer, StringRenderer, Whitespace};
     pub use crate::{

@@ -55,8 +55,9 @@ const CLASSES: &[(&str, &str)] = &[
     // and the reason the block is on the page. It takes the accent colour.
     ("punctuation.special", "tok-brace"),
     ("string", "tok-string"),
-    // A class name in a Damask `class` list or map. It is not Rust and not a
-    // plain string, but it reads as the literal it is.
+    // A class name in a `class:` directive, and the key of an `@tokens` or
+    // `@attrs` entry. Not Rust and not a plain string, but it reads as the
+    // literal it is.
     ("string.special", "tok-string"),
     ("supports", "tok-keyword"),
     ("tag", "tok-tag"),
@@ -336,8 +337,8 @@ mod tests {
 
     /// Every `{ … }` region injects Rust, and injects it *whole*. Both halves
     /// have been wrong: a string literal inside a tag was cut out of the
-    /// injected range, and a class value injected an empty range and so got no
-    /// colour at all. See `editors/zed/languages/damask/injections.scm`.
+    /// injected range, and a helper's entry injected an empty range and so got
+    /// no colour at all. See `editors/zed/languages/damask/injections.scm`.
     #[test]
     fn every_expression_injects_whole() {
         let highlighter = Highlighter::new();
@@ -345,8 +346,9 @@ mod tests {
         for template in [
             r#"<p>{ "hi".len() }</p>"#,
             r#"<p>{#if "hi".len() > self.n}x{/if}</p>"#,
-            r#"<div class={ "on": "hi".len() > self.n }>"#,
-            r#"<div class=["a", "hi".len()]>"#,
+            r#"<div class={@tokens("on": "hi".len() > self.n)}>"#,
+            r#"<div class={@tokens("a", "hi".len())}>"#,
+            r#"<div data={@attrs(n: "hi".len())}>"#,
             r#"<div class:on={ "hi".len() > self.n }>"#,
             r#"<Card {..."hi".len()}/>"#,
         ] {

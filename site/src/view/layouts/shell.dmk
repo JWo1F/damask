@@ -13,7 +13,7 @@
   {# The rule under the header is the only thing holding it to the page; a shadow
      would lift it off the paper, which is the opposite of what this site is. #}
   <header class="sticky top-0 z-40 border-b border-rule bg-paper/85 backdrop-blur-md">
-    <div class=["mx-auto flex h-16 items-center gap-3 px-5 sm:gap-6 sm:px-8", self.width()]>
+    <div class={@tokens("mx-auto flex h-16 items-center gap-3 px-5 sm:gap-6 sm:px-8", self.width())}>
 
       {# The wordmark is `sr-only` rather than `hidden` below `sm`: a phone has
          no room for it beside the sections, the search and the two icons — 425px
@@ -31,9 +31,9 @@
         {#for item in &self.chrome.nav}
           <a href={item.href}
              aria-current={if item.here == self.chrome.here { Some("page") } else { None }}
-             class=["rounded-md px-2.5 py-1.5 text-[0.83rem] font-medium transition-colors sm:px-3",
-                    { "text-madder": item.here == self.chrome.here,
-                      "text-ink-soft hover:bg-ink/[0.045] hover:text-ink": item.here != self.chrome.here }]>
+             class={@tokens("rounded-md px-2.5 py-1.5 text-[0.83rem] font-medium transition-colors sm:px-3",
+                            "text-madder": item.here == self.chrome.here,
+                            "text-ink-soft hover:bg-ink/[0.045] hover:text-ink": item.here != self.chrome.here)}>
             {item.label}
           </a>
         {/for}
@@ -79,11 +79,11 @@
     </div>
   </header>
 
-  <main id="content" class=["mx-auto w-full px-5 sm:px-8", self.width()]><slot/></main>
+  <main id="content" class={@tokens("mx-auto w-full px-5 sm:px-8", self.width())}><slot/></main>
 
   <footer class="mt-24 border-t border-rule">
-    <div class=["mx-auto flex flex-col gap-5 px-5 py-10 sm:flex-row sm:items-center sm:justify-between sm:px-8",
-                self.width()]>
+    <div class={@tokens("mx-auto flex flex-col gap-5 px-5 py-10 sm:flex-row sm:items-center sm:justify-between sm:px-8",
+                        self.width())}>
       <p class="font-serif text-[0.92rem] text-ink-soft">
         <span class="font-display text-ink">Damask</span> — compile-time components for Rust.
         MIT licensed.

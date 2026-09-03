@@ -23,9 +23,9 @@ pub enum Context {
 /// Classify what the cursor at `offset` should complete.
 pub fn cursor_context(text: &str, offset: usize) -> Context {
     let offset = offset.min(text.len());
-    // A string is text whatever encloses it — a Rust literal, or the class name
-    // that keys a conditional map. Neither wants `self` members offered inside
-    // it, and the map's key is not Rust at all.
+    // A string is text whatever encloses it — a Rust literal, or the name that
+    // keys an `@tokens` or `@attrs` entry. Neither wants `self` members offered
+    // inside it, and a key is not Rust at all.
     if in_string(text, offset) {
         return Context::None;
     }
@@ -35,12 +35,6 @@ pub fn cursor_context(text: &str, offset: usize) -> Context {
         } else {
             Context::SelfMember
         };
-    }
-    // A `class=[…]` or `data=[…]` list holds Rust expressions but no braces, so
-    // nothing above recognises it — which is why completion used to stop at the
-    // bracket.
-    if in_value_list(text, offset) {
-        return Context::SelfMember;
     }
     match enclosing_open_element(&text[..offset]) {
         Some((_, true)) => Context::ElementName,
@@ -74,26 +68,105 @@ fn in_string(text: &str, offset: usize) -> bool {
     open
 }
 
-/// The attributes whose value may be a `[ … ]` list of Rust expressions.
-const LIST_ATTRS: [&str; 2] = ["class", "data"];
+/// The two attribute helpers, with the one-line summary a completion shows and
+/// the longer text a hover does.
+pub const HELPERS: [Helper; 2] = [
+    Helper {
+        name: "tokens",
+        detail: "a space-separated value",
+        doc: "`{@tokens(…)}` builds one space-separated value — a `class`, a `rel`, a \
+              `sandbox`.\n\n\
+              ```html\n\
+              <div class={@tokens(self.extra, \"base\", \"is-open\": self.open)}>\n\
+              ```\n\n\
+              A positional entry is a name, a list of them, or an `Option` of either; a \
+              literal `None` is dropped when the template compiles. A `name: cond` entry is \
+              there while `cond` holds, and the name is a bare identifier or a string for \
+              anything an identifier cannot spell (`\"md:px-3\": cond`).\n\n\
+              Names are deduplicated, keep their first mention's order, and an empty result \
+              writes no attribute at all. On a component prop the helper yields a `String`.",
+    },
+    Helper {
+        name: "attrs",
+        detail: "a run of `<name>-*` attributes",
+        doc: "`{@attrs(…)}` expands into a run of attributes under the name it is written \
+              on — `data-*`, `aria-*`, whatever the attribute is called.\n\n\
+              ```html\n\
+              <div data={@attrs(self.hooks(), controller: \"modal\", index: self.i)}>\n\
+              ```\n\n\
+              A positional entry is anything implementing `AttrSet` — a pair list, a \
+              `HashMap`, a `BTreeMap`, an `Attrs`, an `Option` of any of them — and a later \
+              entry overrides an earlier one, keeping the first mention's position. A \
+              `key: value` entry writes one attribute; the key is taken verbatim, so \
+              `user_id` is `data-user_id`.\n\n\
+              Values follow the `Attr` rules one level down: a `bool` writes a bare \
+              attribute or none, an `Option` writes nothing when `None`.\n\n\
+              It writes attribute *names*, so it belongs on an element; a set that a \
+              component cannot name reaches it through `{...expr}`.",
+    },
+];
 
-/// Whether the cursor sits inside an unclosed `class=[ … ]` or `data=[ … ]`.
-fn in_value_list(text: &str, offset: usize) -> bool {
+/// One attribute helper, as the editor describes it.
+pub struct Helper {
+    pub name: &'static str,
+    pub detail: &'static str,
+    pub doc: &'static str,
+}
+
+/// The helper the cursor is on — `@tokens` or `@attrs` — with the span of the
+/// `@name` it was written as, for a hover to underline.
+pub fn helper_at(text: &str, offset: usize) -> Option<(&'static Helper, usize, usize)> {
+    let offset = offset.min(text.len());
+    let start = text[..offset]
+        .char_indices()
+        .rev()
+        .take_while(|(_, c)| c.is_ascii_alphabetic())
+        .last()
+        .map(|(i, _)| i)
+        .unwrap_or(offset);
+    let end = offset
+        + text[offset..]
+            .char_indices()
+            .take_while(|(_, c)| c.is_ascii_alphabetic())
+            .map(|(i, c)| i + c.len_utf8())
+            .last()
+            .unwrap_or(0);
+    // The `@` is part of the name as far as a reader is concerned, and it is
+    // what tells a helper from a field or a local called `attrs`.
+    let at = start.checked_sub(1)?;
+    if text.as_bytes().get(at) != Some(&b'@') {
+        return None;
+    }
+    let name = &text[start..end];
+    HELPERS
+        .iter()
+        .find(|helper| helper.name == name)
+        .map(|helper| (helper, at, end))
+}
+
+/// Whether a helper is what the cursor is positioned to write: inside an
+/// attribute's `{ … }`, with nothing but a partial `@name` typed so far.
+///
+/// The tell is the `=` before the brace. A `{ … }` in element content, or one
+/// holding an expression already, is Rust and belongs to rust-analyzer.
+pub fn helper_prefix(text: &str, offset: usize) -> Option<&str> {
+    let offset = offset.min(text.len());
     let before = &text[..offset];
-    let Some(open) = before.rfind('[') else {
-        return false;
-    };
-    if before[open..].contains(']') {
-        return false;
+    let open = before.rfind('{')?;
+    if before[open..].contains('}') {
+        return None;
     }
-    // The `[` has to be this attribute's value, not a bracket inside some other
-    // expression, so what precedes it must be one of those names and an `=`.
-    let head = before[..open].trim_end();
-    if !head.ends_with('=') {
-        return false;
+    if !before[..open].trim_end().ends_with('=') {
+        return None;
     }
-    let name = head[..head.len() - 1].trim_end();
-    LIST_ATTRS.iter().any(|attr| name.ends_with(attr))
+    let typed = before[open + 1..].trim_start();
+    let name = typed.strip_prefix('@').unwrap_or(typed);
+    // Only while it could still become one: a `(` means the call is written and
+    // what follows it is its arguments.
+    match name.chars().all(|c| c.is_ascii_alphabetic()) {
+        true => Some(typed),
+        false => None,
+    }
 }
 
 /// Whether the tag enclosing the cursor is a `{use …}` statement.
@@ -303,37 +376,58 @@ mod tests {
         assert_eq!(ctx("<Frame title={x}>text"), Context::None);
     }
 
+    /// A helper's arguments are Rust, and they are inside the `{ … }` every
+    /// other Rust position is inside — so the same brace counting finds them,
+    /// on `class`, on `data`, on anything.
     #[test]
-    fn class_list_entries_complete_as_rust() {
-        // The list holds Rust expressions but no braces, so nothing else would
-        // recognise the position.
-        assert_eq!(ctx(r#"<div class=[self."#), Context::SelfMember);
-        assert_eq!(ctx(r#"<div class=[a, self.x"#), Context::SelfMember);
-        // Closed again: back to the attribute position of a plain element.
-        assert_eq!(ctx(r#"<div class=[a] "#), Context::None);
-        // A bracket that is not a class value stays what it was.
-        assert_eq!(ctx(r#"<div other=[self."#), Context::None);
-    }
-
-    #[test]
-    fn a_class_maps_key_is_not_rust() {
-        // Inside the key's quotes: a class name, so no `self` members.
-        assert_eq!(ctx(r#"<div class={ "px-"#), Context::None);
-        // The condition after it is Rust again.
-        assert_eq!(ctx(r#"<div class={ "px-3": self."#), Context::SelfMember);
-    }
-
-    /// `data` takes the same list and map forms, so the cursor inside one has to
-    /// be classified the same way.
-    #[test]
-    fn data_list_and_map_entries_complete_as_rust() {
-        assert_eq!(ctx(r#"<div data=[self."#), Context::SelfMember);
-        assert_eq!(ctx(r#"<div data=[a, self.x"#), Context::SelfMember);
-        assert_eq!(ctx(r#"<div data=[a] "#), Context::None);
-        // The key is an attribute name, not Rust; the value after it is Rust.
-        assert_eq!(ctx(r#"<div data={ "cont"#), Context::None);
+    fn helper_entries_complete_as_rust() {
+        assert_eq!(ctx(r#"<div class={@tokens(self."#), Context::SelfMember);
         assert_eq!(
-            ctx(r#"<div data={ "controller": self."#),
+            ctx(r#"<div class={@tokens("a", self.x"#),
+            Context::SelfMember
+        );
+        assert_eq!(ctx(r#"<div rel={@tokens(self."#), Context::SelfMember);
+        assert_eq!(ctx(r#"<div data={@attrs(self."#), Context::SelfMember);
+        // Closed again: back to the attribute position of a plain element.
+        assert_eq!(ctx(r#"<div class={@tokens("a")} "#), Context::None);
+    }
+
+    #[test]
+    fn a_helper_is_offered_where_one_can_be_written() {
+        // An attribute value, nothing typed: both helpers are candidates.
+        assert_eq!(helper_prefix(r#"<div class={"#, 12), Some(""));
+        assert_eq!(helper_prefix(r#"<div class={@"#, 13), Some("@"));
+        assert_eq!(helper_prefix(r#"<div class={@tok"#, 16), Some("@tok"));
+        // Not once the call is open — those are its arguments.
+        assert_eq!(helper_prefix(r#"<div class={@tokens("#, 20), None);
+        // Not in element content, and not in an expression already under way.
+        assert_eq!(helper_prefix(r#"<p>{self."#, 9), None);
+        assert_eq!(helper_prefix(r#"<div class={self."#, 17), None);
+    }
+
+    #[test]
+    fn a_helper_is_recognised_for_hover() {
+        let text = r#"<div class={@tokens("a")}>"#;
+        let at = text.find("tokens").unwrap();
+        let (helper, start, end) = helper_at(text, at + 2).expect("a helper");
+        assert_eq!(helper.name, "tokens");
+        assert_eq!(&text[start..end], "@tokens");
+        // A word that only looks like one.
+        assert!(helper_at("{ self.attrs }", 9).is_none());
+    }
+
+    #[test]
+    fn a_helper_key_is_not_rust() {
+        // Inside the key's quotes: a name, so no `self` members.
+        assert_eq!(ctx(r#"<div class={@tokens("px-"#), Context::None);
+        assert_eq!(ctx(r#"<div data={@attrs("cont"#), Context::None);
+        // The value after it is Rust again.
+        assert_eq!(
+            ctx(r#"<div class={@tokens("px-3": self."#),
+            Context::SelfMember
+        );
+        assert_eq!(
+            ctx(r#"<div data={@attrs(controller: self."#),
             Context::SelfMember
         );
     }

@@ -1,0 +1,370 @@
+==================
+plain text
+==================
+
+Hello, world!
+
+---
+
+(document
+  (text))
+
+==================
+expression tag
+==================
+
+Hello {self.name}!
+
+---
+
+(document
+  (text)
+  (tag
+    (tag_open)
+    (code)
+    (tag_delimiter))
+  (text))
+
+==================
+directives
+==================
+
+{@html self.body}{@render self.footer}
+
+---
+
+(document
+  (text)
+  (tag
+    (tag_open)
+    (code)
+    (tag_delimiter))
+  (tag
+    (tag_open)
+    (code)
+    (tag_delimiter))
+  (text))
+
+==================
+for block
+==================
+
+{#for item in &self.items}<li>{item}</li>{/for}
+
+---
+
+(document
+  (text)
+  (tag
+    (tag_open)
+    (code)
+    (tag_delimiter))
+  (element
+    (tag_name
+      (element_name)))
+  (tag
+    (tag_open)
+    (code)
+    (tag_delimiter))
+  (element
+    (tag_name
+      (element_name)))
+  (tag
+    (tag_open)
+    (code)
+    (tag_delimiter))
+  (text))
+
+==================
+render with nested braces and a brace in a string
+==================
+
+{@render Card { title: "x }".into() }}
+
+---
+
+(document
+  (text)
+  (tag
+    (tag_open)
+    (code
+      (code
+        (string)))
+    (tag_delimiter))
+  (text))
+
+==================
+html comment is its own node
+==================
+
+a<!-- a comment -->b
+
+---
+
+(document
+  (text)
+  (html_comment)
+  (text))
+
+==================
+interpolation inside a quoted attribute value
+==================
+
+<div class="px-3 {self.tone()}">hi</div>
+
+---
+
+(document
+  (text)
+  (element
+    (tag_name
+      (element_name))
+    (attribute
+      (attribute_name)
+      (quoted_value
+        (text)
+        (tag
+          (tag_open)
+          (code)
+          (tag_delimiter)))))
+  (text)
+  (element
+    (tag_name
+      (element_name)))
+  (text))
+
+==================
+class directive and token helper
+==================
+
+<div class={@tokens(self.extra, "b")} class:on={self.open}></div>
+
+---
+
+(document
+  (text)
+  (element
+    (tag_name
+      (element_name))
+    (attribute
+      (attribute_name)
+      (helper
+        (helper_name)
+        (helper_expr
+          (code))
+        (helper_expr
+          (string))))
+    (class_directive
+      (class_directive_name
+        (directive_prefix)
+        (class_name))
+      (tag
+        (tag_open)
+        (code)
+        (tag_delimiter))))
+  (element
+    (tag_name
+      (element_name)))
+  (text))
+
+==================
+{# #} comment reaches no output
+==================
+
+a{# not rendered: as, if, statistics #}b
+
+---
+
+(document
+  (text)
+  (comment)
+  (text))
+
+==================
+a bare < stays prose
+==================
+
+a < b and 3<4
+
+---
+
+(document
+  (text))
+
+==================
+conditional tokens
+==================
+
+<div class={@tokens("on": self.open, "off": !self.open)}></div>
+
+---
+
+(document
+  (text)
+  (element
+    (tag_name
+      (element_name))
+    (attribute
+      (attribute_name)
+      (helper
+        (helper_name)
+        (helper_pair
+          (helper_key)
+          (helper_value
+            (code)))
+        (helper_pair
+          (helper_key)
+          (helper_value
+            (code))))))
+  (element
+    (tag_name
+      (element_name)))
+  (text))
+
+==================
+attribute spread
+==================
+
+<input {...self.wiring} {...&self.data}/>
+
+---
+
+(document
+  (text)
+  (element
+    (tag_name
+      (element_name))
+    (spread
+      (code))
+    (spread
+      (code)))
+  (text))
+
+==================
+doctype
+==================
+
+<!DOCTYPE html>
+<html></html>
+
+---
+
+(document
+  (text)
+  (doctype)
+  (text)
+  (element
+    (tag_name
+      (element_name)))
+  (element
+    (tag_name
+      (element_name)))
+  (text))
+
+==================
+brackets inside a token helper's strings
+==================
+
+<div class={@tokens("p-[3px] rounded-[9px]", self.class)}></div>
+
+---
+
+(document
+  (text)
+  (element
+    (tag_name
+      (element_name))
+    (attribute
+      (attribute_name)
+      (helper
+        (helper_name)
+        (helper_expr
+          (string))
+        (helper_expr
+          (code)))))
+  (element
+    (tag_name
+      (element_name)))
+  (text))
+
+==================
+the helpers are not keyed to an attribute's name
+==================
+
+<i data={self.wiring} data={@attrs(self.base(), size: "narrow")} rel={@tokens("noopener")}></i>
+
+---
+
+(document
+  (text)
+  (element
+    (tag_name
+      (element_name))
+    (attribute
+      (attribute_name)
+      (tag
+        (tag_open)
+        (code)
+        (tag_delimiter)))
+    (attribute
+      (attribute_name)
+      (helper
+        (helper_name)
+        (helper_expr
+          (code))
+        (helper_pair
+          (helper_key)
+          (helper_value
+            (string)))))
+    (attribute
+      (attribute_name)
+      (helper
+        (helper_name)
+        (helper_expr
+          (string)))))
+  (element
+    (tag_name
+      (element_name)))
+  (text))
+
+==================
+a prefix is not an attribute name
+==================
+
+<i classy="a" class-x="b" data-controller="c" xlink:href="#d" class="e" data="f"></i>
+
+---
+
+(document
+  (text)
+  (element
+    (tag_name
+      (element_name))
+    (attribute
+      (attribute_name)
+      (quoted_value
+        (text)))
+    (attribute
+      (attribute_name)
+      (quoted_value
+        (text)))
+    (attribute
+      (attribute_name)
+      (quoted_value
+        (text)))
+    (attribute
+      (attribute_name)
+      (quoted_value
+        (text)))
+    (attribute
+      (attribute_name)
+      (quoted_value
+        (text)))
+    (attribute
+      (attribute_name)
+      (quoted_value
+        (text))))
+  (element
+    (tag_name
+      (element_name)))
+  (text))

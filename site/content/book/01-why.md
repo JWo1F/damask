@@ -90,7 +90,7 @@ Damask parses the markup, so it can tell an attribute from a value:
 
 A `bool` renders a bare `disabled` or nothing at all — never `disabled="false"`,
 which HTML reads as *disabled*. An `Option` renders nothing when it is `None`.
-Class lists merge, deduplicate, and omit the attribute when they come out empty.
+Token lists merge, deduplicate, and omit the attribute when they come out empty.
 An engine that substitutes text into a string cannot do any of this, because it
 never learns that the thing left of the `=` is an attribute.
 

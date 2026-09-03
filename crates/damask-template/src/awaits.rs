@@ -17,7 +17,7 @@
 //! searching its text, so a string literal that happens to contain the bytes
 //! `.await` (`{ "user.await" }`) is not mistaken for the genuine token.
 
-use crate::{Attr, AttrPart, AttrValue, ClassTerm, DataTerm, Node, Spanned, Template};
+use crate::{Attr, AttrPart, AttrTerm, AttrValue, Node, Spanned, Template, TokenTerm};
 use proc_macro2::{TokenStream, TokenTree};
 
 /// Whether `template` contains `.await` anywhere in its own Rust fragments.
@@ -69,15 +69,15 @@ fn attr_needs_async(attr: &Attr) -> bool {
         }),
         AttrValue::Expr(code) | AttrValue::Spread(code) => fragment_awaits(code),
         AttrValue::Boolean => false,
-        AttrValue::Classes(terms) => terms.iter().any(|t| match t {
-            ClassTerm::Expr(code) => fragment_awaits(code),
-            ClassTerm::Nothing => false,
-            ClassTerm::Cond { when, .. } => fragment_awaits(when),
+        AttrValue::Tokens(terms) => terms.iter().any(|t| match t {
+            TokenTerm::Expr(code) => fragment_awaits(code),
+            TokenTerm::Nothing => false,
+            TokenTerm::Cond { when, .. } => fragment_awaits(when),
         }),
-        AttrValue::Data(terms) => terms.iter().any(|t| match t {
-            DataTerm::Expr(code) => fragment_awaits(code),
-            DataTerm::Nothing => false,
-            DataTerm::Pair { value, .. } => fragment_awaits(value),
+        AttrValue::Attrs(terms) => terms.iter().any(|t| match t {
+            AttrTerm::Expr(code) => fragment_awaits(code),
+            AttrTerm::Nothing => false,
+            AttrTerm::Pair { value, .. } => fragment_awaits(value),
         }),
     }
 }

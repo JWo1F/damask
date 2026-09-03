@@ -50,9 +50,9 @@ comment passes through to the output.
 | `attr={expr}` | the value asks its type how to appear (`Attr`) |
 | `attr="text {expr}"` | interpolating string |
 | `attr` | boolean attribute, always on |
-| `class=[…]`, `class={ "n": cond }` | class list, class map |
-| `class:name={cond}` | class directive, which wins over the list |
-| `data={expr}`, `data=[…]`, `data={ "k": v }` | one value expanded into `data-*` attributes (`DataItem`) |
+| `attr={@tokens(…)}` | a space-separated value, assembled from parts (`TokenItem`) |
+| `class:name={cond}` | class directive, which wins over whatever `class` produced |
+| `attr={@attrs(…)}` | one set expanded into a run of `attr-*` attributes (`AttrSet`) |
 | `{...expr}` | attribute spread (`AttrSpread`), HTML elements only |
 
 Void elements — `<br>`, `<input>`, `<img>` and friends — need no end tag. A
@@ -76,8 +76,8 @@ at the end tag.
 | `Slots`, `Slot`, `DEFAULT_SLOT` | filling slots from Rust |
 | `fragment(f)`, `Fragment` | a closure as renderable content |
 | `fragment_async(f)`, `AsyncFragment` | the same, returning a future |
-| `Attr`, `AttrSpread`, `ClassItem`, `ClassList` | how values become attributes |
-| `DataItem`, `DataValue`, `DataSet` | how one value becomes a run of `data-*` attributes |
+| `Attr`, `AttrSpread`, `TokenItem`, `TokenList` | how values become attributes |
+| `AttrSet`, `IntoAttrValue`, `Attrs` | how one set becomes a run of `name-*` attributes |
 | `as_display` | widen a reference to `&dyn Display` |
 
 `use damask::prelude::*;` brings in the common set.

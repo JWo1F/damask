@@ -1,11 +1,13 @@
-//! What an attribute value may be, and how a class list or data set is built.
+//! What an attribute value may be, and how the two helpers build one.
 //!
 //! Three seams live here. [`Attr`] decides how `name={expr}` reaches the output —
 //! including whether it reaches it at all, which is how a `bool` renders a bare
-//! `disabled` and an `Option` renders nothing. [`ClassList`] backs the richer
-//! `class` forms, where the value is a set of names assembled from parts rather
-//! than one string. [`DataSet`] backs the `data` forms, where one value expands
-//! into a run of `data-*` attributes.
+//! `disabled` and an `Option` renders nothing. [`TokenList`] backs
+//! `name={@tokens(…)}`, where the value is a set of names assembled from parts
+//! rather than one string. [`Attrs`] backs `name={@attrs(…)}`, where one set
+//! expands into a run of `name-*` attributes — and is the same bag a
+//! `#[prop(rest)]` field carries, since both are name/value pairs waiting to be
+//! written.
 
 use crate::Renderer;
 use std::borrow::Cow;
@@ -34,7 +36,7 @@ pub trait Attr {
 /// whitespace, and `" ' > / =` — widened by `<` and `&`, which no name a
 /// template should be writing needs.
 ///
-/// This is the check [`DataSet`] and the key/value [`AttrSpread`] apply to
+/// This is the check [`Attrs`] and the key/value [`AttrSpread`] apply to
 /// every key they are given; it is public so that an `AttrSpread` of your own
 /// can apply the same one.
 pub fn is_attr_name_safe(name: &str) -> bool {
@@ -222,17 +224,19 @@ impl<K: AsRef<str>, V: AsRef<str>> AttrSpread for Vec<(K, V)> {
     }
 }
 
-/// A set of class names, assembled then written once.
+/// A set of space-separated tokens, assembled then written once.
 ///
-/// Ordered by first mention and deduplicated, which is what makes the `class:`
-/// directives able to override the base list: adding a name already present is
-/// a no-op, and removing one removes it wherever it came from.
+/// What `{@tokens(…)}` builds, on whatever attribute it was written: a `class`,
+/// a `rel`, a `sandbox`. Ordered by first mention and deduplicated, which is
+/// what makes the `class:` directives able to override the base list: adding a
+/// name already present is a no-op, and removing one removes it wherever it
+/// came from.
 #[derive(Debug, Default, Clone)]
-pub struct ClassList {
+pub struct TokenList {
     names: Vec<String>,
 }
 
-impl ClassList {
+impl TokenList {
     pub fn new() -> Self {
         Self::default()
     }
@@ -269,7 +273,17 @@ impl ClassList {
         self.names.join(" ")
     }
 
-    /// Writes ` class="…"`, or nothing when the list came out empty — an empty
+    /// The value, or `None` when the list came out empty — the same decision
+    /// [`TokenList::write_attr`] makes, for the places that hold a value before
+    /// writing it: a component's prop, or the bag a call site fills.
+    pub fn into_value(self) -> Option<String> {
+        match self.names.is_empty() {
+            true => None,
+            false => Some(self.names.join(" ")),
+        }
+    }
+
+    /// Writes ` name="…"`, or nothing when the list came out empty — an empty
     /// `class` attribute says nothing that its absence does not.
     pub fn write_attr(&self, name: &str, r: &mut dyn Renderer) {
         if !self.is_empty() {
@@ -278,288 +292,68 @@ impl ClassList {
     }
 }
 
-/// Something that can contribute to a [`ClassList`].
+/// Something that can contribute to a [`TokenList`].
 ///
-/// The `Option` impl is why `[Some("a"), None, "b"]` type-checks item by item:
-/// each entry is lowered to its own call, so the items need no common type.
-pub trait ClassItem {
-    fn add_to(&self, list: &mut ClassList);
+/// The `Option` impl is why `@tokens(Some("a"), None, "b")` type-checks item by
+/// item: each entry is lowered to its own call, so the entries need no common
+/// type. The slice impls are why a `Vec<String>` of names can be one entry.
+pub trait TokenItem {
+    fn add_to(&self, list: &mut TokenList);
 }
 
-impl<T: ClassItem + ?Sized> ClassItem for &T {
-    fn add_to(&self, list: &mut ClassList) {
+impl<T: TokenItem + ?Sized> TokenItem for &T {
+    fn add_to(&self, list: &mut TokenList) {
         (**self).add_to(list);
     }
 }
 
-impl<T: ClassItem> ClassItem for Option<T> {
-    fn add_to(&self, list: &mut ClassList) {
+impl<T: TokenItem> TokenItem for Option<T> {
+    fn add_to(&self, list: &mut TokenList) {
         if let Some(item) = self {
             item.add_to(list);
         }
     }
 }
 
-impl ClassItem for str {
-    fn add_to(&self, list: &mut ClassList) {
+impl TokenItem for str {
+    fn add_to(&self, list: &mut TokenList) {
         list.add(self);
     }
 }
 
-impl ClassItem for String {
-    fn add_to(&self, list: &mut ClassList) {
+impl TokenItem for String {
+    fn add_to(&self, list: &mut TokenList) {
         list.add(self);
     }
 }
 
-impl ClassItem for Cow<'_, str> {
-    fn add_to(&self, list: &mut ClassList) {
+impl TokenItem for Cow<'_, str> {
+    fn add_to(&self, list: &mut TokenList) {
         list.add(self.as_ref());
     }
 }
 
-/// A set of `data-*` attributes, assembled then written once.
-///
-/// Keyed rather than ordered like [`ClassList`], because a data attribute
-/// carries a value: a key mentioned twice keeps the **first position** it was
-/// given and takes the **last value**, which is what lets `data=[base, extra]`
-/// mean that `extra` overrides `base` without reshuffling the output.
-///
-/// A key is the part *after* `data-` — `"controller"` writes
-/// `data-controller` — and is never rewritten on the way out, so
-/// `"user_id"` stays `data-user_id`. One that could not be written safely is
-/// dropped; see [`is_attr_name_safe`].
-#[derive(Debug, Default, Clone)]
-pub struct DataSet {
-    /// `None` is a bare attribute — the same distinction [`Attr`] draws for
-    /// `bool`, kept here rather than collapsed to a `"true"` string so that the
-    /// two forms cannot drift apart.
-    entries: Vec<(String, Option<String>)>,
-}
-
-impl DataSet {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Sets `key` to `value`, written as ` data-key="value"`.
-    pub fn insert(&mut self, key: &str, value: impl Into<String>) {
-        self.put(key, Some(value.into()));
-    }
-
-    /// Sets `key` with no value, written as a bare ` data-key`.
-    pub fn insert_bare(&mut self, key: &str) {
-        self.put(key, None);
-    }
-
-    /// Drops `key`, whatever set it.
-    pub fn remove(&mut self, key: &str) {
-        self.entries.retain(|(seen, _)| seen != key);
-    }
-
-    fn put(&mut self, key: &str, value: Option<String>) {
-        if !is_attr_name_safe(key) {
-            debug_assert!(false, "`{key}` is not usable as a data attribute name");
-            return;
-        }
-        match self.entries.iter_mut().find(|(seen, _)| seen == key) {
-            Some(entry) => entry.1 = value,
-            None => self.entries.push((key.to_string(), value)),
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// Writes every entry as ` data-key="value"`, or a bare ` data-key`.
-    pub fn write_attrs(&self, r: &mut dyn Renderer) {
-        for (key, value) in &self.entries {
-            r.write_raw(" data-");
-            r.write_escaped(&key.as_str());
-            if let Some(value) = value {
-                r.write_raw("=\"");
-                r.write_escaped(&value.as_str());
-                r.write_raw("\"");
-            }
+/// A list of tokens is one entry, so a `Vec<String>` assembled in Rust needs no
+/// joining on the way in.
+impl<T: TokenItem> TokenItem for [T] {
+    fn add_to(&self, list: &mut TokenList) {
+        for item in self {
+            item.add_to(list);
         }
     }
 }
 
-/// So a set built in Rust can also be spliced with `{...expr}`.
-impl AttrSpread for DataSet {
-    fn write_attrs(&self, r: &mut dyn Renderer) {
-        DataSet::write_attrs(self, r);
-    }
-
-    fn write_attrs_except(&self, taken: &[&str], r: &mut dyn Renderer) {
-        for (key, value) in &self.entries {
-            if taken
-                .iter()
-                .any(|name| name.strip_prefix("data-") == Some(key.as_str()))
-            {
-                continue;
-            }
-            r.write_raw(" data-");
-            r.write_escaped(&key.as_str());
-            if let Some(value) = value {
-                r.write_raw("=\"");
-                r.write_escaped(&value.as_str());
-                r.write_raw("\"");
-            }
-        }
+impl<T: TokenItem, const N: usize> TokenItem for [T; N] {
+    fn add_to(&self, list: &mut TokenList) {
+        self.as_slice().add_to(list);
     }
 }
 
-/// Something that can contribute whole entries to a [`DataSet`].
-///
-/// This is the seam that makes `data={expr}` broad: a map, an ordered pair
-/// list, an `Option` of either, or a type of your own that knows which
-/// attributes it wants. Each entry of a `data=[…]` list is lowered to its own
-/// `add_to` call, so entries need no common type.
-///
-/// There is deliberately no impl for a bare string. A string carries names but
-/// no values, which is what a class list is made of; a data set is made of
-/// pairs, and there is no reading of `"a b"` as one that would not be a guess.
-pub trait DataItem {
-    fn add_to(&self, set: &mut DataSet);
-}
-
-impl<T: DataItem + ?Sized> DataItem for &T {
-    fn add_to(&self, set: &mut DataSet) {
-        (**self).add_to(set);
+impl<T: TokenItem> TokenItem for Vec<T> {
+    fn add_to(&self, list: &mut TokenList) {
+        self.as_slice().add_to(list);
     }
 }
-
-impl<T: DataItem> DataItem for Option<T> {
-    fn add_to(&self, set: &mut DataSet) {
-        if let Some(item) = self {
-            item.add_to(set);
-        }
-    }
-}
-
-impl DataItem for DataSet {
-    fn add_to(&self, set: &mut DataSet) {
-        for (key, value) in &self.entries {
-            set.put(key, value.clone());
-        }
-    }
-}
-
-impl<K: AsRef<str>, V: DataValue> DataItem for [(K, V)] {
-    fn add_to(&self, set: &mut DataSet) {
-        for (key, value) in self {
-            value.add_to(key.as_ref(), set);
-        }
-    }
-}
-
-impl<K: AsRef<str>, V: DataValue, const N: usize> DataItem for [(K, V); N] {
-    fn add_to(&self, set: &mut DataSet) {
-        self.as_slice().add_to(set);
-    }
-}
-
-impl<K: AsRef<str>, V: DataValue> DataItem for Vec<(K, V)> {
-    fn add_to(&self, set: &mut DataSet) {
-        self.as_slice().add_to(set);
-    }
-}
-
-impl<K: AsRef<str>, V: DataValue> DataItem for BTreeMap<K, V> {
-    fn add_to(&self, set: &mut DataSet) {
-        for (key, value) in self {
-            value.add_to(key.as_ref(), set);
-        }
-    }
-}
-
-/// Visited in key order rather than the map's own, because a `HashMap` has no
-/// stable one — the same render would otherwise emit the same attributes in a
-/// different order each run, which no snapshot test or cache could live with.
-impl<K: AsRef<str>, V: DataValue, S> DataItem for HashMap<K, V, S> {
-    fn add_to(&self, set: &mut DataSet) {
-        let mut pairs: Vec<(&str, &V)> = self.iter().map(|(k, v)| (k.as_ref(), v)).collect();
-        pairs.sort_by_key(|(key, _)| *key);
-        for (key, value) in pairs {
-            value.add_to(key, set);
-        }
-    }
-}
-
-/// How one value in a data set appears — or declines to.
-///
-/// The mirror of [`Attr`], one level down: where `Attr` decides how a whole
-/// attribute reaches the tag, this decides how a single entry reaches the set,
-/// and it answers the two questions the same way. A `bool` renders a bare
-/// `data-open` when true and nothing when false, and an `Option` renders
-/// nothing when `None`. It is a separate trait only because a set has to be
-/// assembled before it is written, and `Attr` writes as it goes.
-pub trait DataValue {
-    fn add_to(&self, key: &str, set: &mut DataSet);
-}
-
-impl<T: DataValue + ?Sized> DataValue for &T {
-    fn add_to(&self, key: &str, set: &mut DataSet) {
-        (**self).add_to(key, set);
-    }
-}
-
-impl<T: DataValue> DataValue for Option<T> {
-    fn add_to(&self, key: &str, set: &mut DataSet) {
-        if let Some(value) = self {
-            value.add_to(key, set);
-        }
-    }
-}
-
-/// A bare data attribute: present when true, absent when false.
-///
-/// The same rule as [`Attr for bool`](Attr#impl-Attr-for-bool), so a flag means
-/// one thing across the whole template language. Note that a bare `data-open`
-/// reaches JavaScript as `el.dataset.open === ""`, which is falsy — read
-/// presence with `in`, or carry `"true"` as a string when a script wants to
-/// test the value.
-impl DataValue for bool {
-    fn add_to(&self, key: &str, set: &mut DataSet) {
-        if *self {
-            set.insert_bare(key);
-        }
-    }
-}
-
-impl DataValue for str {
-    fn add_to(&self, key: &str, set: &mut DataSet) {
-        set.insert(key, self);
-    }
-}
-
-impl DataValue for String {
-    fn add_to(&self, key: &str, set: &mut DataSet) {
-        set.insert(key, self.as_str());
-    }
-}
-
-impl DataValue for Cow<'_, str> {
-    fn add_to(&self, key: &str, set: &mut DataSet) {
-        set.insert(key, self.as_ref());
-    }
-}
-
-macro_rules! data_value_via_display {
-    ($($t:ty),* $(,)?) => {$(
-        impl DataValue for $t {
-            fn add_to(&self, key: &str, set: &mut DataSet) {
-                set.insert(key, self.to_string());
-            }
-        }
-    )*};
-}
-
-data_value_via_display!(
-    char, u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, f32, f64
-);
 
 /// What one attribute holds — the three outcomes [`Attr`] already draws,
 /// named so that they can be *stored* rather than written straight out.
@@ -651,7 +445,7 @@ macro_rules! attr_value_via_display {
 }
 
 attr_value_via_display!(
-    u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, f32, f64
+    char, u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, f32, f64
 );
 
 /// The attributes a component was given that it does not name.
@@ -671,8 +465,8 @@ attr_value_via_display!(
 ///
 /// # What is in it
 ///
-/// Name/value pairs, and only pairs. They are keyed the way [`DataSet`] is: a
-/// name given twice keeps its **first position** and takes its **last value**,
+/// Name/value pairs, and only pairs. A name given twice keeps its **first
+/// position** and takes its **last value**,
 /// so a component that fills in a default can be overridden without the output
 /// reshuffling. A name that could not be written safely is dropped; see
 /// [`is_attr_name_safe`].
@@ -757,6 +551,27 @@ impl Attrs {
         other.add_attrs(self);
     }
 
+    /// Writes every entry as ` <prefix>-<name>="value"`, or a bare
+    /// ` <prefix>-<name>` — what `{@attrs(…)}` lowers to, where the prefix is
+    /// the attribute the helper was written on.
+    ///
+    /// The prefix is template source, and each name was checked when it went in
+    /// (see [`is_attr_name_safe`]), so what is joined here cannot end the name
+    /// and begin a second attribute.
+    pub fn write_attrs_prefixed(&self, prefix: &str, r: &mut dyn Renderer) {
+        for (name, value) in &self.entries {
+            r.write_raw(" ");
+            r.write_escaped(&prefix);
+            r.write_raw("-");
+            r.write_escaped(&name.as_ref());
+            if let Some(value) = value {
+                r.write_raw("=\"");
+                r.write_escaped(&value.as_ref());
+                r.write_raw("\"");
+            }
+        }
+    }
+
     fn put(&mut self, name: Cow<'static, str>, value: Option<Cow<'static, str>>) {
         if !is_attr_name_safe(&name) {
             debug_assert!(false, "`{name}` is not usable as an attribute name");
@@ -794,9 +609,9 @@ impl AttrSpread for Attrs {
 /// Something that can contribute whole entries to an [`Attrs`].
 ///
 /// The seam a `#[prop(rest)]` field is filled through: `attrs={…}` written at a
-/// call site, and `{...expr}` spread onto a component. The same shape as
-/// [`DataItem`], and for the same reason — a set is read from a reference and
-/// folded in, rather than moved out of the component holding it.
+/// call site, `{...expr}` spread onto a component, and every positional entry
+/// of `{@attrs(…)}`. A set is read from a reference and folded in, rather than
+/// moved out of the component holding it.
 ///
 /// Notably *not* implemented for strings. A string is markup, and this bag
 /// holds pairs it escapes one at a time; the diagnostic below is what the older
@@ -854,6 +669,27 @@ impl<K: AsRef<str>, V: IntoAttrValue + Clone> AttrSet for Vec<(K, V)> {
     }
 }
 
+impl<K: AsRef<str>, V: IntoAttrValue + Clone> AttrSet for BTreeMap<K, V> {
+    fn add_attrs(&self, attrs: &mut Attrs) {
+        for (name, value) in self {
+            attrs.insert(name.as_ref().to_string(), value.clone());
+        }
+    }
+}
+
+/// Visited in key order rather than the map's own, because a `HashMap` has no
+/// stable one — the same render would otherwise emit the same attributes in a
+/// different order each run, which no snapshot test or cache could live with.
+impl<K: AsRef<str>, V: IntoAttrValue + Clone, S> AttrSet for HashMap<K, V, S> {
+    fn add_attrs(&self, attrs: &mut Attrs) {
+        let mut pairs: Vec<(&str, &V)> = self.iter().map(|(k, v)| (k.as_ref(), v)).collect();
+        pairs.sort_by_key(|(name, _)| *name);
+        for (name, value) in pairs {
+            attrs.insert(name.to_string(), value.clone());
+        }
+    }
+}
+
 impl<K: Into<Cow<'static, str>>, V: IntoAttrValue> FromIterator<(K, V)> for Attrs {
     fn from_iter<I: IntoIterator<Item = (K, V)>>(pairs: I) -> Self {
         let mut attrs = Attrs::new();
@@ -875,10 +711,11 @@ mod tests {
         Box::new(r).finish()
     }
 
-    fn rendered(item: &dyn DataItem) -> String {
-        let mut set = DataSet::new();
-        item.add_to(&mut set);
-        write(|r| set.write_attrs(r))
+    /// A set as `{@attrs(…)}` writes it, under the prefix a `data=` would give.
+    fn rendered(item: &dyn AttrSet) -> String {
+        let mut set = Attrs::new();
+        item.add_attrs(&mut set);
+        write(|r| set.write_attrs_prefixed("data", r))
     }
 
     #[test]
@@ -921,14 +758,17 @@ mod tests {
         assert_eq!(rendered(&[("sep", ',')]), r#" data-sep=",""#);
     }
 
-    /// The rule that makes `data=[base, extra]` mean "extra overrides base":
+    /// The rule that makes `@attrs(base, extra)` mean "extra overrides base":
     /// the later value wins, and the key stays where it was first mentioned.
     #[test]
     fn a_repeated_key_keeps_its_place_and_takes_the_last_value() {
-        let mut set = DataSet::new();
-        [("a", "1"), ("b", "2")].add_to(&mut set);
-        [("a", "9")].add_to(&mut set);
-        assert_eq!(write(|r| set.write_attrs(r)), r#" data-a="9" data-b="2""#);
+        let mut set = Attrs::new();
+        [("a", "1"), ("b", "2")].add_attrs(&mut set);
+        [("a", "9")].add_attrs(&mut set);
+        assert_eq!(
+            write(|r| set.write_attrs_prefixed("data", r)),
+            r#" data-a="9" data-b="2""#
+        );
     }
 
     #[test]
@@ -941,18 +781,21 @@ mod tests {
 
     #[test]
     fn a_set_can_be_spread_and_folded_into_another() {
-        let mut base = DataSet::new();
+        let mut base = Attrs::new();
         base.insert("controller", "modal");
         base.insert_bare("open");
         assert_eq!(
-            write(|r| AttrSpread::write_attrs(&base, r)),
+            write(|r| base.write_attrs_prefixed("data", r)),
             r#" data-controller="modal" data-open"#
         );
 
-        let mut set = DataSet::new();
-        base.add_to(&mut set);
+        let mut set = Attrs::new();
+        base.add_attrs(&mut set);
         set.remove("open");
-        assert_eq!(write(|r| set.write_attrs(r)), r#" data-controller="modal""#);
+        assert_eq!(
+            write(|r| set.write_attrs_prefixed("data", r)),
+            r#" data-controller="modal""#
+        );
     }
 
     /// Escaping is a value's defence and cannot be a name's — a space in a key

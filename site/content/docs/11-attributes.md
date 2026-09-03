@@ -91,9 +91,9 @@ value stays exactly its type. See [Props](/docs/props/).
 `Option<T>` and `&T` where `T: AttrSpread`
 : `None` writes nothing; a reference writes what it points at.
 
-`DataSet`
-: The set the [`data`](/docs/data-attributes/) forms build, so one assembled in
-  Rust can be spliced rather than passed as a prop.
+`Attrs` (again)
+: The bag [`{@attrs(…)}`](/docs/attribute-groups/) builds is the same type, so a
+  set assembled in Rust can be spliced rather than passed as a prop.
 
 `Attrs`
 : The bag a component collects the attributes it does not name into. See
@@ -166,18 +166,23 @@ escaped**: control characters, whitespace, `" ' > / =`, and `< &`.
 pub fn is_attr_name_safe(name: &str) -> bool;
 ```
 
-The key/value `AttrSpread` and every [`data`](/docs/data-attributes/) key are
-held to this. A name that fails it is dropped, and trips a `debug_assert` — loud
-in a debug build, where it can be fixed, and harmless in a release one, where it
-cannot. Names you write in the template are unaffected: the parser would not have
-accepted one.
+The key/value `AttrSpread` and every key an
+[`{@attrs(…)}`](/docs/attribute-groups/) collects at run time are held to this. A
+name that fails it is dropped, and trips a `debug_assert` — loud in a debug
+build, where it can be fixed, and harmless in a release one, where it cannot. A
+key you write in the template is checked earlier still: the parser refuses it,
+so it is a build error rather than an attribute that quietly goes missing.
 
-## `class` and `data` are the exceptions
+## The two helpers
 
-`class` accepts three further forms of its own, and a `class:name` directive that
-overrules them. See [Class lists](/docs/class-lists/).
+No attribute is a special case. What a value does beyond `{expr}` is asked for by
+a helper, and either helper may be written on any attribute:
 
-`data` accepts an expression, a list and a map, and expands into a run of
-`data-*` attributes. See [Data attributes](/docs/data-attributes/).
+`{@tokens(…)}` assembles one space-separated value out of parts that each decide
+whether they appear. See [Token lists](/docs/token-lists/).
 
-Any other attribute given a class list or a data map is an error.
+`{@attrs(…)}` expands one set into a run of `<name>-*` attributes. See
+[Attribute groups](/docs/attribute-groups/).
+
+The one attribute whose *name* still means something is `class:name`, the
+directive that overrules whatever `class` produced.

@@ -151,62 +151,70 @@ impl Default for Theme { /* accent: "indigo", label: "Theme", dense: false */ }
 <Theme label="Compact"/>        <!-- accent and dense from Default -->
 ```
 
-### Class lists
+### `@tokens` — a space-separated value
 
-`class` takes three further forms (`data`, below, takes the list and the map for
-a different job; nothing else takes either):
+Written on any attribute; nothing is keyed to a name.
 
 ```html
-<div class="a b"                                  <!-- as ever, interpolating -->
-     class=[self.extra, None, "b", { "c": cond }] <!-- list; None is dropped -->
-     class:c={cond}>                              <!-- directive; wins over the above -->
+<div class="a b"                                          <!-- as ever, interpolating -->
+     class={@tokens(self.extra, None, "b", "c": cond)}    <!-- entries; None is dropped -->
+     class:c={cond}>                                      <!-- directive; wins over the above -->
+<a rel={@tokens("noopener", external: self.away)}>
 ```
 
-- List entries are strings, `Option`s of them, or a `{ "name": cond }` map. A
-  literal `None` is dropped at compile time (a bare `None` has no type to infer).
-- `class={ "c": cond }` is the map alone; it is told from an ordinary
-  `class={expr}` by a top-level `:` that is not part of a `::` path.
+- `TokenItem` — what a positional entry implements: `str`/`String`/`Cow`,
+  slices, arrays and `Vec` of them, `Option<T>`, `&T`. A literal `None` is
+  dropped at compile time (a bare `None` has no type to infer). A string
+  contributes every whitespace-separated name in it.
+- `name: cond` adds the name while `cond` holds. The name is a bare identifier
+  or a string for anything an identifier cannot spell — `"md:px-3": cond`,
+  `"w-1/2": cond`.
 - `class:name={cond}` adds or removes one name and **takes precedence** over
-  whatever the list produced. A bare `class:name` is always on.
-- Names dedupe, keep first-mention order, and an empty result omits `class`.
+  whatever the helper produced. A bare `class:name` is always on. It is the last
+  attribute whose *name* means anything.
+- Names dedupe, keep first-mention order, and an empty result omits the
+  attribute.
+- On a component prop `@tokens` is fine — it yields a `String`.
 
 > **CSS scanners and `class:`.** A directive puts the class name in the
 > *attribute name* (`class:animate-pulse`), where Tailwind and friends do not
 > look — the rule gets compiled out of your stylesheet. When a class has to be
-> discoverable by a scanner, use the map form, whose names are ordinary strings:
-> `class={ "animate-pulse": cond }`.
+> discoverable by a scanner, put it in the helper, where names are ordinary
+> strings: `class={@tokens("animate-pulse": cond)}`.
 
-### Data attributes
+### `@attrs` — a run of `<name>-*` attributes
 
-`data` expands **one value into a run of `data-*` attributes**, as a Rails view
-does with `data: { … }`:
+The prefix is the attribute the helper is written on, so `data` is one use of it
+and `aria` is another:
 
 ```html
-<div data={self.hooks()}                              <!-- any DataItem -->
-     data=[self.base(), { "open": self.open }]        <!-- list; later wins -->
-     data={ "controller": "modal", "index": self.i }> <!-- map -->
+<div data={@attrs(self.hooks(), controller: "modal", index: self.i)}
+     aria={@attrs(label: self.title, expanded: self.open.to_string())}>
 ```
 
-- `DataItem` — what a whole source implements: `[(K, V)]`/`Vec`/array where
+- `AttrSet` — what a positional entry implements: `[(K, V)]`/`Vec`/array where
   `K: AsRef<str>`, `HashMap` (visited in key order, so output is stable),
-  `BTreeMap`, `DataSet`, `Option<T>`, `&T`. **Not** a bare string: a data set is
-  made of pairs. A literal `None` in a list is dropped at compile time.
-- `DataValue` — what one value implements, mirroring `Attr` one level down:
+  `BTreeMap`, `Attrs`, `Option<T>`, `&T`. **Not** a bare string: a set is made
+  of pairs. A literal `None` is dropped at compile time.
+- `IntoAttrValue` — what one value implements, mirroring `Attr` one level down:
   `bool` gives a bare ` data-key` when true and **nothing** when false;
   `Option<T>` gives nothing when `None`; strings, numbers and `char` give
-  ` data-key="escaped"`.
-- Keys are **verbatim**, not dasherized: `"user_id"` is `data-user_id`. A key
-  that could not be written safely (whitespace, `=`, quotes …) is dropped.
+  ` data-key="escaped"`. Note that this makes `aria={@attrs(expanded: flag)}`
+  wrong for ARIA, which wants `"true"`/`"false"` — write the string.
+- Keys are **verbatim**, not dasherized: `user_id` is `data-user_id`. A key is a
+  bare identifier or a string, and one that could not be written safely
+  (whitespace, `=`, quotes …) is a compile error, because escaping cannot make a
+  *name* safe.
 - A key mentioned twice keeps its **first position** and takes the **last
-  value**, which is what makes `data=[base, extra]` mean "extra overrides base".
-- Longhand `data-*` attributes beside a `data` value are ordinary attributes and
-  are not merged into the set.
+  value**, which is what makes `@attrs(base, extra)` mean "extra overrides base".
+- Longhand `data-*` attributes beside a group are ordinary attributes and are
+  not merged into it.
 
-> **A quoted `data="…"` does not expand** — it is the ordinary attribute it has
-> always been, which is what leaves `<object data="movie.swf">` working. Write a
-> dynamic one as `data="{self.url}"`. On a *component*, `data` is an ordinary
-> prop, so `data={expr}` passes the value through; `data=[…]` and the map form
-> are errors there, as `class=[…]` is.
+> **No attribute expands by itself.** `data="movie.swf"` and `data={self.url}`
+> are the ordinary attribute they look like — which is what leaves `<object>`
+> working — and on a component `data={expr}` is an ordinary prop. `@attrs` on a
+> component prop is an error: it writes attribute *names*, and a set a component
+> cannot name reaches it through `{...expr}`.
 
 ### Spreading attributes
 

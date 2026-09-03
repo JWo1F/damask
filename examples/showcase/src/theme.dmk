@@ -1,1 +1,1 @@
-<span class=[self.accent, { "dense": self.dense }]>{self.label}</span>
+<span class={@tokens(self.accent, "dense": self.dense)}>{self.label}</span>

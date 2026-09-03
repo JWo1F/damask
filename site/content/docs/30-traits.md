@@ -157,10 +157,10 @@ use damask::prelude::*;
 Brings in `Component` (trait and derive), `Render`, `Renderer`, `Slot`, `Slots`,
 `DEFAULT_SLOT`, `fragment`, `HtmlRenderer`, `StringRenderer`, `Whitespace`, the
 async set `AsyncComponent`, `AsyncRender`, `RenderFuture` and `fragment_async`,
-and the attribute traits `Attr`, `AttrSpread`, `ClassItem`, `ClassList`,
-`DataItem`, `DataSet`, `DataValue`.
+and the attribute traits `Attr`, `AttrSpread`, `AttrSet`, `Attrs`,
+`IntoAttrValue`, `TokenItem`, `TokenList`.
 
 The attribute traits are documented where the syntax they back is: `Attr` and
-`AttrSpread` in [Attributes](/docs/attributes/), `ClassItem` and `ClassList` in
-[Class lists](/docs/class-lists/), `DataItem`, `DataValue` and `DataSet` in
-[Data attributes](/docs/data-attributes/).
+`AttrSpread` in [Attributes](/docs/attributes/), `TokenItem` and `TokenList` in
+[Token lists](/docs/token-lists/), `AttrSet`, `IntoAttrValue` and `Attrs` in
+[Attribute groups](/docs/attribute-groups/).

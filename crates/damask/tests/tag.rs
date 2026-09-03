@@ -98,11 +98,11 @@ fn class_takes_the_three_forms_a_template_takes() {
         r#"<div class="card wide"></div>"#
     );
     assert_eq!(
-        tag!(div, class: ["card", active.then_some("is-active"), None::<&str>]).as_str(),
+        tag!(div, class: @tokens("card", active.then_some("is-active"), None::<&str>)).as_str(),
         r#"<div class="card is-active"></div>"#
     );
     assert_eq!(
-        tag!(div, class: { "is-active": active, "is-muted": !active }).as_str(),
+        tag!(div, class: @tokens("is-active": active, "is-muted": !active)).as_str(),
         r#"<div class="is-active"></div>"#
     );
 }
@@ -110,7 +110,7 @@ fn class_takes_the_three_forms_a_template_takes() {
 #[test]
 fn a_class_named_twice_appears_once() {
     assert_eq!(
-        tag!(div, class: ["card", "card wide"]).as_str(),
+        tag!(div, class: @tokens("card", "card wide")).as_str(),
         r#"<div class="card wide"></div>"#
     );
 }
@@ -118,7 +118,7 @@ fn a_class_named_twice_appears_once() {
 #[test]
 fn a_data_boolean_is_bare_or_absent_as_it_is_in_a_template() {
     assert_eq!(
-        tag!(div, data: { par1: true, par2: false }).as_str(),
+        tag!(div, data: @attrs(par1: true, par2: false)).as_str(),
         "<div data-par1></div>"
     );
 }
@@ -126,7 +126,7 @@ fn a_data_boolean_is_bare_or_absent_as_it_is_in_a_template() {
 #[test]
 fn a_data_key_is_taken_as_written() {
     assert_eq!(
-        tag!(div, data: { user_id: 7, "row-index": 2 }).as_str(),
+        tag!(div, data: @attrs(user_id: 7, "row-index": 2)).as_str(),
         r#"<div data-user_id="7" data-row-index="2"></div>"#
     );
 }
@@ -135,7 +135,7 @@ fn a_data_key_is_taken_as_written() {
 fn data_takes_a_whole_set_too() {
     let extra = [("controller", "modal"), ("action", "click->modal#close")];
     assert_eq!(
-        tag!(div, data: extra).as_str(),
+        tag!(div, data: @attrs(extra)).as_str(),
         r#"<div data-controller="modal" data-action="click-&gt;modal#close"></div>"#
     );
 }
@@ -143,7 +143,7 @@ fn data_takes_a_whole_set_too() {
 #[test]
 fn attributes_are_written_in_the_order_they_are_given() {
     assert_eq!(
-        tag!(div, class: "a", data: { x: 1 }, title: "t").as_str(),
+        tag!(div, class: "a", data: @attrs(x: 1), title: "t").as_str(),
         r#"<div class="a" data-x="1" title="t"></div>"#
     );
 }

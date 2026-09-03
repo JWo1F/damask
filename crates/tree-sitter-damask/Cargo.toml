@@ -1,6 +1,6 @@
 [package]
 name = "tree-sitter-damask"
-description = "The Tree-sitter grammar for Damask templates, vendored for the website generator."
+description = "The Tree-sitter grammar for Damask templates, and the binding the website generator reads it through."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,8 +8,8 @@ repository.workspace = true
 authors.workspace = true
 rust-version.workspace = true
 # Not a release artifact: this crate exists so the site can highlight `.dmk`
-# with the same grammar the editors use. The grammar's own home is
-# https://github.com/JWo1F/tree-sitter-damask.
+# with the same grammar the editors use — `grammar/`, which Zed also compiles
+# (see editors/zed/extension.toml).
 publish = false
 
 [dependencies]

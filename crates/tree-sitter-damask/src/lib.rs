@@ -1,10 +1,10 @@
 //! The Tree-sitter grammar for Damask templates.
 //!
-//! The grammar is developed and released as its own repository — see
-//! `grammar/README.md` for the revision this copy was taken from. That
-//! repository ships no Rust bindings (editors compile `parser.c` themselves),
-//! so this crate is the binding: it compiles the committed parser and hands
-//! back the [`LanguageFn`] that `tree-sitter` wants.
+//! The grammar's source is `grammar/` beside this file — `grammar.js`, its
+//! generated `src/parser.c`, and the corpus that tests it. Editors compile
+//! `parser.c` themselves and want no Rust, so this crate is the binding: it
+//! compiles that same parser and hands back the [`LanguageFn`] that
+//! `tree-sitter` wants.
 //!
 //! The highlight and injection queries are *not* here. They live with the Zed
 //! extension, in `editors/zed/languages/damask/`, and the website reads them

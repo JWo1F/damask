@@ -255,48 +255,52 @@ pub enum AttrValue {
     /// responsible for its own escaping — which is why the trait is implemented
     /// for a key/value map and for `&'static str`, but not for `String`.
     Spread(Spanned),
-    /// A class list: `class=[…]` or `class={ "a": cond }`.
+    /// `name={@tokens(…)}` — a space-separated token list.
     ///
-    /// Only `class` parses this way. The forms are not Rust — `{ "a": cond }`
-    /// is neither a block nor a struct literal — so they are a grammar of their
-    /// own rather than an expression handed to the compiler, and giving every
-    /// attribute that grammar would make `foo={ … }` ambiguous for no gain.
-    Classes(Vec<ClassTerm>),
-    /// A data set: `data=[…]` or `data={ "k": value }`.
+    /// The helper, not the attribute name, is what asks for the list, so every
+    /// attribute takes one: `class`, `rel`, `sandbox`, `headers`. Names are
+    /// deduplicated, keep their first mention's order, and an empty result
+    /// omits the attribute.
+    Tokens(Vec<TokenTerm>),
+    /// `name={@attrs(…)}` — a run of `name-*` attributes.
     ///
-    /// Only `data` parses this way, for the same reason `class` does. A plain
-    /// `data={expr}` is *not* this — it parses as [`AttrValue::Expr`], because
-    /// on a component `data` is an ordinary prop and only lowering knows which
-    /// kind of element it landed on.
-    Data(Vec<DataTerm>),
+    /// `data={@attrs(controller: "modal")}` writes ` data-controller="modal"`,
+    /// and `aria={@attrs(label: self.title)}` writes ` aria-label="…"`. The
+    /// prefix is the attribute the helper was written on, so nothing here is
+    /// special to `data`.
+    Attrs(Vec<AttrTerm>),
 }
 
-/// One entry in a `class` list.
+/// One argument of `{@tokens(…)}`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ClassTerm {
-    /// A Rust expression yielding something string-ish, or an `Option` of one.
+pub enum TokenTerm {
+    /// A Rust expression yielding something string-ish, a list of them, or an
+    /// `Option` of either.
     Expr(Spanned),
     /// A literal `None`, which contributes nothing.
     ///
     /// Recognised as a token rather than evaluated: a bare `None` has no type
-    /// to infer from, so `[Some("a"), None]` would not compile if it were
-    /// lowered as an expression. Dropping it here is also what it means.
+    /// to infer from, so `@tokens(Some("a"), None)` would not compile if it
+    /// were lowered as an expression. Dropping it here is also what it means.
     Nothing,
-    /// `"name": cond` — the class is present while `cond` holds.
+    /// `name: cond` — the token is present while `cond` holds. The name is
+    /// written as a bare identifier or a string literal and is held here
+    /// unquoted, because it is text rather than Rust.
     Cond { name: Spanned, when: Spanned },
 }
 
-/// One entry in a `data` set.
+/// One argument of `{@attrs(…)}`.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DataTerm {
-    /// A Rust expression yielding something implementing `damask::DataItem` —
-    /// a map, a pair list, or an `Option` of one.
+pub enum AttrTerm {
+    /// A Rust expression yielding something implementing `damask::AttrSet` — a
+    /// map, a pair list, an `Attrs`, or an `Option` of any of them.
     Expr(Spanned),
-    /// A literal `None`, dropped for the same reason [`ClassTerm::Nothing`] is:
-    /// a bare `None` has no type to infer from.
+    /// A literal `None`, dropped for the same reason [`TokenTerm::Nothing`] is.
     Nothing,
-    /// `"key": value` — one attribute, named by `key` and rendered by `value`'s
-    /// `damask::DataValue` impl, which may decline to render it at all.
+    /// `key: value` — one attribute, named `<prefix>-<key>` and rendered by
+    /// `value`'s `damask::IntoAttrValue` impl, which may decline to render it
+    /// at all. The key is held unquoted: it is half of an attribute *name*, so
+    /// it is checked here rather than handed to the Rust compiler.
     Pair { key: Spanned, value: Spanned },
 }
 

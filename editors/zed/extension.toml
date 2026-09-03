@@ -1,17 +1,23 @@
 id = "damask"
 name = "Damask"
 description = "Syntax highlighting and language server for Damask templates (.dmk)"
-version = "0.2.0"
+version = "0.3.0"
 schema_version = 1
 authors = ["Damask contributors"]
 repository = "https://github.com/jwo1f/damask"
 
-# Zed fetches a grammar by cloning a repository at a pinned revision, so the
-# grammar is developed and released as its own repository rather than living
-# here. Bump `rev` to adopt grammar changes.
+# Zed fetches a grammar by cloning a repository at a pinned revision and looking
+# for `src/parser.c` under `path`. That `path` is what lets the grammar live in
+# this repository, beside the language server and the queries that consume it —
+# so a syntax change is one commit rather than two repositories kept in step.
+#
+# The rev must already be on `master` when it is written here: Zed clones the
+# repository, so a commit that exists only locally is a grammar Zed cannot
+# fetch. Grammar change first, then the rev bump that adopts it.
 [grammars.damask]
-repository = "https://github.com/JWo1F/tree-sitter-damask"
-rev = "30406e9d412da0a6d005fea865f9705baa34db93"
+repository = "https://github.com/JWo1F/damask"
+rev = "0000000000000000000000000000000000000000"
+path = "crates/tree-sitter-damask/grammar"
 
 [language_servers.damask-lsp]
 name = "Damask Language Server"

@@ -1,6 +1,6 @@
 use crate::{
-    Attr, AttrPart, AttrValue, ClassTerm, DataTerm, Element, ElementKind, ForNode, IfNode, Node,
-    SnippetNode, Span, Spanned, Template,
+    Attr, AttrPart, AttrTerm, AttrValue, Element, ElementKind, ForNode, IfNode, Node, SnippetNode,
+    Span, Spanned, Template, TokenTerm,
 };
 use std::fmt;
 
@@ -370,20 +370,38 @@ impl<'a> Parser<'a> {
             if self.pos < self.n && self.bytes[self.pos] == b'=' {
                 self.pos += 1;
                 self.skip_ws();
-                let is_class = name.as_str() == "class";
-                let is_data = name.as_str() == "data";
                 let value = match self.bytes.get(self.pos) {
                     Some(b'"') => AttrValue::Literal(self.parse_quoted(b'"')?),
                     Some(b'\'') => AttrValue::Literal(self.parse_quoted(b'\'')?),
-                    Some(b'[') if is_class => AttrValue::Classes(self.parse_class_list()?),
-                    Some(b'[') if is_data => AttrValue::Data(self.parse_data_list()?),
-                    Some(b'{') if is_class && self.brace_is_pair_map(self.pos) => {
-                        let inner = self.parse_brace_inner()?;
-                        AttrValue::Classes(parse_class_pairs(&inner)?)
+                    // `class=[…]` and `data=[…]` were lists of their own until
+                    // the helpers took the job over. The bracket has no other
+                    // meaning here, so it is worth a message that names the
+                    // replacement rather than "expected a value".
+                    Some(b'[') => {
+                        return Err(self.err_at(
+                            self.pos,
+                            format!(
+                                "`{0}=[…]` is no longer a list; write `{0}={{@tokens(…)}}`",
+                                name.as_str()
+                            ),
+                        ));
                     }
-                    Some(b'{') if is_data && self.brace_is_pair_map(self.pos) => {
-                        let inner = self.parse_brace_inner()?;
-                        AttrValue::Data(parse_data_pairs(&inner)?)
+                    Some(b'{') if self.brace_starts_helper(self.pos) => {
+                        self.parse_helper(name.as_str())?
+                    }
+                    // Likewise the `{ "key": value }` map. Rust has no
+                    // expression with a bare top-level colon, so nothing that
+                    // reaches this arm was meant as one.
+                    Some(b'{') if self.brace_is_pair_map(self.pos) => {
+                        return Err(self.err_at(
+                            self.pos,
+                            format!(
+                                "`{0}={{ \"key\": value }}` is no longer a map; write \
+                                 `{0}={{@attrs(…)}}` for a run of `{0}-*` attributes, or \
+                                 `{0}={{@tokens(…)}}` for a token list",
+                                name.as_str()
+                            ),
+                        ));
                     }
                     Some(b'{') => AttrValue::Expr(self.parse_brace_inner()?),
                     _ => {
@@ -500,68 +518,109 @@ impl<'a> Parser<'a> {
         top_level_colon(inner).is_some()
     }
 
-    /// Scan `[ item, item, … ]` at `pos` into its top-level items, each still a
-    /// raw slice. `label` names the attribute in the unclosed-bracket error.
-    fn parse_bracket_items(&mut self, label: &str) -> Result<Vec<Slice<'a>>, ParseError> {
+    /// Whether the `{ … }` at `open` opens an attribute helper — `{@tokens(…)}`
+    /// or `{@attrs(…)}` — rather than a Rust expression.
+    ///
+    /// `@` is the same mark `{@html …}` and `{@render …}` carry, and Rust has
+    /// no expression that starts with one, so the two cannot be confused.
+    fn brace_starts_helper(&self, open: usize) -> bool {
+        let Ok((inner, _)) = self.scan_braces(open) else {
+            return false;
+        };
+        inner.trim_start().starts_with('@')
+    }
+
+    /// Parse `{@tokens(…)}` or `{@attrs(…)}` as an attribute value. `pos` must
+    /// be at `{`, and `attr` names the attribute, for the errors.
+    fn parse_helper(&mut self, attr: &str) -> Result<AttrValue, ParseError> {
         let open = self.pos;
-        let inner_start = open + 1;
-        let mut i = inner_start;
-        let mut depth = 1usize;
-        while i < self.n {
-            match self.bytes[i] {
-                b'"' => i = scan_string(self.src, i),
-                b'\'' => i = scan_char(self.src, i),
-                b'[' => {
-                    depth += 1;
-                    i += 1;
-                }
-                b']' => {
-                    depth -= 1;
-                    if depth == 0 {
-                        break;
+        let inner = self.parse_brace_inner()?;
+        let body = Slice::new(inner.as_str(), inner.span.start);
+        // Past the `@`, which `brace_starts_helper` has already found.
+        let rest = Slice::new(&body.s[1..], body.start + 1).trim_start();
+        let end = rest
+            .s
+            .find(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+            .unwrap_or(rest.s.len());
+        let helper = &rest.s[..end];
+        if !matches!(helper, "tokens" | "attrs") {
+            return Err(self.err_at(
+                open,
+                format!(
+                    "unknown attribute helper `@{helper}`; the helpers are `@tokens` and `@attrs`"
+                ),
+            ));
+        }
+        let tail = Slice::new(&rest.s[end..], rest.start + end).trim();
+        let Some(args) = tail
+            .s
+            .strip_prefix('(')
+            .and_then(|args| args.strip_suffix(')'))
+        else {
+            return Err(self.err_at(
+                open,
+                format!("`@{helper}` is a call: write `{attr}={{@{helper}(…)}}`"),
+            ));
+        };
+        let args = Slice::new(args, tail.start + 1);
+
+        let mut tokens = Vec::new();
+        let mut attrs = Vec::new();
+        for item in split_top_level(args, b',') {
+            let item = item.trim();
+            if item.s.is_empty() {
+                continue;
+            }
+            let span = Span::new(item.start, item.start + item.s.len());
+            match top_level_colon(item.s) {
+                // `name: value` — a conditional token, or one attribute.
+                Some(at) => {
+                    let key = Slice::new(&item.s[..at], item.start).trim();
+                    let value = Slice::new(&item.s[at + 1..], item.start + at + 1).trim();
+                    if key.s.is_empty() || value.s.is_empty() {
+                        return Err(ParseError {
+                            message: format!("an `@{helper}` entry needs both a name and a value"),
+                            span,
+                        });
                     }
-                    i += 1;
+                    if helper == "tokens" {
+                        tokens.push(TokenTerm::Cond {
+                            name: helper_name(key, false)?,
+                            when: value.to_spanned(),
+                        });
+                    } else {
+                        attrs.push(AttrTerm::Pair {
+                            key: helper_name(key, true)?,
+                            value: value.to_spanned(),
+                        });
+                    }
                 }
-                _ => i += char_len(self.src, i),
+                // A bare expression, contributing whatever it holds.
+                None => {
+                    let nothing = item.s == "None";
+                    let item = item.to_spanned();
+                    if helper == "tokens" {
+                        tokens.push(if nothing {
+                            TokenTerm::Nothing
+                        } else {
+                            TokenTerm::Expr(item)
+                        });
+                    } else {
+                        attrs.push(if nothing {
+                            AttrTerm::Nothing
+                        } else {
+                            AttrTerm::Expr(item)
+                        });
+                    }
+                }
             }
         }
-        if i >= self.n {
-            return Err(self.err_at(open, format!("unclosed {label}: missing `]`")));
-        }
-        let inner = Slice::new(&self.src[inner_start..i], inner_start);
-        self.pos = i + 1;
 
-        Ok(split_top_level(inner, b',')
-            .into_iter()
-            .map(Slice::trim)
-            .filter(|item| !item.s.is_empty())
-            .collect())
-    }
-
-    /// Parse `[ term, term, … ]` into class terms. `pos` must be at `[`.
-    fn parse_class_list(&mut self) -> Result<Vec<ClassTerm>, ParseError> {
-        let mut terms = Vec::new();
-        for item in self.parse_bracket_items("class list")? {
-            // A nested `{ … }` inside a list is a map of conditional classes,
-            // so the two forms compose: `[base, { "on": cond }]`.
-            match brace_body(item) {
-                Some(body) => terms.extend(parse_class_pairs(&body)?),
-                None => terms.push(class_term(item.to_spanned())),
-            }
-        }
-        Ok(terms)
-    }
-
-    /// Parse `[ term, term, … ]` into data terms. `pos` must be at `[`.
-    fn parse_data_list(&mut self) -> Result<Vec<DataTerm>, ParseError> {
-        let mut terms = Vec::new();
-        for item in self.parse_bracket_items("data list")? {
-            match brace_body(item) {
-                Some(body) => terms.extend(parse_data_pairs(&body)?),
-                None => terms.push(data_term(item.to_spanned())),
-            }
-        }
-        Ok(terms)
+        Ok(if helper == "tokens" {
+            AttrValue::Tokens(tokens)
+        } else {
+            AttrValue::Attrs(attrs)
+        })
     }
 
     /// Parse a `{ … }` group and return the trimmed inner text with its span.
@@ -905,29 +964,61 @@ fn scan_to_quote(src: &str, open: usize, quote: u8) -> usize {
 
 /// From `{` at `open`, return the index just past the matching `}` (or end of
 /// input), skipping string and char literals inside.
-/// A single class-list term: a literal `None` drops out, anything else is Rust.
-fn class_term(text: Spanned) -> ClassTerm {
-    if text.as_str() == "None" {
-        ClassTerm::Nothing
-    } else {
-        ClassTerm::Expr(text)
+/// The name half of a `name: value` entry in an attribute helper.
+///
+/// It is a name rather than Rust: a bare identifier (hyphens allowed, since an
+/// attribute and a class name both take them) or a string literal, which is
+/// what anything richer — `md:px-3`, `w-1/2` — has to be written as. The text
+/// comes back unquoted, keeping the span of what was written.
+///
+/// `for_name` says the text will become part of an attribute *name*, where
+/// escaping is no defence — a space or an `=` in a name ends it and begins
+/// another attribute — so the set HTML refuses is refused here, at compile
+/// time. A token is a value, escaped like any other, and needs no such check.
+fn helper_name(key: Slice<'_>, for_name: bool) -> Result<Spanned, ParseError> {
+    let quoted = key.s.starts_with('"') && key.s.ends_with('"') && key.s.len() >= 2;
+    // Spanned onto the text itself, quotes excluded, so the span covers what the
+    // name *is* — which is what a hover, and this crate's own span checks, read.
+    let inner = match quoted {
+        true => Slice::new(&key.s[1..key.s.len() - 1], key.start + 1),
+        false => key,
+    };
+    let (span, text) = (inner.span(), inner.s);
+    let plain = !text.is_empty()
+        && text
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-');
+    if !quoted && !plain {
+        return Err(ParseError {
+            message: format!(
+                "`{}` is not a name: write a bare identifier, or quote it as `\"{}\"`",
+                key.s, key.s
+            ),
+            span,
+        });
     }
+    if for_name && !is_attr_name_safe(text) {
+        return Err(ParseError {
+            message: format!("`{text}` cannot be part of an attribute name"),
+            span,
+        });
+    }
+    Ok(Spanned::new(text, span))
 }
 
-/// A single data-list term, on the same rule as [`class_term`].
-fn data_term(text: Spanned) -> DataTerm {
-    if text.as_str() == "None" {
-        DataTerm::Nothing
-    } else {
-        DataTerm::Expr(text)
-    }
-}
-
-/// The inside of a list item that is a `{ … }` map, or `None` for one that is
-/// an ordinary expression.
-fn brace_body(item: Slice<'_>) -> Option<Spanned> {
-    let inner = item.s.strip_prefix('{')?.strip_suffix('}')?;
-    Some(Slice::new(inner, item.start + 1).trim().to_spanned())
+/// Whether `name` is safe to write as an attribute name.
+///
+/// The same rule as `damask::is_attr_name_safe`, applied here so that a name
+/// written in a template is refused while it is still source rather than
+/// dropped at render time. Kept in step by hand: this crate parses templates
+/// and does not depend on the runtime.
+fn is_attr_name_safe(name: &str) -> bool {
+    !name.is_empty()
+        && !name.chars().any(|c| {
+            c.is_control()
+                || c.is_whitespace()
+                || matches!(c, '"' | '\'' | '>' | '<' | '/' | '=' | '&')
+        })
 }
 
 /// Byte offset of the first top-level `:` that is not part of `::`, if any.
@@ -995,60 +1086,6 @@ fn split_top_level(src: Slice<'_>, sep: u8) -> Vec<Slice<'_>> {
     }
     out.push(Slice::new(&src.s[start..n], src.start + start));
     out
-}
-
-/// Split `"a": x, "b": y` into its key/value halves, each keeping its span.
-///
-/// `key` and `value` name the two halves in the error messages, which is the
-/// only thing that differs between a class map (`name`/`condition`) and a data
-/// map (`key`/`value`).
-fn split_pairs(
-    body: &Spanned,
-    what: &str,
-    key: &str,
-    value: &str,
-) -> Result<Vec<(Spanned, Spanned)>, ParseError> {
-    let src = Slice::new(body.as_str(), body.span.start);
-    let mut pairs = Vec::new();
-    for pair in split_top_level(src, b',') {
-        let pair = pair.trim();
-        if pair.s.is_empty() {
-            continue;
-        }
-        let span = Span::new(pair.start, pair.start + pair.s.len());
-        let Some(at) = top_level_colon(pair.s) else {
-            return Err(ParseError {
-                message: format!("expected `{key}: {value}` in a {what}, found `{}`", pair.s),
-                span,
-            });
-        };
-        let left = Slice::new(&pair.s[..at], pair.start).trim();
-        let right = Slice::new(&pair.s[at + 1..], pair.start + at + 1).trim();
-        if left.s.is_empty() || right.s.is_empty() {
-            return Err(ParseError {
-                message: format!("a {what} entry needs both a {key} and a {value}"),
-                span,
-            });
-        }
-        pairs.push((left.to_spanned(), right.to_spanned()));
-    }
-    Ok(pairs)
-}
-
-/// Parse `"a": cond, "b": cond` into conditional class terms.
-fn parse_class_pairs(body: &Spanned) -> Result<Vec<ClassTerm>, ParseError> {
-    Ok(split_pairs(body, "class map", "name", "condition")?
-        .into_iter()
-        .map(|(name, when)| ClassTerm::Cond { name, when })
-        .collect())
-}
-
-/// Parse `"a": value, "b": value` into data terms.
-fn parse_data_pairs(body: &Spanned) -> Result<Vec<DataTerm>, ParseError> {
-    Ok(split_pairs(body, "data map", "key", "value")?
-        .into_iter()
-        .map(|(key, value)| DataTerm::Pair { key, value })
-        .collect())
 }
 
 fn scan_braces_end(src: &str, open: usize) -> usize {
@@ -1241,6 +1278,95 @@ mod tests {
     }
 
     #[test]
+    fn attribute_helpers() {
+        let n =
+            nodes(r#"<div class={@tokens(self.extra, "b", "is-on": self.on, off: !self.on)}/>"#);
+        let Node::Element(el) = &n[0] else {
+            panic!("an element");
+        };
+        let AttrValue::Tokens(terms) = &el.attrs[0].value else {
+            panic!("a token list, got {:?}", el.attrs[0].value);
+        };
+        assert_eq!(terms.len(), 4);
+        assert!(matches!(&terms[0], TokenTerm::Expr(e) if e.as_str() == "self.extra"));
+        assert!(matches!(&terms[1], TokenTerm::Expr(e) if e.as_str() == r#""b""#));
+        // A name comes back unquoted, however it was spelled, because it is a
+        // name rather than the Rust that spells one.
+        assert!(matches!(&terms[2], TokenTerm::Cond { name, when }
+                if name.as_str() == "is-on" && when.as_str() == "self.on"));
+        assert!(matches!(&terms[3], TokenTerm::Cond { name, when }
+                if name.as_str() == "off" && when.as_str() == "!self.on"));
+
+        let n = nodes(r#"<div data={@attrs(&self.wiring, None, "row-id": self.id)}/>"#);
+        let Node::Element(el) = &n[0] else {
+            panic!("an element");
+        };
+        let AttrValue::Attrs(terms) = &el.attrs[0].value else {
+            panic!("an attribute group");
+        };
+        assert!(matches!(&terms[0], AttrTerm::Expr(e) if e.as_str() == "&self.wiring"));
+        assert!(matches!(&terms[1], AttrTerm::Nothing));
+        assert!(matches!(&terms[2], AttrTerm::Pair { key, value }
+                if key.as_str() == "row-id" && value.as_str() == "self.id"));
+    }
+
+    /// Nothing about a helper is keyed to the attribute it is written on, and a
+    /// `{ … }` without one is the Rust expression it looks like.
+    #[test]
+    fn a_brace_without_a_helper_is_an_expression() {
+        let n =
+            nodes(r#"<a rel={@tokens("noopener")} data={self.url} aria={@attrs(label: "x")}/>"#);
+        let Node::Element(el) = &n[0] else {
+            panic!("an element");
+        };
+        assert!(matches!(el.attrs[0].value, AttrValue::Tokens(_)));
+        assert!(matches!(&el.attrs[1].value, AttrValue::Expr(e) if e.as_str() == "self.url"));
+        assert!(matches!(el.attrs[2].value, AttrValue::Attrs(_)));
+    }
+
+    /// The forms the helpers replaced are worth an error that names the
+    /// replacement: nothing else can be meant by either shape.
+    #[test]
+    fn the_old_list_and_map_forms_say_what_to_write() {
+        let list = crate::parse(r#"<div class=[self.a, "b"]></div>"#).unwrap_err();
+        assert!(list.message.contains("@tokens"), "{}", list.message);
+        let map = crate::parse(r#"<div data={ "controller": "modal" }></div>"#).unwrap_err();
+        assert!(map.message.contains("@attrs"), "{}", map.message);
+    }
+
+    #[test]
+    fn a_helper_is_checked_where_it_is_written() {
+        let unknown = crate::parse(r#"<div class={@names("a")}></div>"#).unwrap_err();
+        assert!(unknown.message.contains("@names"), "{}", unknown.message);
+        let uncalled = crate::parse(r#"<div class={@tokens}></div>"#).unwrap_err();
+        assert!(
+            uncalled.message.contains("is a call"),
+            "{}",
+            uncalled.message
+        );
+        // A key becomes half of an attribute name, where escaping is no
+        // defence, so one that could end the name is refused here.
+        let unsafe_key = crate::parse(r#"<div data={@attrs("x=y": 1)}></div>"#).unwrap_err();
+        assert!(
+            unsafe_key.message.contains("attribute name"),
+            "{}",
+            unsafe_key.message
+        );
+        // A token is a value, escaped like any other, so the same key is fine.
+        assert!(crate::parse(r#"<div class={@tokens("x=y": true)}></div>"#).is_ok());
+        // Anything an identifier cannot spell has to be quoted — a Tailwind
+        // name with a `/` in it, say, or one with a `:`, whose first colon
+        // would otherwise be read as the entry's.
+        let unquoted = crate::parse(r#"<div class={@tokens(w/2: self.on)}></div>"#).unwrap_err();
+        assert!(
+            unquoted.message.contains("not a name"),
+            "{}",
+            unquoted.message
+        );
+        assert!(crate::parse(r#"<div class={@tokens("md:px-3": self.on)}></div>"#).is_ok());
+    }
+
+    #[test]
     fn void_and_self_closing() {
         match &nodes("<br>")[0] {
             Node::Element(el) => assert!(el.self_closing && el.children.is_empty()),
@@ -1410,27 +1536,27 @@ mod tests {
                                     }
                                 }
                             }
-                            AttrValue::Classes(terms) => {
+                            AttrValue::Tokens(terms) => {
                                 for term in terms {
                                     match term {
-                                        ClassTerm::Expr(t) => out.push(t),
-                                        ClassTerm::Cond { name, when } => {
+                                        TokenTerm::Expr(t) => out.push(t),
+                                        TokenTerm::Cond { name, when } => {
                                             out.push(name);
                                             out.push(when);
                                         }
-                                        ClassTerm::Nothing => {}
+                                        TokenTerm::Nothing => {}
                                     }
                                 }
                             }
-                            AttrValue::Data(terms) => {
+                            AttrValue::Attrs(terms) => {
                                 for term in terms {
                                     match term {
-                                        DataTerm::Expr(t) => out.push(t),
-                                        DataTerm::Pair { key, value } => {
+                                        AttrTerm::Expr(t) => out.push(t),
+                                        AttrTerm::Pair { key, value } => {
                                             out.push(key);
                                             out.push(value);
                                         }
-                                        DataTerm::Nothing => {}
+                                        AttrTerm::Nothing => {}
                                     }
                                 }
                             }

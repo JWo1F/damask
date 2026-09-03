@@ -20,40 +20,39 @@
 (attribute_name) @attribute
 (attribute "=" @operator)
 
-; `class` and `data`, and the `class:name` directive whose suffix *is* a class
-; name. The directive's prefix is one token with its colon in it — that is what
-; keeps `attribute_name`, which accepts colons, from swallowing the whole of
-; `class:is-loading` — so there is no separate `:` to colour here.
+; The `class:name` directive, whose suffix *is* a class name. Its prefix is one
+; token with the colon in it — that is what keeps `attribute_name`, which
+; accepts colons, from swallowing the whole of `class:is-loading` — so there is
+; no separate `:` to colour here.
 (directive_prefix) @attribute
 (class_name) @string.special
-(class_attribute "=" @operator)
 (class_directive "=" @operator)
 
 ; A quoted value's literal runs are string content; the `{ … }` tags inside it
 ; keep the tag colours above and inject as Rust.
 (quoted_value) @string
 
-; Class lists and conditional maps.
-(class_list "[" @punctuation.bracket)
-(class_list "]" @punctuation.bracket)
-(class_list "," @punctuation.delimiter)
-(class_brace "{" @punctuation.bracket)
-(class_brace "}" @punctuation.bracket)
-(class_brace "," @punctuation.delimiter)
-(class_map "{" @punctuation.bracket)
-(class_map "}" @punctuation.bracket)
-(class_map "," @punctuation.delimiter)
-(class_pair ":" @punctuation.delimiter)
+; The `{@tokens(…)}` and `{@attrs(…)}` helpers. The name carries its `{@` — one
+; token, so that its length settles it against the `{@` of `{@html …}` — and it
+; is coloured as the call it reads as.
+(helper_name) @function.special
+(helper "(" @punctuation.bracket)
+(helper ")" @punctuation.bracket)
+(helper "}" @punctuation.special)
+(helper "," @punctuation.delimiter)
 
-; A class name — a map's key, or a quoted entry in a list. Not Rust: it is the
-; thing the class list is made of, and both spellings of it take one colour.
-(class_key) @string.special
-(class_string) @string.special
+; A key is a name, not Rust: the token a `@tokens` entry adds, or the half of an
+; attribute name an `@attrs` entry supplies. It carries its own colon.
+(helper_key) @string.special
+
+; A quoted *positional* entry takes no colour here: unlike a key, it sits inside
+; the `helper_expr` that injections.scm hands to Rust, so the Rust grammar
+; colours it as the string literal it is.
 
 ; `{...expr}` attribute spread.
 (spread "{" @punctuation.special)
 (spread "}" @punctuation.special)
 (spread "..." @operator)
 
-; The Rust inside a tag, a class entry and a map condition is highlighted by an
+; The Rust inside a tag and inside a helper's entries is highlighted by an
 ; injected grammar — see injections.scm. So is the text between elements.

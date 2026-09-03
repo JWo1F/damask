@@ -109,10 +109,11 @@ usually empty. This applies to every `{...}` spread, not only to a bag: see
 
 ## What is in the bag
 
-`Attrs` holds name/value pairs and nothing else. It is keyed the way
-[`DataSet`](/docs/data-attributes/) is — a name given twice keeps its **first
-position** and takes its **last value**, so a default a component filled in can
-be overridden without the output reshuffling — and a name that could not be
+`Attrs` holds name/value pairs and nothing else — it is the type
+[`{@attrs(…)}`](/docs/attribute-groups/) builds too, and it is keyed the same
+way: a name given twice keeps its **first position** and takes its **last
+value**, so a default a component filled in can be overridden without the output
+reshuffling — and a name that could not be
 written safely is dropped; see
 [Names that cannot be written](/docs/attributes/#names-that-cannot-be-written).
 

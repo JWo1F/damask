@@ -4,6 +4,91 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.11.0] - 2026-09-04
+
+### Changed
+
+- **One syntax for every attribute: `{@tokens(…)}` and `{@attrs(…)}`.** `class`
+  and `data` no longer have forms of their own. What a value does beyond
+  `attr={expr}` is now asked for by a helper — the same two on any attribute —
+  so the compiler, the grammar, the language server and the reader all stop
+  keeping a list of which names are special:
+
+  ```html
+  <div class={@tokens(self.extra, "base", "is-open": self.open)}
+       rel={@tokens("noopener", external: self.away)}
+       data={@attrs(self.hooks(), controller: "modal", index: self.i)}
+       aria={@attrs(label: self.title)}>
+  ```
+
+  `@tokens` builds one space-separated value: positional entries are names, lists
+  of them or `Option`s, a `name: cond` entry is there while its condition holds,
+  names dedupe and keep first-mention order, and an empty result omits the
+  attribute. `@attrs` expands one set into a run of `<name>-*` attributes, where
+  the prefix is the attribute it was written on — which is what makes `aria`,
+  `hx` and anything else shaped that way work without the compiler having heard
+  of them.
+
+  The migration is mechanical:
+
+  | Before | Now |
+  |---|---|
+  | `class=[a, "b", { "c": cond }]` | `class={@tokens(a, "b", "c": cond)}` |
+  | `class={ "c": cond }` | `class={@tokens("c": cond)}` |
+  | `data={self.hooks()}` | `data={@attrs(self.hooks())}` |
+  | `data=[base, { "open": x }]` | `data={@attrs(base, open: x)}` |
+  | `data={ "controller": "modal" }` | `data={@attrs(controller: "modal")}` |
+
+  Both old forms are refused with an error naming the replacement, so a template
+  that has not been migrated says so rather than compiling to something else.
+  `class:name={cond}` is unchanged and is now the only attribute whose *name*
+  carries meaning. `tag!` takes the helpers in the same spelling —
+  `tag!(div, class: @tokens("a", on: flag))`.
+
+  Two things fall out of the change rather than being designed into it.
+  `data="movie.swf"` and `data={self.url}` are the ordinary attribute they look
+  like, on `<object>` as anywhere else, so the rule about writing a dynamic one
+  as `data="{self.url}"` is gone. And because `@tokens` builds a value, it works
+  on a component prop — `<Button class={@tokens("w-full", "is-busy": busy)}/>` —
+  which a class list never could.
+
+- **`ClassList` is `TokenList`, and the data traits are the attribute traits.**
+  A list that any attribute may hold is not a class list, so `ClassList` and
+  `ClassItem` are now `TokenList` and `TokenItem`, and `TokenItem` gained impls
+  for slices, arrays and `Vec`, so a `Vec<String>` of names is one entry.
+
+  `DataSet`, `DataItem` and `DataValue` are **removed**. A group is name/value
+  pairs waiting to be written, which is exactly what `Attrs` already held for
+  `#[prop(rest)]`, so `@attrs` builds an `Attrs` through `AttrSet` and
+  `IntoAttrValue` — one set of traits instead of two parallel ones, with
+  `Attrs::write_attrs_prefixed` supplying the prefix. `AttrSet` gained the
+  `HashMap` and `BTreeMap` impls `DataItem` had (`HashMap` still visited in key
+  order, so output stays stable), and `IntoAttrValue` gained `char`.
+
+- **A key written in a template is checked when it compiles.** An `@attrs` key
+  becomes half of an attribute *name*, where escaping is no defence, so a key
+  that could end the name and begin another is now a build error instead of an
+  entry silently dropped at render time. A key is a bare identifier or a string,
+  taken verbatim either way — `user_id` is still `data-user_id`.
+
+- **The Tree-sitter grammar moved into this repository**, to
+  `crates/tree-sitter-damask/grammar`, beside the Rust binding the website reads
+  it through. Zed pins a revision of this repository and points its `path` at
+  that directory, so the grammar, the queries that colour it and the compiler
+  that agrees with both now move in one commit instead of two repositories kept
+  in step by a vendored copy. The `class_*` rules are gone; a helper is one
+  `helper` node with `helper_key`, `helper_expr` and `helper_value` inside it,
+  and the queries follow.
+
+### Added
+
+- **The language server knows the helpers.** `@` in an attribute value completes
+  to `@tokens(…)` and `@attrs(…)` — as calls, with the cursor left inside the
+  parentheses — and hovering either explains what it builds, what its entries
+  may be and how its values decide whether they appear. Neither is Rust, so
+  rust-analyzer could only ever have answered that position with the members of
+  `self`.
+
 ## [0.10.2] - 2026-09-03
 
 ### Fixed

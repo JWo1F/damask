@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
 # Prepare the Damask Zed extension for local development.
 #
-# The Tree-sitter grammar is its own repository, which extension.toml pins by
-# revision; Zed clones it directly, so nothing here has to stage it. Grammar
-# changes are made and released there, then adopted by bumping that `rev`.
+# The Tree-sitter grammar lives in this repository, under
+# crates/tree-sitter-damask/grammar; extension.toml points Zed at that path and
+# pins a revision, and Zed clones the repository itself, so nothing here has to
+# stage it. A grammar change is committed and pushed, then adopted by bumping
+# that `rev` — Zed clones a revision, so an unpushed commit is not there.
 #
 # What still needs doing locally is the language server. The extension launches
 # the `damask-lsp` installed on PATH, not this checkout, and that binary compiles
@@ -16,8 +18,10 @@
 #
 # It also clears Zed's local clone of the grammar so Zed re-clones it at the
 # pinned revision — unless that clone has work in it, in which case it says so
-# and stops. DAMASK_FORCE_GRAMMAR=1 deletes it anyway; DAMASK_SKIP_LSP=1 skips
-# the language-server build.
+# and stops. Only that clone is ever deleted; the grammar's source is nowhere
+# near it, under crates/tree-sitter-damask/grammar.
+# DAMASK_FORCE_GRAMMAR=1 deletes it anyway; DAMASK_SKIP_LSP=1 skips the
+# language-server build.
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -74,12 +78,12 @@ if [ -d "$clone" ]; then
       [ -n "$unpushed" ] && { echo "on no remote:" >&2; echo "$unpushed" >&2; }
       echo >&2
       echo "This is a throwaway clone Zed manages, so nothing here is backed up." >&2
-      echo "Move the work to the grammar repository, which is where it belongs:" >&2
+      echo "Move the work to the grammar's source, which is where it belongs:" >&2
       echo >&2
       echo "  git -C $clone diff > /tmp/grammar.patch" >&2
       echo >&2
-      echo "Then apply it to a real checkout of" >&2
-      echo "  $(git -C "$clone" remote get-url origin 2>/dev/null || echo 'the grammar repository')" >&2
+      echo "Then apply it to the grammar's source in this repository:" >&2
+      echo "  $root/crates/tree-sitter-damask/grammar" >&2
       echo "and re-run this script. To delete it regardless:" >&2
       echo >&2
       echo "  DAMASK_FORCE_GRAMMAR=1 $0" >&2

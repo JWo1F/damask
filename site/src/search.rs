@@ -624,7 +624,7 @@ mod tests {
             tokenize("HTMLRenderer"),
             ["html", "renderer", "htmlrenderer"]
         );
-        assert_eq!(tokenize("ClassList"), ["class", "list", "classlist"]);
+        assert_eq!(tokenize("TokenList"), ["token", "list", "tokenlist"]);
         assert_eq!(tokenize("render_with"), ["render", "with", "render_with"]);
         assert_eq!(tokenize("Rust 1.88"), ["rust", "1", "88"]);
     }

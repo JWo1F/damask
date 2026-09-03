@@ -144,10 +144,10 @@ impl crate::Render for Trusted {
 /// A [`Renderer`] that appends to a [`Trusted`] under construction.
 ///
 /// This is what lets a document being built by hand reach the attribute
-/// machinery — [`Attr`](crate::Attr), [`ClassList`](crate::ClassList),
-/// [`DataSet`](crate::DataSet) all write through a `Renderer`, and there is no
+/// machinery — [`Attr`](crate::Attr), [`TokenList`](crate::TokenList),
+/// [`Attrs`](crate::Attrs) all write through a `Renderer`, and there is no
 /// reason for [`tag!`](crate::tag) to own a second implementation of what
-/// `disabled` or a class list means.
+/// `disabled` or a token list means.
 ///
 /// It escapes as HTML and lays nothing out, which is what a value being
 /// assembled in Rust wants: there is no template whose newlines a policy could

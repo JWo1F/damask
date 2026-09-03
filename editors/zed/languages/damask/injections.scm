@@ -5,9 +5,9 @@
 ;
 ;   { "hi".len() }   `code` has a `string` child, so the literal was cut out of
 ;                    the injected region and came back uncoloured.
-;   class={ … }      `class_code`, `class_condition` and `class_expr` are each
-;                    wholly covered by the `code` they wrap, so the leftover was
-;                    empty and the Rust inside a class value got no colour at all.
+;   {@tokens(…)}     a `helper_expr` and a `helper_value` are each wholly
+;                    covered by the `code` they wrap, so the leftover was empty
+;                    and the Rust inside an entry got no colour at all.
 ;
 ; With children included, each capture injects the expression it delimits, whole
 ; and once — which is also what makes a nested brace group (a closure body, a
@@ -23,22 +23,18 @@
  (#set! injection.language "rust")
  (#set! injection.include-children))
 
-; The Rust parts of a class value: a list entry that is not a class name, a
-; plain braced value, and a map's condition. Each injects on its own, so
-; `class={ "a": cond }` is never handed to the Rust grammar as one lump — it is
-; not an expression, and while the grammar took it for an ordinary tag its `:`
-; came back an error.
+; The Rust parts of a helper: a positional entry, and the value half of a
+; `name: value` one. Each injects on its own, so `@tokens("a": cond)` is never
+; handed to the Rust grammar as one lump — it is not an expression, and its `:`
+; would come back an error.
 ;
 ; The `#set!` belongs *inside* the pattern's parens. Outside, it parses as a
 ; pattern of its own and the language is attached to nothing, which leaves the
 ; captured text with no injection and no colour at all.
-((class_expr) @injection.content
+((helper_expr) @injection.content
  (#set! injection.language "rust")
  (#set! injection.include-children))
-((class_code) @injection.content
- (#set! injection.language "rust")
- (#set! injection.include-children))
-((class_condition) @injection.content
+((helper_value) @injection.content
  (#set! injection.language "rust")
  (#set! injection.include-children))
 

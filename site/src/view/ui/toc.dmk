@@ -7,9 +7,9 @@
     {#for heading in &self.headings}
       <li>
         <a href="#{heading.anchor}" data-toc-link={heading.anchor.clone()}
-           class=["-ml-px block border-l border-transparent py-1 pl-3 text-[0.79rem] leading-snug",
-                  "text-ink-soft transition-colors hover:border-ink-faint hover:text-ink",
-                  Self::indent(heading)]>{heading.text}</a>
+           class={@tokens("-ml-px block border-l border-transparent py-1 pl-3 text-[0.79rem] leading-snug",
+                          "text-ink-soft transition-colors hover:border-ink-faint hover:text-ink",
+                          Self::indent(heading))}>{heading.text}</a>
       </li>
     {/for}
   </ul>

@@ -17,9 +17,9 @@
           <li>
             <a href={page.href}
                aria-current={if page.slug == self.current { Some("page") } else { None }}
-               class=["group flex items-baseline gap-2.5 rounded-md px-2.5 py-[7px] text-[0.84rem] leading-snug transition-colors",
-                      { "bg-madder/[0.09] font-medium text-madder": page.slug == self.current,
-                        "text-ink-soft hover:bg-ink/[0.04] hover:text-ink": page.slug != self.current }]>
+               class={@tokens("group flex items-baseline gap-2.5 rounded-md px-2.5 py-[7px] text-[0.84rem] leading-snug transition-colors",
+                              "bg-madder/[0.09] font-medium text-madder": page.slug == self.current,
+                              "text-ink-soft hover:bg-ink/[0.04] hover:text-ink": page.slug != self.current)}>
               {#if self.numbered}
                 <span class="font-mono text-[0.7rem] tabular-nums text-ink-faint">{position + 1}</span>
               {/if}

@@ -37,9 +37,11 @@ editors/zed/
 └── dev-setup.sh              # refreshes the language server, clears Zed's grammar clone
 ```
 
-The Tree-sitter grammar is not here: it lives in
-[tree-sitter-damask](https://github.com/JWo1F/tree-sitter-damask), because Zed
-clones a grammar from a repository root. `extension.toml` pins it by revision.
+The Tree-sitter grammar is not under this directory, but it is in this
+repository: [crates/tree-sitter-damask/grammar](../../crates/tree-sitter-damask/grammar),
+beside the Rust binding the website reads it through. Zed clones this repository
+at the revision `extension.toml` pins and compiles `src/parser.c` under the
+`path` it names.
 
 ## Install the language server
 
@@ -88,12 +90,21 @@ it; `DAMASK_FORCE_GRAMMAR=1` says go ahead once you have looked.
 
 ### Changing the grammar
 
-Grammar work happens in
-[tree-sitter-damask](https://github.com/JWo1F/tree-sitter-damask). Push there,
-then bump `rev` under `[grammars.damask]` in `extension.toml` to adopt it — and
-re-vendor `crates/tree-sitter-damask/grammar/` at the same revision, which is
-where the website compiles the parser from. The two pins are the same grammar
-and drifting them apart is how the editor and the site start disagreeing.
+Grammar work happens in `crates/tree-sitter-damask/grammar/`: edit `grammar.js`,
+then
+
+```sh
+cd crates/tree-sitter-damask/grammar
+tree-sitter generate --abi 14   # Zed's tree-sitter cannot compile ABI 15
+tree-sitter test
+```
+
+and commit the regenerated `src/`. The website compiles that same `parser.c`
+through the crate above it, so `cargo test -p damask-site` sees the change
+immediately — but **Zed does not**: it clones the pinned revision, so a grammar
+change reaches an editor only once it is pushed and `rev` under
+`[grammars.damask]` in `extension.toml` names the commit that carries it. Bump
+the extension's `version` in the same breath, or Zed keeps the copy it has.
 
 ### Changing the queries
 
@@ -120,6 +131,5 @@ HTML comment is still treated as a tag.)
 The corpus lives with the grammar:
 
 ```sh
-git clone https://github.com/JWo1F/tree-sitter-damask
-cd tree-sitter-damask && tree-sitter test
+cd crates/tree-sitter-damask/grammar && tree-sitter test
 ```

@@ -1,4 +1,4 @@
 <div data-controller="modal"
-     data=[&self.attrs, self.extra.as_deref(), { "index": self.index, "open": self.open }]>
-  <span data={&self.attrs}></span>
+     data={@attrs(&self.attrs, self.extra.as_deref(), index: self.index, open: self.open)}>
+  <span data={@attrs(&self.attrs)}></span>
 </div>

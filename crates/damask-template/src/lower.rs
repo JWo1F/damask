@@ -21,8 +21,8 @@
 //! other by a constant offset.
 
 use crate::{
-    Attr, AttrPart, AttrValue, ClassTerm, DataTerm, Element, ElementKind, ForNode, IfNode, Node,
-    SnippetNode, Span, Spanned, Template, is_void_element,
+    Attr, AttrPart, AttrTerm, AttrValue, Element, ElementKind, ForNode, IfNode, Node, SnippetNode,
+    Span, Spanned, Template, TokenTerm, is_void_element,
 };
 
 /// A verbatim correspondence between a `.dmk` source range and the generated
@@ -614,21 +614,28 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
         if name.starts_with("class:") {
             continue;
         }
-        if name == "class"
-            && (!directives.is_empty() || matches!(attr.value, AttrValue::Classes(_)))
+        // `class:` directives override whatever `class` produces, so a `class`
+        // standing next to one goes through the list even when its own value is
+        // a plain string.
+        if name == "class" && (!directives.is_empty() || matches!(attr.value, AttrValue::Tokens(_)))
         {
             flush_raw(&mut raw, e);
-            emit_class_list(Some(&attr.value), &directives, e)?;
+            emit_token_list("class", Some(&attr.value), &directives, e)?;
             continue;
         }
-        // `data` expands into a run of `data-*` attributes — but only in the
-        // forms that ask for it. A quoted `data="…"` stays the ordinary
-        // attribute it has always been, which is what leaves `<object
-        // data="movie.swf">` alone; a dynamic one there is written
-        // `data="{self.url}"`.
-        if name == "data" && matches!(attr.value, AttrValue::Data(_) | AttrValue::Expr(_)) {
+        // The helpers, on any attribute: `{@tokens(…)}` assembles one value and
+        // `{@attrs(…)}` a run of `<name>-*` attributes. Nothing here is keyed to
+        // the attribute's name, which is why `data="movie.swf"` and
+        // `data={self.url}` on an `<object>` are the ordinary attribute they
+        // look like.
+        if let AttrValue::Tokens(_) = &attr.value {
             flush_raw(&mut raw, e);
-            emit_data_set(&attr.value, e)?;
+            emit_token_list(name, Some(&attr.value), &[], e)?;
+            continue;
+        }
+        if let AttrValue::Attrs(terms) = &attr.value {
+            flush_raw(&mut raw, e);
+            emit_attr_group(name, terms, e)?;
             continue;
         }
         match &attr.value {
@@ -636,15 +643,9 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
                 raw.push(' ');
                 raw.push_str(attr.name.as_str());
             }
-            // Only `class` parses into this, and only the branch above emits it.
-            AttrValue::Classes(_) => {
-                return Err(format!(
-                    "`{name}` cannot take a class list; only `class` can"
-                ));
-            }
-            // Likewise: only `data` parses into this.
-            AttrValue::Data(_) => {
-                return Err(format!("`{name}` cannot take a data map; only `data` can"));
+            // Both are routed above, whatever attribute they were written on.
+            AttrValue::Tokens(_) | AttrValue::Attrs(_) => {
+                unreachable!("an attribute helper is emitted before the ordinary path")
             }
             AttrValue::Spread(code) => {
                 require_expr(code.as_str(), "{...} attribute spread")?;
@@ -690,7 +691,7 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
     // Directives with no `class` of their own to attach to.
     if !directives.is_empty() && !el.attrs.iter().any(|a| a.name.as_str() == "class") {
         flush_raw(&mut raw, e);
-        emit_class_list(None, &directives, e)?;
+        emit_token_list("class", None, &directives, e)?;
     }
 
     if el.self_closing {
@@ -797,70 +798,73 @@ fn emit_literal_string(parts: &[AttrPart], e: &mut Emit) -> Result<(), String> {
     Ok(())
 }
 
-/// Emit the `class` attribute built from its value and any `class:` directives.
+/// Emit an attribute whose value is a token list — `{@tokens(…)}`, and the
+/// `class` any `class:` directive lands on.
 ///
-/// Everything lands in one [`damask::ClassList`], which dedupes and preserves
+/// Everything goes into one [`damask::TokenList`], which dedupes and preserves
 /// first-mention order — that is what lets a directive override the base list
-/// rather than append a contradicting name after it.
-fn emit_class_list(
+/// rather than append a contradicting name after it. An empty list writes no
+/// attribute at all.
+fn emit_token_list(
+    name: &str,
     value: Option<&AttrValue>,
     directives: &[&Attr],
     e: &mut Emit,
 ) -> Result<(), String> {
-    e.raw("{\nlet mut __damask_class = __damask_krate::ClassList::new();\n");
+    e.raw("{\nlet mut __damask_tokens = __damask_krate::TokenList::new();\n");
 
     match value {
         None => {}
-        Some(AttrValue::Classes(terms)) => {
+        Some(AttrValue::Tokens(terms)) => {
             for term in terms {
                 match term {
-                    ClassTerm::Nothing => {}
-                    ClassTerm::Expr(code) => {
-                        require_expr(code.as_str(), "class list entry")?;
-                        e.raw("__damask_krate::ClassItem::add_to(&(");
+                    TokenTerm::Nothing => {}
+                    TokenTerm::Expr(code) => {
+                        require_expr(code.as_str(), "`@tokens` entry")?;
+                        e.raw("__damask_krate::TokenItem::add_to(&(");
                         e.frag(code);
-                        e.raw("), &mut __damask_class);\n");
+                        e.raw("), &mut __damask_tokens);\n");
                     }
-                    ClassTerm::Cond { name, when } => {
-                        require_expr(when.as_str(), "class condition")?;
+                    TokenTerm::Cond { name, when } => {
+                        require_expr(when.as_str(), "`@tokens` condition")?;
                         // Spliced bare, as `{#if}` does: parenthesising warns
                         // `unused_parens` in the user's crate, not in ours.
                         e.raw("if ");
                         e.frag(when);
-                        e.raw(" { __damask_krate::ClassItem::add_to(&(");
-                        e.frag(name);
-                        e.raw("), &mut __damask_class); }\n");
+                        e.raw(&format!(
+                            " {{ __damask_tokens.add({:?}); }}\n",
+                            name.as_str()
+                        ));
                     }
                 }
             }
         }
         Some(AttrValue::Literal(parts)) => {
-            e.raw("__damask_krate::ClassItem::add_to(&(");
+            e.raw("__damask_krate::TokenItem::add_to(&(");
             emit_literal_string(parts, e)?;
-            e.raw("), &mut __damask_class);\n");
+            e.raw("), &mut __damask_tokens);\n");
         }
         Some(AttrValue::Expr(code)) => {
-            require_expr(code.as_str(), "class")?;
-            e.raw("__damask_krate::ClassItem::add_to(&(");
+            require_expr(code.as_str(), name)?;
+            e.raw("__damask_krate::TokenItem::add_to(&(");
             e.frag(code);
-            e.raw("), &mut __damask_class);\n");
+            e.raw("), &mut __damask_tokens);\n");
         }
-        Some(AttrValue::Boolean) => return Err("`class` needs a value".into()),
+        Some(AttrValue::Boolean) => return Err(format!("`{name}` needs a value")),
         // A spread carries its own names, so it never reaches here as `class`.
         Some(AttrValue::Spread(_)) => unreachable!("a spread has no attribute name"),
-        // Only an attribute named `data` parses into this, and it is routed to
-        // `emit_data_set` before it could reach here.
-        Some(AttrValue::Data(_)) => unreachable!("a data map is not a class value"),
+        // Routed to `emit_attr_group` before it could reach here.
+        Some(AttrValue::Attrs(_)) => unreachable!("`@attrs` is not a token list"),
     }
 
     // Applied after the base list, because that is what "takes precedence"
     // means: the directive is the last word on whether its class is there.
     for attr in directives {
-        let name = &attr.name.as_str()["class:".len()..];
-        if name.is_empty() {
+        let class = &attr.name.as_str()["class:".len()..];
+        if class.is_empty() {
             return Err("`class:` needs a class name after the colon".into());
         }
-        e.raw(&format!("__damask_class.set({name:?}, "));
+        e.raw(&format!("__damask_tokens.set({class:?}, "));
         match &attr.value {
             AttrValue::Boolean => e.raw("true"),
             AttrValue::Expr(code) => {
@@ -869,66 +873,90 @@ fn emit_class_list(
             }
             _ => {
                 return Err(format!(
-                    "`class:{name}` takes a boolean expression, as `class:{name}={{…}}`"
+                    "`class:{class}` takes a boolean expression, as `class:{class}={{…}}`"
                 ));
             }
         }
         e.raw(");\n");
     }
 
-    e.raw("__damask_class.write_attr(\"class\", &mut *__damask);\n}\n");
+    e.raw(&format!(
+        "__damask_tokens.write_attr({name:?}, &mut *__damask);\n}}\n"
+    ));
     Ok(())
 }
 
-/// Emit the run of `data-*` attributes a `data` value expands into.
+/// Emit `{@tokens(…)}` where a *value* is wanted rather than an attribute — a
+/// component's prop, or the bag a call site fills for an attribute the
+/// component does not name.
 ///
-/// Everything lands in one [`damask::DataSet`], for the reason the class forms
-/// share one `ClassList`: a key mentioned twice has to resolve to one
-/// attribute, and only a collector that outlives the individual entries can
-/// decide which mention wins. Sibling `data-*` attributes written out longhand
-/// are *not* collected here — they stay on the ordinary `Attr` path, so their
-/// values are held to `Attr` rather than to `DataValue`, and a `data` map
-/// appearing next to one cannot change how it compiles.
-fn emit_data_set(value: &AttrValue, e: &mut Emit) -> Result<(), String> {
-    e.raw("{\nlet mut __damask_data = __damask_krate::DataSet::new();\n");
-
-    match value {
-        AttrValue::Data(terms) => {
-            for term in terms {
-                match term {
-                    DataTerm::Nothing => {}
-                    DataTerm::Expr(code) => {
-                        require_expr(code.as_str(), "data list entry")?;
-                        e.raw("__damask_krate::DataItem::add_to(&(");
-                        e.frag(code);
-                        e.raw("), &mut __damask_data);\n");
-                    }
-                    DataTerm::Pair { key, value } => {
-                        require_expr(value.as_str(), "data value")?;
-                        e.raw("__damask_krate::DataValue::add_to(&(");
-                        e.frag(value);
-                        e.raw("), ");
-                        // The key is spliced as the Rust it was written as — a
-                        // string literal — so that it is checked, and spanned,
-                        // like every other fragment.
-                        e.frag(key);
-                        e.raw(", &mut __damask_data);\n");
-                    }
-                }
+/// `optional` asks for an `Option<String>`, which is what the bag needs to tell
+/// an empty list from an empty value; a prop takes the `String`, since a prop
+/// that may be absent already converts one into its `Option`.
+fn emit_token_value(terms: &[TokenTerm], optional: bool, e: &mut Emit) -> Result<(), String> {
+    e.raw("{\nlet mut __damask_tokens = __damask_krate::TokenList::new();\n");
+    for term in terms {
+        match term {
+            TokenTerm::Nothing => {}
+            TokenTerm::Expr(code) => {
+                require_expr(code.as_str(), "`@tokens` entry")?;
+                e.raw("__damask_krate::TokenItem::add_to(&(");
+                e.frag(code);
+                e.raw("), &mut __damask_tokens);\n");
+            }
+            TokenTerm::Cond { name, when } => {
+                require_expr(when.as_str(), "`@tokens` condition")?;
+                e.raw("if ");
+                e.frag(when);
+                e.raw(&format!(
+                    " {{ __damask_tokens.add({:?}); }}\n",
+                    name.as_str()
+                ));
             }
         }
-        AttrValue::Expr(code) => {
-            require_expr(code.as_str(), "data")?;
-            e.raw("__damask_krate::DataItem::add_to(&(");
-            e.frag(code);
-            e.raw("), &mut __damask_data);\n");
+    }
+    e.raw(if optional {
+        "__damask_tokens.into_value()\n}\n"
+    } else {
+        "__damask_tokens.to_value()\n}\n"
+    });
+    Ok(())
+}
+
+/// Emit the run of `<name>-*` attributes a `{@attrs(…)}` expands into.
+///
+/// Everything lands in one [`damask::Attrs`], for the reason the token forms
+/// share one `TokenList`: a key mentioned twice has to resolve to one
+/// attribute, and only a collector that outlives the individual entries can
+/// decide which mention wins. Sibling `data-*` attributes written out longhand
+/// are *not* collected here — they stay on the ordinary `Attr` path, so a group
+/// appearing next to one cannot change how it compiles.
+fn emit_attr_group(name: &str, terms: &[AttrTerm], e: &mut Emit) -> Result<(), String> {
+    e.raw("{\nlet mut __damask_group = __damask_krate::Attrs::new();\n");
+
+    for term in terms {
+        match term {
+            AttrTerm::Nothing => {}
+            AttrTerm::Expr(code) => {
+                require_expr(code.as_str(), "`@attrs` entry")?;
+                e.raw("__damask_krate::AttrSet::add_attrs(&(");
+                e.frag(code);
+                e.raw("), &mut __damask_group);\n");
+            }
+            AttrTerm::Pair { key, value } => {
+                require_expr(value.as_str(), "`@attrs` value")?;
+                // The key is a name rather than Rust — checked when it was
+                // parsed — so it is written out as the literal it became.
+                e.raw(&format!("__damask_group.insert({:?}, (", key.as_str()));
+                e.frag(value);
+                e.raw("));\n");
+            }
         }
-        // A quoted `data="…"` and a bare `data` never reach here: both stay
-        // ordinary attributes, and a spread has no name to be `data`.
-        _ => unreachable!("only a braced or bracketed `data` value reaches a data set"),
     }
 
-    e.raw("__damask_data.write_attrs(&mut *__damask);\n}\n");
+    e.raw(&format!(
+        "__damask_group.write_attrs_prefixed({name:?}, &mut *__damask);\n}}\n"
+    ));
     Ok(())
 }
 
@@ -1087,10 +1115,18 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
                 AttrValue::Boolean => {
                     e.raw(&format!(".__damask_rest_bare_any({name:?})\n"));
                 }
-                AttrValue::Classes(_) | AttrValue::Data(_) => {
+                // A token list is a value, so it reaches the bag as one — as
+                // `Option<String>`, since an empty list means no attribute
+                // rather than an empty one.
+                AttrValue::Tokens(terms) => {
+                    e.raw(&format!(".__damask_rest_any({name:?}, "));
+                    emit_token_value(terms, true, e)?;
+                    e.raw(")\n");
+                }
+                AttrValue::Attrs(_) => {
                     return Err(format!(
                         "`{name}` is an attribute this component does not name, so it takes a \
-                         value rather than a class list or a data map"
+                         value; `{{...expr}}` is how a call site passes a set of attributes"
                     ));
                 }
                 // Unreachable: a spread is excluded by the guard above,
@@ -1143,21 +1179,23 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
                 e.frag(&attr.name);
                 e.raw("(true)\n");
             }
-            // A class list assembles markup, and a component prop is a value.
-            // `class={…}` with an ordinary expression is the way to pass one.
-            AttrValue::Classes(_) => {
-                return Err(format!(
-                    "`{}` is a component prop, so it cannot take a class list",
-                    attr.name.as_str()
-                ));
+            // `{@tokens(…)}` assembles a value, which is exactly what a prop
+            // takes — so a call site can hand a component the same conditional
+            // list an element gets, and the component holds a `String`.
+            AttrValue::Tokens(terms) => {
+                e.raw(".");
+                e.frag(&attr.name);
+                e.raw("(");
+                emit_token_value(terms, false, e)?;
+                e.raw(")\n");
             }
-            // The same, and the reason is worth stating: on a component `data`
-            // is an ordinary prop, so `data={expr}` there passes the value
-            // through untouched. It is the map and list forms that assemble
-            // markup, and those have nowhere to go.
-            AttrValue::Data(_) => {
+            // `{@attrs(…)}` writes attribute *names*, and a prop is one value
+            // under a name the component chose. A set that a component cannot
+            // name reaches it through the bag instead.
+            AttrValue::Attrs(_) => {
                 return Err(format!(
-                    "`{}` is a component prop, so it cannot take a data map",
+                    "`{}` is a component prop, so it takes a value; `{{...expr}}` is how a call \
+                     site passes a set of attributes",
                     attr.name.as_str()
                 ));
             }
@@ -1392,52 +1430,54 @@ mod tests {
     }
 
     #[test]
-    fn class_list_and_map_forms() {
-        let b = body(r#"<div class=[Some("a"), None, "b", { "c": self.on }]></div>"#);
-        assert!(b.contains("let mut __damask_class = ::damask::ClassList::new();"));
-        assert!(b.contains(r#"::damask::ClassItem::add_to(&(Some("a")), &mut __damask_class);"#));
+    fn token_helper_entries_and_conditions() {
+        let b = body(r#"<div class={@tokens(Some("a"), None, "b", "c": self.on)}></div>"#);
+        assert!(b.contains("let mut __damask_tokens = ::damask::TokenList::new();"));
+        assert!(b.contains(r#"::damask::TokenItem::add_to(&(Some("a")), &mut __damask_tokens);"#));
         // A literal `None` contributes nothing and is not emitted at all: it
         // has no type to infer, so it cannot be lowered as an expression.
         assert!(!b.contains("None"));
-        assert!(b.contains(r#"if self.on { ::damask::ClassItem::add_to(&("c")"#));
-
-        let m = body(r#"<div class={ "c": self.on, "d": !self.on }></div>"#);
-        assert!(m.contains(r#"if self.on { ::damask::ClassItem::add_to(&("c")"#));
-        assert!(m.contains(r#"if !self.on { ::damask::ClassItem::add_to(&("d")"#));
+        assert!(b.contains(r#"if self.on { __damask_tokens.add("c"); }"#));
+        // A name is a name whichever way it is spelled.
+        let i = body(r#"<div class={@tokens(active: self.on)}></div>"#);
+        assert!(i.contains(r#"if self.on { __damask_tokens.add("active"); }"#));
     }
 
+    /// The helper is what asks for a list, so it asks for one on any attribute —
+    /// and a `{ … }` without it is the Rust expression it looks like.
     #[test]
-    fn class_brace_disambiguates_map_from_expression() {
-        // No top-level colon: an ordinary Rust expression, not a map.
+    fn a_helper_is_not_keyed_to_an_attribute_name() {
         let e = body(r#"<div class={self.class()}></div>"#);
         assert!(e.contains(r#"::damask::Attr::write_attr(&(self.class()), "class""#));
-        // A `::` path inside is not a colon for these purposes.
-        let p = body(r#"<div class={ "c": matches!(self.t, Tone::Ok) }></div>"#);
-        assert!(p.contains("__damask_class"));
+        let r = body(r#"<a rel={@tokens("noopener", external: self.away)}></a>"#);
+        assert!(r.contains("let mut __damask_tokens = ::damask::TokenList::new();"));
+        assert!(r.contains(r#"__damask_tokens.write_attr("rel", &mut *__damask);"#));
+        // `data={expr}` is a value like any other now, which is what leaves
+        // `<object data={self.url}>` alone.
+        let o = body(r#"<object data={self.url}></object>"#);
+        assert!(o.contains(r#"::damask::Attr::write_attr(&(self.url), "data""#));
     }
 
     #[test]
-    fn data_expression_list_and_map_forms() {
-        let e = body(r#"<div data={self.wiring}></div>"#);
-        assert!(e.contains("let mut __damask_data = ::damask::DataSet::new();"));
-        assert!(e.contains("::damask::DataItem::add_to(&(self.wiring), &mut __damask_data);"));
-        assert!(e.contains("__damask_data.write_attrs(&mut *__damask);"));
+    fn attrs_helper_expands_under_its_own_name() {
+        let e = body(r#"<div data={@attrs(self.wiring)}></div>"#);
+        assert!(e.contains("let mut __damask_group = ::damask::Attrs::new();"));
+        assert!(e.contains("::damask::AttrSet::add_attrs(&(self.wiring), &mut __damask_group);"));
+        assert!(e.contains(r#"__damask_group.write_attrs_prefixed("data", &mut *__damask);"#));
 
-        let l = body(r#"<div data=[self.base(), None, { "open": self.on }]></div>"#);
-        assert!(l.contains("::damask::DataItem::add_to(&(self.base()), &mut __damask_data);"));
-        // A literal `None` drops out at compile time, as it does in a class list.
+        let l = body(r#"<div data={@attrs(self.base(), None, open: self.on)}></div>"#);
+        assert!(l.contains("::damask::AttrSet::add_attrs(&(self.base()), &mut __damask_group);"));
+        // A literal `None` drops out at compile time, as it does in `@tokens`.
         assert!(!l.contains("None"));
-        assert!(
-            l.contains(r#"::damask::DataValue::add_to(&(self.on), "open", &mut __damask_data);"#)
-        );
+        assert!(l.contains(r#"__damask_group.insert("open", (self.on));"#));
 
-        let m = body(r#"<div data={ "controller": "modal", "index": self.i }></div>"#);
-        assert!(m.contains(
-            r#"::damask::DataValue::add_to(&("modal"), "controller", &mut __damask_data);"#
-        ));
-        assert!(
-            m.contains(r#"::damask::DataValue::add_to(&(self.i), "index", &mut __damask_data);"#)
-        );
+        let m = body(r#"<div data={@attrs(controller: "modal", "row-index": self.i)}></div>"#);
+        assert!(m.contains(r#"__damask_group.insert("controller", ("modal"));"#));
+        assert!(m.contains(r#"__damask_group.insert("row-index", (self.i));"#));
+
+        // The prefix is the attribute it was written on — nothing about `data`.
+        let a = body(r#"<div aria={@attrs(label: self.title)}></div>"#);
+        assert!(a.contains(r#"__damask_group.write_attrs_prefixed("aria", &mut *__damask);"#));
     }
 
     /// A quoted `data="…"` is the ordinary attribute it has always been, which
@@ -1446,27 +1486,37 @@ mod tests {
     fn a_quoted_data_value_stays_an_ordinary_attribute() {
         let b = body(r#"<object data="movie.swf"></object>"#);
         assert!(b.contains(r#"<object data=\"movie.swf\""#));
-        assert!(!b.contains("DataSet"));
+        assert!(!b.contains("Attrs::new"));
     }
 
-    /// Longhand `data-*` attributes are not collected into the set: they stay on
-    /// the `Attr` path whether or not a `data` map sits beside them, so adding
+    /// Longhand `data-*` attributes are not collected into the group: they stay
+    /// on the `Attr` path whether or not an `@attrs` sits beside them, so adding
     /// one cannot change how the other compiles.
     #[test]
     fn longhand_data_attributes_are_left_alone() {
-        let b = body(r#"<div data-controller="modal" data={self.extra}></div>"#);
+        let b = body(r#"<div data-controller="modal" data={@attrs(self.extra)}></div>"#);
         assert!(b.contains(r#"data-controller=\"modal\""#));
-        assert!(b.contains("::damask::DataItem::add_to(&(self.extra), &mut __damask_data);"));
+        assert!(b.contains("::damask::AttrSet::add_attrs(&(self.extra), &mut __damask_group);"));
     }
 
+    /// `@attrs` writes attribute *names*, and a prop is one value under a name
+    /// the component chose — so it has nowhere to go. `@tokens` builds a value,
+    /// which is exactly what a prop takes.
     #[test]
-    fn a_data_map_is_an_error_off_data() {
-        // Only `data` parses into a data map, and only on an HTML element.
-        assert!(lower(&crate::parse(r#"<Comp data={ "a": self.x }/>"#).unwrap()).is_err());
-        assert!(lower(&crate::parse(r#"<Comp data=[self.x]/>"#).unwrap()).is_err());
+    fn attrs_is_an_error_on_a_component_and_tokens_is_not() {
+        assert!(lower(&crate::parse(r#"<Comp data={@attrs(a: self.x)}/>"#).unwrap()).is_err());
         // On a component, a plain `data={expr}` is an ordinary prop.
         let p = body(r#"<Comp data={self.x}/>"#);
         assert!(p.contains(".data((self.x))"));
+
+        let t = body(r#"<Comp class={@tokens("a", on: self.on)}/>"#);
+        assert!(t.contains("::damask::TokenList::new()"), "{t}");
+        assert!(t.contains("__damask_tokens.to_value()"), "{t}");
+        // An attribute the component cannot name reaches the bag as a value
+        // that may be absent, so an empty list writes no attribute.
+        let r = body(r#"<Comp data-tone={@tokens("a")}/>"#);
+        assert!(r.contains(r#".__damask_rest_any("data-tone", {"#), "{r}");
+        assert!(r.contains("__damask_tokens.into_value()"), "{r}");
     }
 
     #[test]
@@ -1570,13 +1620,13 @@ mod tests {
     #[test]
     fn class_directives_take_precedence() {
         let b = body(r#"<div class="a b" class:b={self.off} class:c></div>"#);
-        assert!(b.contains(r#"::damask::ClassItem::add_to(&("a b"), &mut __damask_class);"#));
-        assert!(b.contains(r#"__damask_class.set("b", self.off);"#));
-        assert!(b.contains(r#"__damask_class.set("c", true);"#));
+        assert!(b.contains(r#"::damask::TokenItem::add_to(&("a b"), &mut __damask_tokens);"#));
+        assert!(b.contains(r#"__damask_tokens.set("b", self.off);"#));
+        assert!(b.contains(r#"__damask_tokens.set("c", true);"#));
         // The whole thing is written once, after the directives are applied.
-        assert!(b.contains(r#"__damask_class.write_attr("class", &mut *__damask);"#));
+        assert!(b.contains(r#"__damask_tokens.write_attr("class", &mut *__damask);"#));
         // A directive with no `class` of its own still produces the attribute.
-        assert!(body(r#"<div class:c={self.on}></div>"#).contains("__damask_class"));
+        assert!(body(r#"<div class:c={self.on}></div>"#).contains("__damask_tokens"));
     }
 
     #[test]

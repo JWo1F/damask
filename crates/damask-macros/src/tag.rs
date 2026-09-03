@@ -3,42 +3,52 @@
 //! What it is for is the markup a `.dmk` is the wrong shape for — a helper in a
 //! service, a fragment a controller assembles, a `<style>` element whose CSS is
 //! full of the `{` a template reserves. It writes the same runtime calls the
-//! lowerer writes, through the same [`Attr`], [`ClassList`] and [`DataSet`], so
-//! `disabled`, `class` and `data` mean here exactly what they mean there.
+//! lowerer writes, through the same [`Attr`], [`TokenList`] and [`Attrs`], and
+//! it takes the same two helpers — `class: @tokens(…)`, `data: @attrs(…)` — on
+//! any attribute, so a tag means here exactly what it means there.
 //!
 //! [`Attr`]: damask::Attr
-//! [`ClassList`]: damask::ClassList
-//! [`DataSet`]: damask::DataSet
+//! [`TokenList`]: damask::TokenList
+//! [`Attrs`]: damask::Attrs
 
 use proc_macro2::{Span, TokenStream, TokenTree};
 use quote::quote;
 use syn::ext::IdentExt;
 use syn::parse::{Parse, ParseStream};
-use syn::{Expr, LitStr, Path, Token, braced, bracketed, parenthesized};
+use syn::{Expr, LitStr, Path, Token, parenthesized};
 
-/// `class:` in one of the three forms a template writes it in.
-enum ClassSpec {
-    /// `class: expr` — one [`ClassItem`](damask::ClassItem).
-    One(Expr),
-    /// `class: [a, b, c]` — each entry added on its own, so the entries need no
-    /// common type and `Option` items decide for themselves whether they appear.
-    List(Vec<Expr>),
-    /// `class: { "name": cond }` — a name that is there when its condition holds.
-    Toggles(Vec<(LitStr, Expr)>),
+/// One argument of `@tokens(…)`.
+enum TokenEntry {
+    /// A [`TokenItem`](damask::TokenItem): a name, a list of them, an `Option`.
+    /// Each is added on its own, so the entries need no common type.
+    Item(Expr),
+    /// `name: cond` — a token that is there while its condition holds.
+    Cond(LitStr, Expr),
 }
 
-/// `data:` in the two forms a template writes it in.
-enum DataSpec {
-    /// `data: expr` — anything that contributes whole entries.
-    Whole(Expr),
-    /// `data: { key: value }`.
-    Map(Vec<(LitStr, Expr)>),
+/// One argument of `@attrs(…)`.
+enum AttrEntry {
+    /// An [`AttrSet`](damask::AttrSet): a map, a pair list, an `Attrs`.
+    Set(Expr),
+    /// `key: value` — one attribute under the prefix.
+    Pair(LitStr, Expr),
 }
 
 enum AttrSpec {
-    Plain { name: LitStr, value: Expr },
-    Class(ClassSpec),
-    Data(DataSpec),
+    Plain {
+        name: LitStr,
+        value: Expr,
+    },
+    /// `name: @tokens(…)`, on any attribute.
+    Tokens {
+        name: LitStr,
+        entries: Vec<TokenEntry>,
+    },
+    /// `name: @attrs(…)`, on any attribute — a run of `name-*`.
+    Attrs {
+        name: LitStr,
+        entries: Vec<AttrEntry>,
+    },
 }
 
 pub struct TagInput {
@@ -170,13 +180,38 @@ fn parse_attr(input: ParseStream) -> syn::Result<Option<AttrSpec>> {
     let name = parse_attr_name(input)?;
     input.parse::<Token![:]>()?;
 
-    Ok(Some(match name.value().as_str() {
-        "class" => AttrSpec::Class(parse_class(input)?),
-        "data" => AttrSpec::Data(parse_data(input)?),
-        _ => AttrSpec::Plain {
-            name,
-            value: input.parse()?,
-        },
+    // `@tokens(…)` and `@attrs(…)` are the template's helpers, spelled the same
+    // here. Nothing is keyed to the attribute's name: `class`, `rel` and `data`
+    // are read exactly alike, and the helper says what happens to the value.
+    if input.peek(Token![@]) {
+        input.parse::<Token![@]>()?;
+        let helper = input.call(syn::Ident::parse_any)?;
+        let args;
+        parenthesized!(args in input);
+        return Ok(Some(match helper.to_string().as_str() {
+            "tokens" => AttrSpec::Tokens {
+                name,
+                entries: parse_token_entries(&args)?,
+            },
+            "attrs" => AttrSpec::Attrs {
+                name,
+                entries: parse_attr_entries(&args)?,
+            },
+            other => {
+                return Err(syn::Error::new(
+                    helper.span(),
+                    format!(
+                        "unknown attribute helper `@{other}`; the helpers are `@tokens` and \
+                         `@attrs`"
+                    ),
+                ));
+            }
+        }));
+    }
+
+    Ok(Some(AttrSpec::Plain {
+        name,
+        value: input.parse()?,
     }))
 }
 
@@ -198,55 +233,59 @@ fn parse_attr_name(input: ParseStream) -> syn::Result<LitStr> {
     Ok(LitStr::new(&name, ident.span()))
 }
 
-fn parse_class(input: ParseStream) -> syn::Result<ClassSpec> {
-    if input.peek(syn::token::Bracket) {
-        let items;
-        bracketed!(items in input);
-        let entries = items.parse_terminated(Expr::parse, Token![,])?;
-        return Ok(ClassSpec::List(entries.into_iter().collect()));
-    }
-    if input.peek(syn::token::Brace) {
-        let toggles;
-        braced!(toggles in input);
-        return Ok(ClassSpec::Toggles(parse_pairs(&toggles)?));
-    }
-    Ok(ClassSpec::One(input.parse()?))
-}
-
-fn parse_data(input: ParseStream) -> syn::Result<DataSpec> {
-    if input.peek(syn::token::Brace) {
-        let entries;
-        braced!(entries in input);
-        return Ok(DataSpec::Map(parse_pairs(&entries)?));
-    }
-    Ok(DataSpec::Whole(input.parse()?))
-}
-
-/// `key: value, key: value` — the shape both the class toggles and the data map
-/// are written in.
-///
-/// A key is taken as written, with no `_`→`-` rewriting: a data key is the part
-/// after `data-` and Damask never rewrites one, so `user_id` has to stay
-/// `data-user_id`. Quote the key to write a hyphen.
-fn parse_pairs(input: ParseStream) -> syn::Result<Vec<(LitStr, Expr)>> {
-    let mut pairs = Vec::new();
+fn parse_token_entries(input: ParseStream) -> syn::Result<Vec<TokenEntry>> {
+    let mut entries = Vec::new();
     while !input.is_empty() {
-        let key = if input.peek(LitStr) {
-            input.parse()?
-        } else {
-            let ident = input.call(syn::Ident::parse_any)?;
-            let name = ident.to_string();
-            LitStr::new(name.strip_prefix("r#").unwrap_or(&name), ident.span())
-        };
-        input.parse::<Token![:]>()?;
-        let value: Expr = input.parse()?;
-        pairs.push((key, value));
+        entries.push(match parse_key(input)? {
+            Some(key) => TokenEntry::Cond(key, input.parse()?),
+            None => TokenEntry::Item(input.parse()?),
+        });
         if input.is_empty() {
             break;
         }
         input.parse::<Token![,]>()?;
     }
-    Ok(pairs)
+    Ok(entries)
+}
+
+fn parse_attr_entries(input: ParseStream) -> syn::Result<Vec<AttrEntry>> {
+    let mut entries = Vec::new();
+    while !input.is_empty() {
+        entries.push(match parse_key(input)? {
+            Some(key) => AttrEntry::Pair(key, input.parse()?),
+            None => AttrEntry::Set(input.parse()?),
+        });
+        if input.is_empty() {
+            break;
+        }
+        input.parse::<Token![,]>()?;
+    }
+    Ok(entries)
+}
+
+/// The `key:` of a `key: value` entry, or `None` when the entry is an
+/// expression instead.
+///
+/// A key is taken as written, with no `_`→`-` rewriting: an attribute key is
+/// the part after the prefix and Damask never rewrites one, so `user_id` stays
+/// `data-user_id`. Quote the key to write a hyphen, or anything else an ident
+/// cannot spell.
+fn parse_key(input: ParseStream) -> syn::Result<Option<LitStr>> {
+    let keyed = (input.peek(syn::Ident::peek_any) || input.peek(LitStr))
+        && input.peek2(Token![:])
+        && !input.peek2(Token![::]);
+    if !keyed {
+        return Ok(None);
+    }
+    let key = if input.peek(LitStr) {
+        input.parse()?
+    } else {
+        let ident = input.call(syn::Ident::parse_any)?;
+        let name = ident.to_string();
+        LitStr::new(name.strip_prefix("r#").unwrap_or(&name), ident.span())
+    };
+    input.parse::<Token![:]>()?;
+    Ok(Some(key))
 }
 
 pub fn expand(input: TagInput) -> TokenStream {
@@ -291,47 +330,37 @@ pub fn expand(input: TagInput) -> TokenStream {
         AttrSpec::Plain { name, value } => quote! {
             #krate::Attr::write_attr(&(#value), #name, __tag_r);
         },
-        AttrSpec::Class(spec) => {
-            let entries = match spec {
-                ClassSpec::One(expr) => vec![quote! {
-                    #krate::ClassItem::add_to(&(#expr), &mut __tag_class);
-                }],
-                ClassSpec::List(items) => items
-                    .iter()
-                    .map(|item| {
-                        quote! { #krate::ClassItem::add_to(&(#item), &mut __tag_class); }
-                    })
-                    .collect(),
-                ClassSpec::Toggles(pairs) => pairs
-                    .iter()
-                    .map(|(key, when)| quote! { __tag_class.set(#key, #when); })
-                    .collect(),
-            };
+        AttrSpec::Tokens { name, entries } => {
+            let entries = entries.iter().map(|entry| match entry {
+                TokenEntry::Item(expr) => quote! {
+                    #krate::TokenItem::add_to(&(#expr), &mut __tag_tokens);
+                },
+                TokenEntry::Cond(token, when) => quote! {
+                    if #when { __tag_tokens.add(#token); }
+                },
+            });
             quote! {
                 {
-                    let mut __tag_class = #krate::ClassList::new();
+                    let mut __tag_tokens = #krate::TokenList::new();
                     #(#entries)*
-                    __tag_class.write_attr("class", __tag_r);
+                    __tag_tokens.write_attr(#name, __tag_r);
                 }
             }
         }
-        AttrSpec::Data(spec) => {
-            let entries = match spec {
-                DataSpec::Whole(expr) => vec![quote! {
-                    #krate::DataItem::add_to(&(#expr), &mut __tag_data);
-                }],
-                DataSpec::Map(pairs) => pairs
-                    .iter()
-                    .map(|(key, value)| {
-                        quote! { #krate::DataValue::add_to(&(#value), #key, &mut __tag_data); }
-                    })
-                    .collect(),
-            };
+        AttrSpec::Attrs { name, entries } => {
+            let entries = entries.iter().map(|entry| match entry {
+                AttrEntry::Set(expr) => quote! {
+                    #krate::AttrSet::add_attrs(&(#expr), &mut __tag_group);
+                },
+                AttrEntry::Pair(key, value) => quote! {
+                    __tag_group.insert(#key, (#value));
+                },
+            });
             quote! {
                 {
-                    let mut __tag_data = #krate::DataSet::new();
+                    let mut __tag_group = #krate::Attrs::new();
                     #(#entries)*
-                    __tag_data.write_attrs(__tag_r);
+                    __tag_group.write_attrs_prefixed(#name, __tag_r);
                 }
             }
         }

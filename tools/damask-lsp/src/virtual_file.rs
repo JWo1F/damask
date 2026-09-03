@@ -193,36 +193,36 @@ mod tests {
     }
 
     /// Hover and go-to-definition work by mapping a source offset into the
-    /// overlay, so every Rust position in a class value has to be mapped —
-    /// including the ones with no `{ … }` around them, which is every entry of
-    /// a list.
+    /// overlay, so every Rust position in a helper's arguments has to be mapped
+    /// — including the ones with no `{ … }` around them, which is every entry.
     #[test]
-    fn class_values_are_mapped_for_hover() {
-        let damask = r#"<div class=[self.extra, { "on": self.ok }] class:off={!self.ok}></div>"#;
+    fn token_values_are_mapped_for_hover() {
+        let damask =
+            r#"<div class={@tokens(self.extra, "on": self.ok)} class:off={!self.ok}></div>"#;
         let (vf, _) = build(damask);
-        for needle in ["self.extra", "self.ok }", "!self.ok"] {
+        for needle in ["self.extra", "self.ok)", "!self.ok"] {
             let at = damask.find(needle).unwrap();
             let ov = vf
                 .source_to_overlay(at)
                 .unwrap_or_else(|| panic!("`{needle}` is unmapped, so nothing can hover it"));
-            let want = needle.trim_end_matches(" }");
+            let want = needle.trim_end_matches(')');
             assert_eq!(&vf.text[ov..ov + want.len()], want);
             assert_eq!(vf.overlay_to_source(ov), Some(at));
         }
     }
 
-    /// The `data` forms hold Rust in the same two places a class list does — a
-    /// bare list entry, and the value half of a map pair — so both have to map.
+    /// `@attrs` holds Rust in the same two places `@tokens` does — a bare entry
+    /// and the value half of a pair — so both have to map.
     #[test]
-    fn data_values_are_mapped_for_hover() {
-        let damask = r#"<div data=[self.extra, { "on": self.ok }]></div>"#;
+    fn attr_values_are_mapped_for_hover() {
+        let damask = r#"<div data={@attrs(self.extra, on: self.ok)}></div>"#;
         let (vf, _) = build(damask);
-        for needle in ["self.extra", "self.ok }"] {
+        for needle in ["self.extra", "self.ok)"] {
             let at = damask.find(needle).unwrap();
             let ov = vf
                 .source_to_overlay(at)
                 .unwrap_or_else(|| panic!("`{needle}` is unmapped, so nothing can hover it"));
-            let want = needle.trim_end_matches(" }");
+            let want = needle.trim_end_matches(')');
             assert_eq!(&vf.text[ov..ov + want.len()], want);
             assert_eq!(vf.overlay_to_source(ov), Some(at));
         }

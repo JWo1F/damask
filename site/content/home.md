@@ -38,7 +38,7 @@ pub struct Card {
 '''
 dmk_name = "card.dmk"
 dmk = '''
-<article class=["card", self.tone.skin()]>
+<article class={@tokens("card", self.tone.skin())}>
   <h3>{self.title}</h3>
   <slot/>
   <footer>

@@ -10,6 +10,8 @@ error[E0277]: `str` is not a set of attributes
    = note: attributes written as raw markup are no longer accepted — write them at the call site as attributes: `<Hidden data-controller="signup"/>`
    = help: the following other types implement trait `damask::attr::AttrSet`:
              &T
+             BTreeMap<K, V>
+             HashMap<K, V, S>
              Option<T>
              Vec<(K, V)>
              [(K, V); N]

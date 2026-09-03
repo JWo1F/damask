@@ -36,7 +36,7 @@ which lands in the component's own class list, where an unset `Option` costs
 nothing:
 
 ```dmk
-<div class=["card", self.tone.skin(), self.class]>
+<div class={@tokens("card", self.tone.skin(), self.class)}>
 ```
 
 ## Derived values belong on the model

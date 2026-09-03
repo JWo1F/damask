@@ -150,8 +150,8 @@ Control flow **cannot appear in attribute position**:
 
 Attribute names are static — there is no `data-{key}=`. Express a conditional
 attribute through a `bool` or `Option` value; for a map of `data-*`, hand the
-whole map to [`data={…}`](/docs/data-attributes/); for names of any other shape,
-build the run in Rust and splice it with
+whole map to [`{@attrs(…)}`](/docs/attribute-groups/); for names of any other
+shape, build the run in Rust and splice it with
 [`{...expr}`](/docs/attributes/#spreading).
 
 An empty tag (`{}`), an empty expression in `{@html}`, `{@render}`, `{#if}` or an

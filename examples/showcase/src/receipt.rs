@@ -22,7 +22,7 @@ impl Receipt {
     /// A helper of the shape `tag!` exists for: markup a template would be a
     /// clumsy way to write, returned as a value a template can splice.
     pub fn badge(label: &str, urgent: bool) -> Trusted {
-        tag!(span, class: ["badge", urgent.then_some("badge--urgent")], label)
+        tag!(span, class: @tokens("badge", urgent.then_some("badge--urgent")), label)
     }
 
     pub fn line(name: &str, amount: f64) -> Trusted {

@@ -164,6 +164,24 @@ impl Backend {
         damask_hover_at(&path, &text, offset)
     }
 
+    /// Hover for `@tokens` and `@attrs`, which are syntax rather than code:
+    /// nothing downstream can explain them, so the explanation lives here.
+    fn helper_hover(&self, uri: &Url, pos: Position) -> Option<Hover> {
+        let text = self.text_of(uri)?;
+        let offset = offset_at(&text, pos);
+        let (helper, start, end) = crate::analysis::helper_at(&text, offset)?;
+        Some(Hover {
+            contents: HoverContents::Markup(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: format!("`@{}` — {}\n\n{}", helper.name, helper.detail, helper.doc),
+            }),
+            range: Some(Range {
+                start: position_at(&text, start),
+                end: position_at(&text, end),
+            }),
+        })
+    }
+
     /// Go-to-definition for the component-facing surface: a component attribute
     /// resolves to its struct field, and a `slot="…"` fill to the `<slot>`
     /// declaration in the target component's template. Component *names* lower to
@@ -425,6 +443,23 @@ impl LanguageServer for Backend {
             ))));
         }
 
+        // `{@tokens(…)}` / `{@attrs(…)}` in an attribute value. Neither is Rust,
+        // so rust-analyzer cannot offer them and would answer the same position
+        // with the members of `self`. Once an `@` is typed they are the only
+        // answer; before it, they are ranked above what the proxy returns,
+        // because a brace there may still be an ordinary expression.
+        if let Some(typed) = crate::analysis::helper_prefix(&text, offset) {
+            let mut items = helper_items();
+            if typed.is_empty() {
+                items.extend(
+                    self.proxy_completion(&uri, position)
+                        .await
+                        .unwrap_or_default(),
+                );
+            }
+            return Ok(Some(CompletionResponse::Array(items)));
+        }
+
         // Inside a `{ … }` tag, rust-analyzer gives far richer results than the
         // static introspection can; elsewhere (element names, component
         // attributes) the completions are Damask-specific and stay local.
@@ -500,6 +535,12 @@ impl LanguageServer for Backend {
     async fn hover(&self, params: HoverParams) -> Result<Option<Hover>> {
         let pos = params.text_document_position_params;
         let uri = pos.text_document.uri;
+        // An attribute helper is Damask's own syntax: no other server has heard
+        // of it, and the overlay holds what it lowered to rather than the word
+        // itself, so this is the only place the explanation can come from.
+        if let Some(hover) = self.helper_hover(&uri, pos.position) {
+            return Ok(Some(hover));
+        }
         // Component attributes and slots first: rust-analyzer sees only the
         // generated setters they lower to, so answer these from introspection.
         if let Some(hover) = self.damask_hover(&uri, pos.position) {
@@ -562,6 +603,31 @@ fn map_range_to_damask(vf: &VirtualFile, damask_text: &str, range: Range) -> Opt
         start: position_at(damask_text, s),
         end: position_at(damask_text, e),
     })
+}
+
+/// The `@tokens` and `@attrs` completions, as a call with the cursor left
+/// inside its parentheses.
+///
+/// `sort_text` starts with `0` so they lead the list where they are merged with
+/// rust-analyzer's: at that position they are what the syntax offers, and a
+/// member of `self` is what the author may have meant instead.
+fn helper_items() -> Vec<CompletionItem> {
+    crate::analysis::HELPERS
+        .iter()
+        .map(|helper| CompletionItem {
+            label: format!("@{}", helper.name),
+            kind: Some(CompletionItemKind::FUNCTION),
+            detail: Some(helper.detail.to_string()),
+            documentation: Some(Documentation::MarkupContent(MarkupContent {
+                kind: MarkupKind::Markdown,
+                value: helper.doc.to_string(),
+            })),
+            insert_text: Some(format!("@{}($0)", helper.name)),
+            insert_text_format: Some(InsertTextFormat::SNIPPET),
+            sort_text: Some(format!("0{}", helper.name)),
+            ..Default::default()
+        })
+        .collect()
 }
 
 /// Reduce a rust-analyzer completion item to a form with no overlay-relative
@@ -1040,6 +1106,20 @@ mod tests {
             slot_fill_markdown(Some("Frame"), "header", Some(&slots))
                 .contains("declares no `header`")
         );
+    }
+
+    /// The helpers complete as calls, and each carries the explanation a hover
+    /// gives — an editor shows it beside the list as the item is selected.
+    #[test]
+    fn the_helpers_complete_as_calls() {
+        let items = helper_items();
+        let labels: Vec<&str> = items.iter().map(|i| i.label.as_str()).collect();
+        assert_eq!(labels, ["@tokens", "@attrs"]);
+        for item in &items {
+            assert_eq!(item.insert_text_format, Some(InsertTextFormat::SNIPPET));
+            assert!(item.insert_text.as_ref().unwrap().ends_with("($0)"));
+            assert!(item.documentation.is_some(), "{}", item.label);
+        }
     }
 
     #[test]
