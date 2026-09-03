@@ -126,11 +126,34 @@ attr_via_display!(
 /// than a value that reached the page from a request.
 pub trait AttrSpread {
     fn write_attrs(&self, r: &mut dyn Renderer);
+
+    /// The same, minus any attribute the element already writes itself.
+    ///
+    /// An element's own attributes win, and the spread fills in the rest. The
+    /// alternative is a tag carrying `type` twice, which is not valid HTML and
+    /// which the browser resolves by a rule nobody writing the template was
+    /// thinking about.
+    ///
+    /// `taken` is decided when the template compiles — it is the literal
+    /// attribute names in that tag — so filtering costs a short scan of a list
+    /// that is usually empty and never long.
+    ///
+    /// The default ignores it, which is the honest answer for a spread that is
+    /// markup rather than pairs: `&'static str` has no names to compare, so
+    /// there is nothing it could drop.
+    fn write_attrs_except(&self, taken: &[&str], r: &mut dyn Renderer) {
+        let _ = taken;
+        self.write_attrs(r);
+    }
 }
 
 impl<T: AttrSpread + ?Sized> AttrSpread for &T {
     fn write_attrs(&self, r: &mut dyn Renderer) {
         (**self).write_attrs(r);
+    }
+
+    fn write_attrs_except(&self, taken: &[&str], r: &mut dyn Renderer) {
+        (**self).write_attrs_except(taken, r);
     }
 }
 
@@ -151,6 +174,12 @@ impl<T: AttrSpread> AttrSpread for Option<T> {
             inner.write_attrs(r);
         }
     }
+
+    fn write_attrs_except(&self, taken: &[&str], r: &mut dyn Renderer) {
+        if let Some(inner) = self {
+            inner.write_attrs_except(taken, r);
+        }
+    }
 }
 
 /// Name/value pairs, escaped. The form to use for anything derived from state.
@@ -161,10 +190,17 @@ impl<T: AttrSpread> AttrSpread for Option<T> {
 /// mistake is loud where it can be fixed and harmless where it cannot.
 impl<K: AsRef<str>, V: AsRef<str>> AttrSpread for [(K, V)] {
     fn write_attrs(&self, r: &mut dyn Renderer) {
+        self.write_attrs_except(&[], r);
+    }
+
+    fn write_attrs_except(&self, taken: &[&str], r: &mut dyn Renderer) {
         for (key, value) in self {
             let key = key.as_ref();
             if !is_attr_name_safe(key) {
                 debug_assert!(false, "`{key}` is not usable as an attribute name");
+                continue;
+            }
+            if taken.contains(&key) {
                 continue;
             }
             r.write_raw(" ");
@@ -179,6 +215,10 @@ impl<K: AsRef<str>, V: AsRef<str>> AttrSpread for [(K, V)] {
 impl<K: AsRef<str>, V: AsRef<str>> AttrSpread for Vec<(K, V)> {
     fn write_attrs(&self, r: &mut dyn Renderer) {
         self.as_slice().write_attrs(r);
+    }
+
+    fn write_attrs_except(&self, taken: &[&str], r: &mut dyn Renderer) {
+        self.as_slice().write_attrs_except(taken, r);
     }
 }
 
@@ -351,6 +391,24 @@ impl AttrSpread for DataSet {
     fn write_attrs(&self, r: &mut dyn Renderer) {
         DataSet::write_attrs(self, r);
     }
+
+    fn write_attrs_except(&self, taken: &[&str], r: &mut dyn Renderer) {
+        for (key, value) in &self.entries {
+            if taken
+                .iter()
+                .any(|name| name.strip_prefix("data-") == Some(key.as_str()))
+            {
+                continue;
+            }
+            r.write_raw(" data-");
+            r.write_escaped(&key.as_str());
+            if let Some(value) = value {
+                r.write_raw("=\"");
+                r.write_escaped(&value.as_str());
+                r.write_raw("\"");
+            }
+        }
+    }
 }
 
 /// Something that can contribute whole entries to a [`DataSet`].
@@ -502,6 +560,309 @@ macro_rules! data_value_via_display {
 data_value_via_display!(
     char, u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, f32, f64
 );
+
+/// What one attribute holds — the three outcomes [`Attr`] already draws,
+/// named so that they can be *stored* rather than written straight out.
+///
+/// [`Attrs`] is a bag a component carries around before it knows where the
+/// attributes are going, so the decision a `bool` or an `Option` makes has to
+/// survive being put down and picked up again.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AttrValue {
+    /// Not written at all — what `None` and `false` mean.
+    Absent,
+    /// Written bare, with no `="…"` — what `true` means.
+    Bare,
+    /// Written as ` name="value"`, escaped.
+    Value(Cow<'static, str>),
+}
+
+/// A value that can be put into an [`Attrs`].
+///
+/// The same set [`Attr`] covers, and deliberately no blanket impl over
+/// `Display`, for the same reason: `bool` and `Option` decide *whether* an
+/// attribute appears, and a blanket impl would collide with them and turn
+/// `disabled={false}` into a disabled control.
+pub trait IntoAttrValue {
+    fn into_attr_value(self) -> AttrValue;
+}
+
+impl IntoAttrValue for AttrValue {
+    fn into_attr_value(self) -> AttrValue {
+        self
+    }
+}
+
+/// `true` is the bare attribute, `false` is no attribute — the HTML rule.
+impl IntoAttrValue for bool {
+    fn into_attr_value(self) -> AttrValue {
+        match self {
+            true => AttrValue::Bare,
+            false => AttrValue::Absent,
+        }
+    }
+}
+
+impl<T: IntoAttrValue> IntoAttrValue for Option<T> {
+    fn into_attr_value(self) -> AttrValue {
+        match self {
+            Some(value) => value.into_attr_value(),
+            None => AttrValue::Absent,
+        }
+    }
+}
+
+impl IntoAttrValue for String {
+    fn into_attr_value(self) -> AttrValue {
+        AttrValue::Value(Cow::Owned(self))
+    }
+}
+
+impl IntoAttrValue for Cow<'static, str> {
+    fn into_attr_value(self) -> AttrValue {
+        AttrValue::Value(self)
+    }
+}
+
+/// Borrowed for however long the value lives, so it is copied. Static text
+/// written in a template does not come through here — see
+/// [`Attrs::insert_static`], which the lowering emits for a quoted value and
+/// which keeps it borrowed.
+impl IntoAttrValue for &str {
+    fn into_attr_value(self) -> AttrValue {
+        AttrValue::Value(Cow::Owned(self.to_string()))
+    }
+}
+
+impl IntoAttrValue for &String {
+    fn into_attr_value(self) -> AttrValue {
+        AttrValue::Value(Cow::Owned(self.clone()))
+    }
+}
+
+macro_rules! attr_value_via_display {
+    ($($ty:ty),* $(,)?) => {$(
+        impl IntoAttrValue for $ty {
+            fn into_attr_value(self) -> AttrValue {
+                AttrValue::Value(Cow::Owned(self.to_string()))
+            }
+        }
+    )*};
+}
+
+attr_value_via_display!(
+    u8, u16, u32, u64, u128, usize, i8, i16, i32, i64, i128, isize, f32, f64
+);
+
+/// The attributes a component was given that it does not name.
+///
+/// A component declares one field for them — `#[prop(rest)] pub attrs: Attrs` —
+/// and every attribute at its call site that is not one of its props lands here
+/// instead of failing to compile. The component decides where they go by
+/// spreading the field onto an element of its markup:
+///
+/// ```html
+/// <input type="hidden" name={self.name()} {...self.attrs}>
+/// ```
+///
+/// So `<Hidden data-cover-target="input"/>` reaches the page without the
+/// component having heard of `data-cover-target`, and without the call site
+/// hand-writing markup.
+///
+/// # What is in it
+///
+/// Name/value pairs, and only pairs. They are keyed the way [`DataSet`] is: a
+/// name given twice keeps its **first position** and takes its **last value**,
+/// so a component that fills in a default can be overridden without the output
+/// reshuffling. A name that could not be written safely is dropped; see
+/// [`is_attr_name_safe`].
+///
+/// There is deliberately no way to put *markup* in here. Attributes assembled
+/// as a string were the older `attrs={r#"…"#}` spelling, and every one of them
+/// is now written at the call site as the attributes it always was — which is
+/// the point of the bag, and which lets each name and value be escaped as one.
+#[derive(Debug, Default, Clone)]
+pub struct Attrs {
+    /// `None` is a bare attribute, kept distinct from `Some("")` for the same
+    /// reason [`Attr`] keeps it: `checked` and `checked=""` are both checked,
+    /// but [`Attrs::get`] should not have to guess which was meant.
+    entries: Vec<(Cow<'static, str>, Option<Cow<'static, str>>)>,
+}
+
+impl Attrs {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets `name`, whatever [`IntoAttrValue`] says the value is — including
+    /// saying there is no attribute at all, which removes it.
+    pub fn insert(&mut self, name: impl Into<Cow<'static, str>>, value: impl IntoAttrValue) {
+        let name = name.into();
+        match value.into_attr_value() {
+            AttrValue::Absent => self.remove(&name),
+            AttrValue::Bare => self.put(name, None),
+            AttrValue::Value(value) => self.put(name, Some(value)),
+        }
+    }
+
+    /// Sets `name` to static text, keeping it borrowed. What the lowering emits
+    /// for `data-cover-target="input"`, where both halves are template source.
+    pub fn insert_static(&mut self, name: &'static str, value: &'static str) {
+        self.put(Cow::Borrowed(name), Some(Cow::Borrowed(value)));
+    }
+
+    /// Sets `name` with no value, written as a bare ` name`.
+    pub fn insert_bare(&mut self, name: impl Into<Cow<'static, str>>) {
+        self.put(name.into(), None);
+    }
+
+    /// Drops `name`, whatever set it.
+    pub fn remove(&mut self, name: &str) {
+        self.entries.retain(|(seen, _)| seen != name);
+    }
+
+    /// The value `name` holds, or `None` when it is unset *or* bare. Use
+    /// [`Attrs::contains`] to tell those two apart.
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.entries
+            .iter()
+            .find(|(seen, _)| seen == name)
+            .and_then(|(_, value)| value.as_deref())
+    }
+
+    /// Whether `name` is set at all, bare included.
+    pub fn contains(&self, name: &str) -> bool {
+        self.entries.iter().any(|(seen, _)| seen == name)
+    }
+
+    /// Every pair, in the order it will be written. A bare attribute yields
+    /// `None`.
+    pub fn iter(&self) -> impl Iterator<Item = (&str, Option<&str>)> {
+        self.entries
+            .iter()
+            .map(|(name, value)| (name.as_ref(), value.as_deref()))
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Folds a set in, as though its entries had been added to this one in
+    /// order: a name already here keeps its position and takes the new value.
+    pub fn merge(&mut self, other: &(impl AttrSet + ?Sized)) {
+        other.add_attrs(self);
+    }
+
+    fn put(&mut self, name: Cow<'static, str>, value: Option<Cow<'static, str>>) {
+        if !is_attr_name_safe(&name) {
+            debug_assert!(false, "`{name}` is not usable as an attribute name");
+            return;
+        }
+        match self.entries.iter_mut().find(|(seen, _)| *seen == name) {
+            Some(entry) => entry.1 = value,
+            None => self.entries.push((name, value)),
+        }
+    }
+}
+
+/// How the bag reaches the page: `{...self.attrs}` on any element.
+impl AttrSpread for Attrs {
+    fn write_attrs(&self, r: &mut dyn Renderer) {
+        self.write_attrs_except(&[], r);
+    }
+
+    fn write_attrs_except(&self, taken: &[&str], r: &mut dyn Renderer) {
+        for (name, value) in &self.entries {
+            if taken.contains(&name.as_ref()) {
+                continue;
+            }
+            r.write_raw(" ");
+            r.write_escaped(&name.as_ref());
+            if let Some(value) = value {
+                r.write_raw("=\"");
+                r.write_escaped(&value.as_ref());
+                r.write_raw("\"");
+            }
+        }
+    }
+}
+
+/// Something that can contribute whole entries to an [`Attrs`].
+///
+/// The seam a `#[prop(rest)]` field is filled through: `attrs={…}` written at a
+/// call site, and `{...expr}` spread onto a component. The same shape as
+/// [`DataItem`], and for the same reason — a set is read from a reference and
+/// folded in, rather than moved out of the component holding it.
+///
+/// Notably *not* implemented for strings. A string is markup, and this bag
+/// holds pairs it escapes one at a time; the diagnostic below is what the older
+/// `attrs={r#"data-controller="signup""#}` spelling now says, so a call site
+/// that still assembles markup is a build failure rather than a page that looks
+/// right until a value in it needs escaping.
+#[diagnostic::on_unimplemented(
+    message = "`{Self}` is not a set of attributes",
+    label = "expected `Attrs`, a list of name/value pairs, or an `Option` of either",
+    note = "attributes written as raw markup are no longer accepted — write them at the call site as attributes: `<Hidden data-controller=\"signup\"/>`"
+)]
+pub trait AttrSet {
+    fn add_attrs(&self, attrs: &mut Attrs);
+}
+
+impl<T: AttrSet + ?Sized> AttrSet for &T {
+    fn add_attrs(&self, attrs: &mut Attrs) {
+        (**self).add_attrs(attrs);
+    }
+}
+
+impl<T: AttrSet> AttrSet for Option<T> {
+    fn add_attrs(&self, attrs: &mut Attrs) {
+        if let Some(set) = self {
+            set.add_attrs(attrs);
+        }
+    }
+}
+
+impl AttrSet for Attrs {
+    fn add_attrs(&self, attrs: &mut Attrs) {
+        for (name, value) in &self.entries {
+            attrs.put(name.clone(), value.clone());
+        }
+    }
+}
+
+impl<K: AsRef<str>, V: IntoAttrValue + Clone> AttrSet for [(K, V)] {
+    fn add_attrs(&self, attrs: &mut Attrs) {
+        for (name, value) in self {
+            attrs.insert(name.as_ref().to_string(), value.clone());
+        }
+    }
+}
+
+impl<K: AsRef<str>, V: IntoAttrValue + Clone, const N: usize> AttrSet for [(K, V); N] {
+    fn add_attrs(&self, attrs: &mut Attrs) {
+        self.as_slice().add_attrs(attrs);
+    }
+}
+
+impl<K: AsRef<str>, V: IntoAttrValue + Clone> AttrSet for Vec<(K, V)> {
+    fn add_attrs(&self, attrs: &mut Attrs) {
+        self.as_slice().add_attrs(attrs);
+    }
+}
+
+impl<K: Into<Cow<'static, str>>, V: IntoAttrValue> FromIterator<(K, V)> for Attrs {
+    fn from_iter<I: IntoIterator<Item = (K, V)>>(pairs: I) -> Self {
+        let mut attrs = Attrs::new();
+        for (name, value) in pairs {
+            attrs.insert(name, value);
+        }
+        attrs
+    }
+}
 
 #[cfg(test)]
 mod tests {

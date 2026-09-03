@@ -1,0 +1,16 @@
+error[E0277]: this component takes only the props it declares
+  --> tests/ui/no_bag_to_carry_it.rs:23:6
+   |
+23 |     .__damask_rest_static_any("data-anything", "1")
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^ there is no `#[prop(rest)]` field to carry an attribute the component does not name
+   |
+   = help: the trait `Rest` is not implemented for `damask_attributes::strict::__DamaskPropsStrict`
+   = note: give the component one — `#[prop(rest)] pub attrs: damask::Attrs` — and spread it in its template with `{...self.attrs}`
+note: required by a bound in `__DamaskRestAny::__damask_rest_static_any`
+  --> tests/ui/no_bag_to_carry_it.rs:9:11
+   |
+ 7 |   fn __damask_rest_static_any(self, name: &'static str, value: &'static str) -> Self
+   |      ------------------------ required by a bound in this associated function
+ 8 |   where
+ 9 |     Self: damask::props::Rest;
+   |           ^^^^^^^^^^^^^^^^^^^ required by this bound in `__DamaskRestAny::__damask_rest_static_any`

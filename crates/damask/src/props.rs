@@ -142,3 +142,44 @@ impl<T: From<String>> FromInterpolated<Wrapped> for Option<T> {
         Some(T::from(text))
     }
 }
+
+/// The channel every attribute a component does not declare travels through.
+///
+/// Implemented by the derive on the prop builder, and only when the component
+/// has a `#[prop(rest)]` field to put them in. That is what makes the bag
+/// opt-in: a component without one still rejects an attribute it does not
+/// name, so a typo is a build failure rather than something rendered into the
+/// page.
+///
+/// # How a call site reaches it
+///
+/// `<Hidden data-cover-target="input"/>` cannot be resolved by the template
+/// lowering, which is compiled somewhere else and cannot see `Hidden`'s fields.
+/// So the lowering does not decide. It emits the setter call it always emitted
+/// and, next to it, a fallback trait carrying the same method name, and lets
+/// **method resolution** choose: an inherent setter — a declared prop — wins,
+/// and only a name the builder has no setter for falls through to here.
+///
+/// A name that could not be a method at all, which is every hyphenated one,
+/// skips the fallback and is emitted as a call to this trait directly.
+///
+/// Nothing here is meant to be named by hand.
+#[diagnostic::on_unimplemented(
+    message = "this component takes only the props it declares",
+    label = "there is no `#[prop(rest)]` field to carry an attribute the component does not name",
+    note = "give the component one — `#[prop(rest)] pub attrs: damask::Attrs` — and spread it in its template with `{{...self.attrs}}`"
+)]
+pub trait Rest: Sized {
+    /// `name={expr}`, and the interpolated `name="a {b}"` — both arrive as a
+    /// value whose type decides whether the attribute appears at all.
+    fn __damask_rest<V: crate::attr::IntoAttrValue>(self, name: &'static str, value: V) -> Self;
+
+    /// `name="text"`, where both halves are template source and stay borrowed.
+    fn __damask_rest_static(self, name: &'static str, value: &'static str) -> Self;
+
+    /// A bare `name`, written with no value.
+    fn __damask_rest_bare(self, name: &'static str) -> Self;
+
+    /// `{...expr}` on a component: a whole set, folded in where it was written.
+    fn __damask_rest_spread<A: crate::attr::AttrSet + ?Sized>(self, attrs: &A) -> Self;
+}

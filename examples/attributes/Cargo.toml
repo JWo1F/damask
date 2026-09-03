@@ -1,0 +1,19 @@
+[package]
+name = "damask-attributes"
+description = "An attribute a component does not name, carried through to the page."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+rust-version.workspace = true
+publish = false
+
+[dependencies]
+damask.workspace = true
+
+[dev-dependencies]
+trybuild = "1"
+
+[lints]
+workspace = true

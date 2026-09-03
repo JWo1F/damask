@@ -44,6 +44,11 @@ struct Prop<'a> {
     /// `(parameter, marker)` for a required prop — the builder's type parameter
     /// for it, and the type that stands for "not provided yet".
     tracked: Option<(Ident, Ident)>,
+    /// `#[prop(rest)]` — the field every attribute the component does not
+    /// declare is collected into. Never tracked, whatever its type says: a bag
+    /// a call site fills nothing into is an empty bag, so there is nothing for
+    /// a call site to forget.
+    rest: bool,
 }
 
 /// Everything `#[component(…)]` can say.
@@ -82,24 +87,49 @@ pub fn expand(input: &DeriveInput, options: &Options) -> TokenStream {
         _ => return TokenStream::new(),
     };
 
+    let mut rest_errors = TokenStream::new();
     let props: Vec<Prop> = fields
         .iter()
         .enumerate()
         .map(|(i, field)| {
             let ident = field.ident.as_ref().expect("named field");
+            let rest = match is_rest(&field.attrs) {
+                Ok(rest) => rest,
+                Err(error) => {
+                    rest_errors.extend(error.to_compile_error());
+                    false
+                }
+            };
             Prop {
                 ident,
                 ty: &field.ty,
                 vis: &field.vis,
-                tracked: (!defaulted && !is_skippable(&field.ty)).then(|| {
+                tracked: (!rest && !defaulted && !is_skippable(&field.ty)).then(|| {
                     (
                         format_ident!("__DamaskM{i}"),
                         format_ident!("__Damask{name}_{ident}"),
                     )
                 }),
+                rest,
             }
         })
         .collect();
+
+    // One bag, or none. Two would leave the generated `Rest` impl choosing
+    // between them, and there is no reading of a call site that says which.
+    let rest: Vec<&Prop> = props.iter().filter(|prop| prop.rest).collect();
+    if rest.len() > 1 {
+        for prop in &rest[1..] {
+            rest_errors.extend(
+                syn::Error::new(
+                    prop.ident.span(),
+                    "a component has at most one `#[prop(rest)]` field",
+                )
+                .to_compile_error(),
+            );
+        }
+    }
+    let rest = rest.first().map(|prop| prop.ident);
 
     let builder = format_ident!("__DamaskProps{name}");
     let store = format_ident!("__DamaskPropStore{name}");
@@ -196,9 +226,13 @@ pub fn expand(input: &DeriveInput, options: &Options) -> TokenStream {
         // What it costs is inference where the value alone does not say what it
         // is: `class={None}` no longer knows which `None`, and is written
         // `class={None::<String>}` or, better, left out.
-        let parameter = match is_skippable(ty) {
-            true => quote!(impl ::core::convert::Into<#ty>),
-            false => quote!(#ty),
+        let parameter = match (prop.rest, is_skippable(ty)) {
+            // The bag takes a whole set — `attrs={…}` at a call site, and the
+            // `{...expr}` spread — through the one conversion that refuses a
+            // string, so markup assembled by hand is a build failure.
+            (true, _) => quote!(impl #krate::attr::AttrSet),
+            (false, true) => quote!(impl ::core::convert::Into<#ty>),
+            (false, false) => quote!(#ty),
         };
 
         // The quoted form of the same prop: `title="…"`, which is static text
@@ -211,11 +245,27 @@ pub fn expand(input: &DeriveInput, options: &Options) -> TokenStream {
         // above accepts.
         let literal = format_ident!("__damask_literal_{ident}");
         let interpolated = format_ident!("__damask_text_{ident}");
+        // The bag accumulates rather than replaces, because the attributes
+        // reaching it were written one at a time and in an order the page can
+        // see. Every other prop assigns, as a struct field did.
+        let store = match prop.rest {
+            true => quote! {
+                let __damask_bag: &mut #krate::attr::Attrs = self
+                    .__damask_store
+                    .#ident
+                    .get_or_insert_with(::core::default::Default::default);
+                __damask_bag.merge(&__damask_value);
+            },
+            false => quote! {
+                self.__damask_store.#ident =
+                    ::core::option::Option::Some(__damask_value.into());
+            },
+        };
+
         quote! {
             #[doc(hidden)]
             #field_vis fn #ident(mut self, __damask_value: #parameter) -> #returns {
-                self.__damask_store.#ident =
-                    ::core::option::Option::Some(__damask_value.into());
+                #store
                 #builder {
                     __damask_store: self.__damask_store,
                     __damask_state: ::core::marker::PhantomData,
@@ -305,6 +355,67 @@ pub fn expand(input: &DeriveInput, options: &Options) -> TokenStream {
         )
     };
 
+    // Only a component with a bag implements `Rest`, which is what makes the
+    // bag opt-in: at a call site the trait bound is the thing that fails, and
+    // its `on_unimplemented` is the message a component without one gives for
+    // an attribute it does not declare.
+    //
+    // The `&mut Attrs` binding is written out rather than inferred so that a
+    // `#[prop(rest)]` field of some other type is a mismatch reported on the
+    // field, instead of a missing method reported inside generated code.
+    let rest_impl = rest.map(|ident| {
+        quote! {
+            impl #setter_impl #krate::props::Rest for #held_builder #comp_where {
+                fn __damask_rest<__DamaskValue: #krate::attr::IntoAttrValue>(
+                    mut self,
+                    __damask_name: &'static str,
+                    __damask_value: __DamaskValue,
+                ) -> Self {
+                    let __damask_bag: &mut #krate::attr::Attrs = self
+                        .__damask_store
+                        .#ident
+                        .get_or_insert_with(::core::default::Default::default);
+                    __damask_bag.insert(__damask_name, __damask_value);
+                    self
+                }
+
+                fn __damask_rest_static(
+                    mut self,
+                    __damask_name: &'static str,
+                    __damask_value: &'static str,
+                ) -> Self {
+                    let __damask_bag: &mut #krate::attr::Attrs = self
+                        .__damask_store
+                        .#ident
+                        .get_or_insert_with(::core::default::Default::default);
+                    __damask_bag.insert_static(__damask_name, __damask_value);
+                    self
+                }
+
+                fn __damask_rest_bare(mut self, __damask_name: &'static str) -> Self {
+                    let __damask_bag: &mut #krate::attr::Attrs = self
+                        .__damask_store
+                        .#ident
+                        .get_or_insert_with(::core::default::Default::default);
+                    __damask_bag.insert_bare(__damask_name);
+                    self
+                }
+
+                fn __damask_rest_spread<__DamaskAttrs: #krate::attr::AttrSet + ?Sized>(
+                    mut self,
+                    __damask_attrs: &__DamaskAttrs,
+                ) -> Self {
+                    let __damask_bag: &mut #krate::attr::Attrs = self
+                        .__damask_store
+                        .#ident
+                        .get_or_insert_with(::core::default::Default::default);
+                    __damask_bag.merge(__damask_attrs);
+                    self
+                }
+            }
+        }
+    });
+
     quote! {
         // What the call site has set so far. Split from the builder so moving
         // through a setter does not restate every prop.
@@ -349,6 +460,9 @@ pub fn expand(input: &DeriveInput, options: &Options) -> TokenStream {
                 #build_body
             }
         }
+
+        #rest_impl
+        #rest_errors
     }
 }
 
@@ -461,4 +575,32 @@ pub fn extract_options(attrs: &[Attribute]) -> syn::Result<Options> {
         defaulted,
         krate: krate.unwrap_or_else(|| syn::parse_quote!(::damask)),
     })
+}
+
+/// Read `#[prop(…)]` on a field. `rest` is the only word it takes, and it is
+/// what marks the bag every attribute the component does not declare lands in.
+fn is_rest(attrs: &[Attribute]) -> syn::Result<bool> {
+    let mut rest = false;
+    for attr in attrs {
+        if !attr.path().is_ident("prop") {
+            continue;
+        }
+        let mut seen = false;
+        attr.parse_nested_meta(|meta| {
+            seen = true;
+            if meta.path.is_ident("rest") {
+                rest = true;
+                Ok(())
+            } else {
+                Err(meta.error("unknown `prop` option; the only one is `rest`"))
+            }
+        })?;
+        if !seen {
+            return Err(syn::Error::new_spanned(
+                attr,
+                "`#[prop]` requires an option; the only one is `rest`",
+            ));
+        }
+    }
+    Ok(rest)
 }

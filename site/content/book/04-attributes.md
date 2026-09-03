@@ -307,9 +307,15 @@ A name that could break out of its own attribute — one holding a space, or an
 `=` — is dropped rather than escaped, because escaping a *name* does not make it
 safe. The same check guards every `data` key.
 
+A tag that writes an attribute itself and also spreads a set holding it writes it
+once, from the tag — a duplicate attribute is not valid HTML, and the browser
+would settle it by a rule you were not thinking about.
+
 helm needs none of this, and most components never will.
 [Attributes](/docs/attributes/), [Class lists](/docs/class-lists/) and
-[Data attributes](/docs/data-attributes/) have the exhaustive rules.
+[Data attributes](/docs/data-attributes/) have the exhaustive rules. Spreading
+onto a *component* is a different thing and belongs to the next chapter — see
+[Attributes the component never heard of](/book/composition/#attributes-the-component-never-heard-of).
 
 ## Back to the badge
 

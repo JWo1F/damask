@@ -40,7 +40,7 @@ mod tag;
 /// The struct is left untouched; only an `impl Component`, the hidden builder
 /// call sites construct it through, and a private `include_bytes!` binding that
 /// ties the template into the rebuild graph are added.
-#[proc_macro_derive(Component, attributes(template, component))]
+#[proc_macro_derive(Component, attributes(template, component, prop))]
 pub fn derive_component(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as DeriveInput);
     // Ask the compiler where this struct lives so we can find its sibling

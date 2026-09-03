@@ -1,0 +1,1 @@
+<h1>{self.title.as_deref().unwrap_or("untitled")}</h1>

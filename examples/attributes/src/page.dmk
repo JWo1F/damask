@@ -1,0 +1,27 @@
+<form class="signup" data-controller="signup">
+  <!-- `kind` and `value` are props Passthrough declares and reads. Everything
+       else here it has never heard of: two hyphenated names, an ordinary one,
+       and a bare flag. All four reach the `<input>` anyway. -->
+  <Passthrough kind="email"
+               value={self.email.clone()}
+               data-signup-target="email"
+               aria-label="Email address"
+               class="field"
+               autofocus/>
+
+  <!-- `type` is a Rust keyword, so no field could ever be called that and it
+       goes to the bag on sight. Passthrough writes its own `type` though, and
+       an element's own attributes win — so this one is dropped rather than
+       written twice. `kind` is the prop that overrides it. -->
+  <Passthrough type="tel" kind="email"/>
+
+  <!-- A wrapper is transparent: it takes its own bag and hands it on. -->
+  <Wrapper data-signup-target="confirm" placeholder="Confirm the address"/>
+
+  <!-- A set assembled in Rust, spread the way one is onto an element. -->
+  <Passthrough {...&self.tracking}/>
+
+  <!-- Strict declares no bag, so it takes `title` and nothing else. Adding
+       `data-anything` here would not compile — see `tests/ui`. -->
+  <Strict title="Sign up"/>
+</form>

@@ -130,6 +130,12 @@ spreads a `Default`.
 
 ## What props are not
 
+Attributes a component does not declare are not props. They are refused, unless
+the component opts into a bag for them with a `#[prop(rest)]` field — which is
+also what makes a **prop** the way a call site overrides something the component
+writes itself. See
+[Attributes a component does not name](/docs/rest-attributes/).
+
 Slots are not props — a template adds or drops a `<slot>` without the struct
 changing. See [Slots](/docs/slots/).
 
@@ -141,5 +147,6 @@ has the useful property that what a page depends on is visible in its type.
 ## The `props` module
 
 `damask::props` holds the typestate the builder is made of — `Set`, `Provided`,
-`FromText`, `FromLiteral`, `literal`. It exists to phrase the two diagnostics
-above. Nothing in it is meant to be named by hand.
+`FromText`, `FromLiteral`, `literal` — and `Rest`, the channel an attribute that
+is not a prop travels through. It exists to phrase the diagnostics above.
+Nothing in it is meant to be named by hand.

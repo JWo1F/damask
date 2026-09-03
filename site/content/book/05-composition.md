@@ -72,6 +72,65 @@ to the prop's integer type.
 > zero values, `#[component(default)]` makes every prop skippable and fills the
 > gaps from `Default` — see [Props](/docs/props/).
 
+## Attributes the component never heard of
+
+helm's status pill is a component now, so it takes props. But a caller wanting a
+`data-controller` on it, or an `aria-label`, or a `type` — none of which the pill
+knows anything about — has nowhere to put them. Declaring a prop for each is a
+losing game: the list is open, and most of it is somebody else's JavaScript.
+
+One field ends it:
+
+```rust
+use damask::Attrs;
+
+#[derive(Component, Default)]
+#[component(default)]
+pub struct StatusBadge {
+    pub status: Status,
+    #[prop(rest)]
+    pub attrs: Attrs,
+}
+```
+
+and one spread says where they land:
+
+```dmk
+<!-- src/status_badge.dmk -->
+<span class=["badge", self.status.slug()] {...self.attrs}>{self.status}</span>
+```
+
+Now a caller writes attributes, and they are attributes:
+
+```dmk
+<StatusBadge status={host.status} data-fleet-target="pill" aria-live="polite"/>
+```
+
+Which of them is a prop is decided when it compiles: `status` has a field, so the
+component reads it; the other two do not, so they ride along in `attrs`. Nothing
+in the markup says which — a call site writes HTML, and the component decides
+what it knows about.
+
+Two rules are worth having in your head.
+
+**The bag is opt-in.** Only a component with a `#[prop(rest)]` field takes
+attributes it does not declare; every other one still refuses them, so
+`<Notice titel="…"/>` remains a build failure rather than a page with a
+misspelled attribute on it. That is the whole reason it is a field you add
+rather than something every component has.
+
+**The element's own attributes win.** The `<span>` above writes its own `class`,
+so a `class` in the bag is dropped rather than written into the tag twice. A
+component that wants a caller to override something gives it a prop — which is
+what a prop is for.
+
+> [!NOTE]
+> A name that could not be a Rust field goes to the bag on sight: everything
+> hyphenated, and every keyword. That is why `<Input type="email"/>` works even
+> though no struct field can be called `type`.
+> [Attributes a component does not name](/docs/rest-attributes/) has the rest,
+> including what to write instead of the old `attrs={r#"…"#}` string.
+
 ## The chrome
 
 helm's masthead and footer both summarise the whole fleet, so the fleet becomes a

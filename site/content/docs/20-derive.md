@@ -85,6 +85,25 @@ of the field types themselves. Worth it where the defaults are meaningful rather
 than zero values. Without it, skippability is per-prop and expressed by the type
 — see [Props](/docs/props/).
 
+## `#[prop(rest)]`
+
+On a field rather than the struct, and the only option `#[prop]` takes. It marks
+the one field every attribute the call site wrote that is *not* a prop is
+collected into:
+
+```rust
+#[derive(Component, Default)]
+#[component(default)]
+pub struct Hidden {
+    #[prop(rest)]
+    pub attrs: Attrs,
+}
+```
+
+A struct has at most one, its type is `Attrs`, and it is never required. Without
+one, an attribute the component does not declare is a build failure. See
+[Attributes a component does not name](/docs/rest-attributes/).
+
 ## `#[component(crate = …)]`
 
 Names the path the generated code reaches Damask through. It defaults to

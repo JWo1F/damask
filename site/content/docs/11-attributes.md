@@ -95,6 +95,10 @@ value stays exactly its type. See [Props](/docs/props/).
 : The set the [`data`](/docs/data-attributes/) forms build, so one assembled in
   Rust can be spliced rather than passed as a prop.
 
+`Attrs`
+: The bag a component collects the attributes it does not name into. See
+  [Attributes a component does not name](/docs/rest-attributes/).
+
 ```rust
 const WIRING: &'static str = r#"data-controller="confirm" data-action="confirm#check""#;
 
@@ -103,9 +107,30 @@ fn data(&self) -> Vec<(String, String)> {
 }
 ```
 
-Spreading is available on HTML elements only — a component takes named props, and
-a spread carries no name to give one. `{...}` with an empty expression is an
-error, as is `{...}` on a component tag.
+`{...}` with an empty expression is an error.
+
+### The element's own attributes win
+
+A tag that writes `type` itself and also spreads a set holding `type` writes it
+once, from the tag. The alternative is a duplicate attribute, which is not valid
+HTML and which browsers resolve by a rule nobody writing the template was
+thinking about.
+
+```dmk
+<input type="text" {...self.wiring}>
+```
+
+The names skipped are the literal attribute names in that tag, decided when the
+template compiles — so what it costs at run time is a scan of a list that is
+usually empty, and a spread with nothing to collide with is unaffected. A
+`&'static str` spread is exempt: it is markup, with no names to compare.
+
+### Spreading onto a component
+
+`{...expr}` on a component tag is a whole set for the bag it collects the
+attributes it does not name into — see
+[Attributes a component does not name](/docs/rest-attributes/). A component
+without such a bag refuses it, as it refuses any attribute that is not a prop.
 
 ## Optional runs
 

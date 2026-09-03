@@ -41,6 +41,7 @@ mod line_index;
 mod lower;
 mod parser;
 mod resolve;
+mod rest;
 
 pub use awaits::needs_async;
 pub use line_index::LineIndex;

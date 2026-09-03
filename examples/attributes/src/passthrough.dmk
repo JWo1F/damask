@@ -1,0 +1,1 @@
+<input type={self.kind()} value={self.value} {...self.attrs}>

@@ -1,0 +1,1 @@
+<div class="wrapper"><Passthrough {...self.attrs}/></div>

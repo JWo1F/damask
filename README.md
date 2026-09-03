@@ -148,6 +148,31 @@ cannot name, such as a computed `data-<controller>-target`, or a map:
 `AttrSpread` is implemented for `&'static str` (markup the author wrote — the
 lifetime is what keeps a request-derived value out) and for `[(K, V)]` /
 `Vec<(K, V)>`, which escapes and is where anything derived from state belongs.
+A tag that writes an attribute itself and also spreads a set holding it writes it
+once, from the tag.
+
+A component takes attributes it never declared the same way, given one field to
+put them in:
+
+```rust
+#[derive(Component, Default)]
+#[component(default)]
+pub struct Hidden {
+    #[prop(rest)]
+    pub attrs: Attrs,
+}
+```
+
+```html
+<input type="hidden" {...self.attrs}>       <!-- hidden.dmk -->
+
+<Hidden data-cover-target="input" autofocus/>
+```
+
+Which of a tag's attributes are props is settled when it compiles: a declared
+prop wins, and everything else goes to the bag. Without a `#[prop(rest)]` field
+a component still refuses an attribute it does not name, so a misspelled prop is
+a build failure rather than something rendered into the page.
 
 ```html
 <div>

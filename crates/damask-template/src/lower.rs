@@ -162,8 +162,21 @@ pub fn lower_mapped_with(template: &Template, krate: &str) -> Result<(String, So
     // `{@render …}`-style calls resolve without the author importing the
     // traits.
     e.raw(
-        "#[allow(unused_imports)] use __damask_krate::{Component as _, Render as _, AsyncComponent as _, AsyncRender as _};\n",
+        "#[allow(unused_imports)] use __damask_krate::{Component as _, Render as _, AsyncComponent as _, AsyncRender as _, props::Rest as _};\n",
     );
+    // One fallback trait per attribute name written on a component here, so
+    // that a name the component does not declare as a prop reaches its bag
+    // instead of failing to resolve. See `crate::rest` for why the choice is
+    // left to method resolution rather than made in this pass.
+    for name in crate::rest::fallback_names(&template.nodes) {
+        e.raw(&crate::rest::fallback_trait(&name, krate));
+    }
+    // And the one every attribute that can only go to the bag travels through,
+    // which is there so that a component without a bag fails on the trait bound
+    // — where the message lives — rather than on a missing method.
+    if crate::rest::needs_any_trait(&template.nodes) {
+        e.raw(&crate::rest::any_trait(krate));
+    }
     // The caller's fills, under a name a template may actually write. `<slot>`
     // resolves against them implicitly; this is what lets a template *ask* —
     // whether a slot was filled, and where to put the answer. Shadowable on
@@ -572,6 +585,30 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
         .filter(|a| a.name.as_str().starts_with("class:"))
         .collect();
 
+    // The names this tag writes itself. A `{...}` spread on the same tag skips
+    // them, so the element's own attributes win and the spread fills in the
+    // rest — rather than the tag carrying `type` twice, which is not valid HTML
+    // and which the browser settles by a rule nobody was thinking about.
+    //
+    // Decided here, when the template compiles, so what it costs at run time is
+    // a scan of a list that is usually empty.
+    let taken: Vec<&str> = el
+        .attrs
+        .iter()
+        .map(|a| a.name.as_str())
+        .filter(|name| !name.is_empty())
+        .map(|name| name.strip_prefix("class:").map(|_| "class").unwrap_or(name))
+        .collect();
+    let taken = {
+        let mut seen: Vec<&str> = Vec::new();
+        for name in taken {
+            if !seen.contains(&name) {
+                seen.push(name);
+            }
+        }
+        seen
+    };
+
     for attr in &el.attrs {
         let name = attr.name.as_str();
         if name.starts_with("class:") {
@@ -612,9 +649,11 @@ fn emit_html_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<(), S
             AttrValue::Spread(code) => {
                 require_expr(code.as_str(), "{...} attribute spread")?;
                 flush_raw(&mut raw, e);
-                e.raw("__damask_krate::AttrSpread::write_attrs(&(");
+                let others: Vec<&str> =
+                    taken.iter().copied().filter(|held| *held != name).collect();
+                e.raw("__damask_krate::AttrSpread::write_attrs_except(&(");
                 e.frag(code);
-                e.raw("), &mut *__damask);\n");
+                e.raw(&format!("), &{others:?}, &mut *__damask);\n"));
             }
             AttrValue::Literal(parts) => {
                 raw.push(' ');
@@ -1013,6 +1052,54 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
             continue;
         }
 
+        // A name that could not be a method — everything hyphenated, and every
+        // Rust keyword — has no setter to resolve against and no fallback trait
+        // to route it, so it is written straight to the component's bag. A name
+        // that *could* be a prop falls through to the setter calls below, where
+        // method resolution decides between the two.
+        if !matches!(attr.value, AttrValue::Spread(_))
+            && !crate::rest::could_be_a_prop(attr.name.as_str())
+        {
+            let name = attr.name.as_str();
+            match &attr.value {
+                AttrValue::Expr(code) => {
+                    require_expr(code.as_str(), "attribute value")?;
+                    e.raw(&format!(".__damask_rest_any({name:?}, ("));
+                    e.frag(code);
+                    e.raw("))\n");
+                }
+                AttrValue::Literal(parts) => {
+                    // Static text on both sides stays borrowed; an interpolated
+                    // value is a `String` and reaches the same bag as a value.
+                    match parts.as_slice() {
+                        [AttrPart::Text(_)] => {
+                            e.raw(&format!(".__damask_rest_static_any({name:?}, "));
+                            emit_literal_string(parts, e)?;
+                            e.raw(")\n");
+                        }
+                        _ => {
+                            e.raw(&format!(".__damask_rest_any({name:?}, "));
+                            emit_literal_string(parts, e)?;
+                            e.raw(")\n");
+                        }
+                    }
+                }
+                AttrValue::Boolean => {
+                    e.raw(&format!(".__damask_rest_bare_any({name:?})\n"));
+                }
+                AttrValue::Classes(_) | AttrValue::Data(_) => {
+                    return Err(format!(
+                        "`{name}` is an attribute this component does not name, so it takes a \
+                         value rather than a class list or a data map"
+                    ));
+                }
+                // Unreachable: a spread is excluded by the guard above,
+                // since it carries names rather than one.
+                AttrValue::Spread(_) => unreachable!("a spread has no attribute name"),
+            }
+            continue;
+        }
+
         match &attr.value {
             AttrValue::Expr(code) => {
                 require_expr(code.as_str(), "attribute value")?;
@@ -1074,13 +1161,15 @@ fn emit_component_element(el: &Element, layout: Layout, e: &mut Emit) -> Result<
                     attr.name.as_str()
                 ));
             }
-            // Spreading fills in attributes, and a component has fields. There
-            // is no field name to give the value, so there is nothing to build.
-            AttrValue::Spread(_) => {
-                return Err(
-                    "`{...}` spreads attributes onto an HTML element; a component takes named props"
-                        .into(),
-                );
+            // A spread carries names rather than one, so there is no prop it
+            // could be. It goes to the bag whole, folded in where it was
+            // written — which is how a set assembled in Rust, or forwarded from
+            // an enclosing component, reaches a call site that cannot name it.
+            AttrValue::Spread(code) => {
+                require_expr(code.as_str(), "{...} attribute spread")?;
+                e.raw(".__damask_rest_spread_any(&(");
+                e.frag(code);
+                e.raw("))\n");
             }
         }
     }
@@ -1383,9 +1472,96 @@ mod tests {
     #[test]
     fn attribute_spread() {
         let b = body(r#"<div {...self.extra}></div>"#);
-        assert!(b.contains("::damask::AttrSpread::write_attrs(&(self.extra), &mut *__damask);"));
-        // A component takes named props, so there is nothing to spread onto.
-        assert!(lower(&crate::parse(r#"<Comp {...self.extra}/>"#).unwrap()).is_err());
+        assert!(
+            b.contains(
+                "::damask::AttrSpread::write_attrs_except(&(self.extra), &[], &mut *__damask);"
+            ),
+            "{b}"
+        );
+        // The element's own attributes win, so the spread is told to skip them.
+        let held = body(r#"<input type="text" {...self.extra}>"#);
+        assert!(
+            held.contains(r#"write_attrs_except(&(self.extra), &["type"], &mut *__damask);"#),
+            "{held}"
+        );
+        // A `class:` directive is still `class`, and only names it once.
+        let classes = body(r#"<div class="a" class:b={self.on} {...self.extra}></div>"#);
+        assert!(
+            classes.contains(r#"write_attrs_except(&(self.extra), &["class"], &mut *__damask);"#),
+            "{classes}"
+        );
+        // On a component the same spread is a whole set for its bag, since a
+        // spread carries names rather than one and so can be no single prop.
+        let c = body(r#"<Comp {...self.extra}/>"#);
+        assert!(c.contains(".__damask_rest_spread_any(&(self.extra))"));
+    }
+
+    /// A hyphenated name could never be a method, so it needs no fallback and
+    /// is written to the bag where it stands.
+    #[test]
+    fn an_attribute_a_component_cannot_name_goes_straight_to_its_bag() {
+        let b = body(r#"<Hidden data-cover-target="input"/>"#);
+        assert!(
+            b.contains(r#".__damask_rest_static_any("data-cover-target", "input")"#),
+            "{b}"
+        );
+        assert!(
+            !b.contains("__DamaskRest_data"),
+            "no fallback trait is needed"
+        );
+    }
+
+    /// A keyword is the other name no field can carry, and `type` is the one
+    /// that matters — it is why a control's prop had to be called `kind`.
+    #[test]
+    fn a_keyword_attribute_goes_to_the_bag_too() {
+        let b = body(r#"<TextInput type="email" for={self.id()} async/>"#);
+        assert!(
+            b.contains(r#".__damask_rest_static_any("type", "email")"#),
+            "{b}"
+        );
+        assert!(
+            b.contains(r#".__damask_rest_any("for", (self.id()))"#),
+            "{b}"
+        );
+        assert!(b.contains(r#".__damask_rest_bare_any("async")"#), "{b}");
+    }
+
+    /// An ident-shaped name might be a prop and might not, and this pass cannot
+    /// tell — so it emits the setter call *and* the fallback that catches it.
+    #[test]
+    fn an_ident_shaped_attribute_is_left_to_method_resolution() {
+        let b = body(r#"<TextInput autofocus placeholder="mail" rows={4}/>"#);
+        assert!(b.contains(".autofocus(true)"), "{b}");
+        assert!(
+            b.contains(r#".__damask_literal_placeholder("mail")"#),
+            "{b}"
+        );
+        assert!(b.contains(".rows((4))"), "{b}");
+        for name in ["autofocus", "placeholder", "rows"] {
+            assert!(
+                b.contains(&format!("trait __DamaskRest_{name}")),
+                "{name}: {b}"
+            );
+            assert!(
+                b.contains(&format!(
+                    "impl<__DamaskAny> __DamaskRest_{name} for __DamaskAny"
+                )),
+                "{name}: {b}"
+            );
+        }
+        // An element's attributes are markup and never props, so they bring no
+        // fallback with them.
+        let plain = body(r#"<input placeholder="mail">"#);
+        assert!(!plain.contains("__DamaskRest_placeholder"), "{plain}");
+    }
+
+    /// One trait per name, however many call sites write it — a duplicate
+    /// definition in the same block would not compile.
+    #[test]
+    fn a_name_written_twice_defines_one_fallback() {
+        let b = body(r#"<A gap={1}/><B gap={2}/>"#);
+        assert_eq!(b.matches("trait __DamaskRest_gap").count(), 1, "{b}");
     }
 
     #[test]

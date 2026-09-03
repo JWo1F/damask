@@ -4,6 +4,70 @@ All notable changes to Damask are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/), and the project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.10.0] - 2026-09-03
+
+### Added
+
+- **A component can carry the attributes it does not name.** One field marked
+  `#[prop(rest)]` collects every attribute a call site wrote that is not a prop,
+  and the component's template decides where they land by spreading it:
+
+  ```rust
+  #[derive(Component, Default)]
+  #[component(default)]
+  pub struct Hidden {
+      #[prop(rest)]
+      pub attrs: Attrs,
+  }
+  ```
+
+  ```html
+  <input type="hidden" name={self.name()} {...self.attrs}>   <!-- hidden.dmk -->
+
+  <Hidden data-cover-target="input" aria-hidden="true" autofocus/>
+  ```
+
+  Which of a tag's attributes are props cannot be answered by the template
+  lowering — it runs in a different crate from the component and cannot see its
+  fields — so it does not answer it. It emits the setter call it always emitted
+  *and* a fallback trait of the same name that routes to the bag, and lets
+  **method resolution** choose: an inherent setter, which is a declared prop,
+  wins, and only a name the builder has no setter for falls through. A name that
+  could not be a method at all — everything hyphenated, and every Rust keyword —
+  goes to the bag on sight, which is why `<TextInput type="email"/>` now works
+  even though no field can be called `type`.
+
+  The bag is opt-in, and that is the point: a component without a
+  `#[prop(rest)]` field does not implement `props::Rest`, so an attribute it does
+  not declare is a build failure naming the attribute. A component that accepted
+  everything could not tell a passed-through attribute from a misspelled prop.
+
+  `Attrs` holds name/value pairs, keyed the way `DataSet` is — first position,
+  last value — with `get`, `contains` and `iter` so a component can read what it
+  was given rather than only pass it on. `IntoAttrValue` decides what a value
+  means, and covers the set `Attr` does: a `bool` is a bare attribute or none,
+  an `Option` is nothing when it is `None`.
+
+- **`{...expr}` on a component tag**, which was an error. It is a whole set for
+  the bag, folded in where it was written — the way a wrapper forwards its own
+  attributes to the component inside it. `AttrSet` is what a set is: an `Attrs`,
+  a list of pairs, or an `Option` of either.
+
+- **`examples/attributes`**, which is all of the above running, with the two
+  compile-fail cases as `trybuild` snapshots.
+
+### Changed
+
+- **A spread no longer writes an attribute the tag already writes itself.**
+  `<input type="text" {...self.extra}>` with a `type` in `extra` emits one
+  `type`, from the tag, rather than two — a duplicate attribute is not valid
+  HTML and browsers resolve it by a rule nobody writing the template was
+  thinking about. The skipped names are the literal attribute names in that tag,
+  decided when the template compiles, so it costs a scan of a list that is
+  usually empty. `AttrSpread::write_attrs_except` is the new method; its default
+  ignores the filter, which is the honest answer for a `&'static str` spread that
+  has no names to compare.
+
 ## [0.9.0] - 2026-09-03
 
 ### Changed
@@ -648,7 +712,8 @@ All notable changes to Damask are documented here. The format follows
 Damask is HTML-only: there is no per-language host extension, and `{ … }` always
 HTML-escapes.
 
-[Unreleased]: https://github.com/jwo1f/damask/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/jwo1f/damask/compare/v0.10.0...HEAD
+[0.10.0]: https://github.com/jwo1f/damask/compare/v0.9.0...v0.10.0
 [0.8.1]: https://github.com/jwo1f/damask/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/jwo1f/damask/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/jwo1f/damask/compare/v0.6.0...v0.7.0

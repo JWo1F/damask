@@ -55,7 +55,8 @@ pub mod renderers;
 pub mod trusted;
 
 pub use attr::{
-    Attr, AttrSpread, ClassItem, ClassList, DataItem, DataSet, DataValue, is_attr_name_safe,
+    Attr, AttrSet, AttrSpread, AttrValue, Attrs, ClassItem, ClassList, DataItem, DataSet,
+    DataValue, IntoAttrValue, is_attr_name_safe,
 };
 pub use renderers::{HtmlRenderer, Whitespace};
 pub use trusted::{Content, Sink, ToTrusted, Trusted, Value, splice};
@@ -797,7 +798,10 @@ impl<T: Component + Sync + ?Sized> AsyncComponent for T {
 ///
 /// `Component` here is both the trait and its derive macro.
 pub mod prelude {
-    pub use crate::attr::{Attr, AttrSpread, ClassItem, ClassList, DataItem, DataSet, DataValue};
+    pub use crate::attr::{
+        Attr, AttrSet, AttrSpread, AttrValue, Attrs, ClassItem, ClassList, DataItem, DataSet,
+        DataValue, IntoAttrValue,
+    };
     pub use crate::renderers::{HtmlRenderer, StringRenderer, Whitespace};
     pub use crate::{
         AsyncComponent, AsyncRender, Component, DEFAULT_SLOT, Render, RenderFuture, Renderer, Slot,
